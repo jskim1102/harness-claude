@@ -18,6 +18,7 @@
 #   ./run.sh test-cto <name> "<p>"            # non-interactive smoke test (claude --print)
 #   ./run.sh ls / ports / help                # 조회
 #   ./run.sh down                             # kill all sessions + dev서버/워커 프로세스 정리
+#   ./run.sh stop-cto <name>                  # 한 CTO 정지 (작업 보존, resume 가능)
 #   ./run.sh delete-cto <name>|--all          # CTO 완전 삭제 (세션+프로세스+dir+상태)
 #   ./run.sh fetch <git-url>                  # extract 소스 .sources/ shallow clone
 # observe 는 폐기 — CEO/CTO 터미널 독립 운영.
@@ -648,6 +649,43 @@ cmd_delete_cto() {
     echo "done."
 }
 
+# stop-cto — 한 CTO 만 정지하되 작업은 보존 (resume 가능). delete-cto 와 달리
+# 빌드 dir·specs·sqlite·로그·포트 오프셋을 **유지**한다. 세션 + dev서버/워커
+# 프로세스만 정리. 나중에 `add-cto <dir>/plan.md` 로 기존 specs/tasks.md 에서 재개.
+cmd_stop_cto() {
+    local name="${1:?usage: $0 stop-cto <name>}"
+    if ! [[ "$name" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
+        echo "error: name must be kebab-case." >&2
+        return 1
+    fi
+    if [[ "$name" == "ceo" ]]; then
+        echo "error: 'ceo' is reserved — not a CTO." >&2
+        return 1
+    fi
+    # 빌드 dir 해석 (claude-project/<name> 또는 modules/<name>).
+    local dir="" base
+    for base in claude-project modules; do
+        [[ -d "$REPO/$base/$name" ]] && { dir="$REPO/$base/$name"; break; }
+    done
+
+    echo "Stopping CTO '$name' (작업 보존 — dir/specs/sqlite/포트 유지):"
+    # 1) claude 세션 kill (에이전트 정지)
+    if tmux kill-session -t "cto-$name" 2>/dev/null; then
+        echo "  ✓ killed tmux session cto-$name"
+    else
+        echo "  - tmux session cto-$name not running"
+    fi
+    # 2) CTO 가 띄운 dev 서버/워커 프로세스 정리 (tmux kill 만으론 잔존).
+    if [[ -n "$dir" ]]; then
+        _kill_project_processes "$dir"
+        echo "  ✓ stopped dev/worker processes under ${dir#"$REPO"/}"
+        echo "재개: ./run.sh add-cto ${dir#"$REPO"/}/plan.md"
+    else
+        echo "  - 빌드 dir 미존재 (modules/$name·claude-project/$name) — 프로세스 정리 생략"
+        echo "재개: ./run.sh add-cto <빌드dir>/plan.md"
+    fi
+}
+
 cmd_down() {
     # Kill every session we own: harnessd plus all cto-* (+ legacy ceo/observe
     # leftovers). CEO in the user's foreground shell is NOT killed.
@@ -797,6 +835,7 @@ mental model:
 
 ── 종료/삭제 ──
   ./run.sh down                  # 전 세션 kill + dev서버/워커 프로세스 정리
+  ./run.sh stop-cto <name>       # 한 CTO 정지 (작업 보존 — 세션+프로세스만, dir/specs/포트 유지). 재개: add-cto
   ./run.sh delete-cto <name>     # CTO 완전 삭제 (세션+프로세스+dir+sqlite+로그)
   ./run.sh delete-cto --all
 
@@ -817,6 +856,7 @@ case "${1:-}" in
     ceo)       cmd_ceo ;;
     add-cto)   shift; cmd_add_cto "$@" ;;
     delete-cto) shift; cmd_delete_cto "$@" ;;
+    stop-cto)  shift; cmd_stop_cto "$@" ;;
     ports)     shift; cmd_ports "$@" ;;
     fetch)     shift; cmd_fetch "$@" ;;
     fetch-source) shift; cmd_fetch "$@" ;;   # 구명 호환

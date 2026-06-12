@@ -14,7 +14,7 @@
 - 모듈 완성 표시 = `modules/<name>/specs/USAGE.md` 존재 (없으면 소비 금지, fail-closed). 1단계 Library Check = `modules/*/specs/USAGE.md` 스캔
 - README.md는 사용자 전용 — 시스템 자동 작성 금지 (RULES §1. USAGE.md는 별개)
 - extract 동작: CEO가 understand-anything으로 파일 수준 위치 분석(plan ## 3 기록) → CTO가 추출·통합 ckpt 분해 → developer가 직접 복사·적응. 소스 read-only. git URL 소스는 `./run.sh fetch <url>` 로 `.sources/` shallow clone
-- run.sh: `down`/`delete-cto`는 CTO가 띄운 dev서버·워커 프로세스까지 정리 (tmux kill만으론 잔존 — rtsp 부활 사고 교훈)
+- run.sh: `down`/`stop-cto`/`delete-cto`는 CTO가 띄운 dev서버·워커 프로세스까지 정리 (tmux kill만으론 잔존 — rtsp 부활 사고 교훈). `stop-cto <name>`는 한 CTO만 비파괴 정지(dir/specs/sqlite/포트 보존) → `add-cto`로 재개; `delete-cto`는 dir까지 완전 삭제
 - 빌드 잔재(plan.md, specs/)는 완성 후에도 유지 (이력)
 - DB 스키마 = migration 전용 (RULES §9): 빌드 중 스키마 변경은 ad-hoc DDL 금지, migration 파일로만. 파괴적 변경은 사용자 승인. git_guard 가 raw CLI DDL(ALTER/DROP) 결정론 차단. 사용자는 `./run.sh schema [<name>]` 로 빌드별 테이블·컬럼 현황 조회 (정적 스캔, 읽기전용)
 - /goal 요건: Claude Code v2.1.139+ — 확인 완료 (현재 2.1.173, run.sh CLAUDE_MIN_VERSION 이 스폰 시 강제)
@@ -303,6 +303,7 @@ open-design 참고: 벤더링은 design-systems/ + 스킬 2~3개만(앱/데몬 X
 
 # ── 종료/삭제 ──
 ./run.sh down                # 전 세션 kill + dev서버/워커 프로세스까지 정리
+./run.sh stop-cto <name>     # 한 CTO 정지 (작업 보존 — 세션+프로세스만, dir/specs/포트 유지). 재개 = add-cto
 ./run.sh delete-cto <name>   # 특정 CTO 삭제 (세션+프로세스+dir 잔재)
 ./run.sh delete-cto --all
 

@@ -42,6 +42,7 @@
 ./run.sh attach cto-<name>                    # CTO 화면 접속 (observe 폐기 — 터미널 독립)
 ./run.sh test-cto <name> "<prompt>"           # CTO 비대화형 스모크
 ./run.sh down                                 # 전체 종료 (+dev서버/워커 프로세스 정리)
+./run.sh stop-cto <name>                      # 한 CTO 정지 (작업 보존 — 비파괴, resume = add-cto)
 ```
 
 - **검증 3계층** (plans/harness.md "시스템 점검"):

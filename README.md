@@ -94,12 +94,16 @@ harness status                # CTO 별 현재 ckpt + 진행률
 
 ```bash
 ./run.sh down                 # 전 세션 kill + CTO 가 띄운 dev서버/워커 프로세스 정리
+./run.sh stop-cto <name>      # 한 CTO 만 정지 (작업 보존 — 세션+프로세스만, dir/specs/포트 유지)
 ./run.sh delete-cto <name>    # CTO 완전 삭제 (세션+프로세스+dir+sqlite+로그+포트반환)
 ./run.sh delete-cto --all     # 전체 CTO 삭제 (modules/ 의 완성 모듈은 보호)
 ```
 
 CEO 는 down 으로 안 죽는다 — 사용자 셸이므로 터미널을 닫거나 `/quit`.
 `delete-cto ceo` 는 차단된다 (CEO 디렉토리는 삭제 대상이 아님).
+
+**한 CTO 정지 후 나중에 재개**: `./run.sh stop-cto <name>` (작업·specs·포트 보존) →
+나중에 `./run.sh add-cto <빌드dir>/plan.md` 로 기존 `specs/tasks.md` 진행상태에서 이어감.
 
 ## extract 소스 가져오기
 
