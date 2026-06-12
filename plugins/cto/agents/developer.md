@@ -42,6 +42,9 @@ write review findings.
 3. **Docker prep** — pull base images, author the `Dockerfile`
    (+ `Dockerfile-gpu` when the project uses GPU), author
    `docker-compose.yml`.
+4. **DB migration 셋업 (DB 쓰는 빌드만, RULES §9)** — migration 툴
+   (alembic 등) 초기화 + plan 데이터모델 기준 **첫 migration** 작성.
+   초기 스키마도 raw `CREATE TABLE` 스크립트가 아니라 migration 으로.
 
 **Do NOT start containers.** phase1 is authoring and preparation —
 `docker compose up` happens at phase3 entry, never before.
@@ -64,6 +67,13 @@ surfaces during 게이트2 immediately.
 
 At phase3 entry, start the stack (`docker compose up`). Then work the
 dispatched chain:
+
+**스키마 변경 = migration 전용 (RULES §9).** 빌드 중 DB 스키마를 바꿀 땐
+ad-hoc DDL (raw `ALTER`/`DROP`, ORM `drop_all()`, `sqlite3`/`psql`/`mysql`
+직접 DDL — git_guard 가 차단) 금지. **새 migration 파일**을 작성해 적용한다.
+파괴적 변경(컬럼/테이블 삭제·타입 변경·rename)은 `upgrade` 전에 CTO 경유로
+사용자에게 surface + 승인받는다 (추가는 알림만).
+
 
 1. Claim the first unblocked `[dev]` task with
    `TaskUpdate(owner=developer, status=in_progress)`.

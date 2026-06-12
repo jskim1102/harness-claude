@@ -91,6 +91,10 @@ Every feature gets a stable `[F<n>]` label and exactly one tag. 재료
   dispatch unit (`phaseN.ckptN~phaseM.ckptM`). Never renumber.
 - Task lines nest as checkboxes under their ckpt heading. Progress =
   flipping `[ ]`→`[✅]` in `tasks.md` only — no separate status store.
+- **DB 쓰는 빌드 = migration 전용 (RULES §9)**: phase1 에 migration 툴
+  (alembic 등) 셋업 + plan 데이터모델 → 첫 migration ckpt 를 넣는다. 이후
+  스키마 변경은 ad-hoc DDL 이 아니라 새 migration 파일 task 로 분해. 파괴적
+  변경(drop/alter/rename)은 "사용자 승인 후 upgrade" 를 acceptance 에 박는다.
 
 ## Coverage Check (fail-closed — RULES §7)
 

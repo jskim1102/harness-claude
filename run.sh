@@ -792,6 +792,7 @@ mental model:
 ── 조회 ──
   ./run.sh ls                                      # 세션 목록
   ./run.sh ports                                   # 포트 레지스트리 (docs/PORT.md)
+  ./run.sh schema [<name>]                         # DB 스키마 현황 (테이블·컬럼, 읽기전용)
   ./run.sh help
 
 ── 종료/삭제 ──
@@ -825,6 +826,7 @@ case "${1:-}" in
     attach)    shift; cmd_attach "$@" ;;
     doctor)    cmd_doctor ;;
     smoke)     bash "$REPO/tests/smoke.sh" ;;
+    schema)    shift; python3 "$REPO/harness/schema_scan.py" "$@" ;;
     observe)   echo "observe 는 폐기됨 — CEO/CTO 터미널 독립 운영. ./run.sh attach cto-<name> 사용." >&2; exit 1 ;;
     -h|--help|help) print_usage ;;
     *) echo "unknown command: $1" >&2; print_usage >&2; exit 1 ;;

@@ -10,8 +10,8 @@
 | 프로젝트 | offset | Backend | Frontend | MTX API | MTX HLS | MTX RTSP | PostgreSQL | Redis | MinIO API | MinIO Console | 상태 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | tunnel | 1 | 8001 | 5174 | 9998 | 8889 | 8555 | — | — | — | — | 컨테이너 가동중 |
-| rtsp-streaming | 2 | 8002 | 5175 | 9999 | 8890 | 8556 | — | — | — | — | .env만 |
-| auth-service | 3 | 8003 | 5176 | — | — | — | 5435 | — | — | — | .env만 |
+| rtsp-streaming | 2 | 8002 | 5175 | 9999 | 8890 | 8556 | — | — | — | — | 컨테이너 가동중 |
+| auth-service | 3 | 8003 | 5176 | — | — | — | 5435 | — | — | — | 컨테이너 가동중 |
 
 ## 시스템 예약 (offset 무관, 건드리지 말 것)
 

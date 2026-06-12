@@ -49,7 +49,9 @@ plan.md 읽고 전체 phase/ckpt 트리를 만든다 → `<빌드dir>/specs/spec
 
 **분해 공식 (고정):**
 - phase1 = 환경설정 — 포트(offset→`.env`/`.env.example`/compose)·venv+패키지·
-  Docker pull·Dockerfile(+GPU 프로젝트면 Dockerfile-gpu). **작성·준비만, 컨테이너 실행 X**
+  Docker pull·Dockerfile(+GPU 프로젝트면 Dockerfile-gpu). DB 쓰는 빌드면
+  migration 툴(alembic 등) 셋업 + plan 데이터모델 → **첫 migration** 작성
+  (RULES §9). **작성·준비만, 컨테이너 실행 X**
 - phase2 = 프론트엔드 디자인 — module=단순 / project=화려. **무조건 두 번째**
 - phase3+ = 개발 — 재료(축3) 벤더링/추출 → glue → 백엔드/로직. **compose 기동은 여기부터**
 - 축2=extend 면 기존 트리에 phase append (재번호 금지)
@@ -77,6 +79,9 @@ plan.md 읽고 전체 phase/ckpt 트리를 만든다 → `<빌드dir>/specs/spec
 - **supplied/to-build 태그**: 재료(modules/extract) 기반 기능은
   `[supplied:<출처>]` 필수. supplied 를 from-scratch 재구현 금지.
 - ckpt ID `phaseN.ckptN` 은 **안정적** — segment dispatch 단위, 재번호 금지.
+- **스키마 = migration 전용 (RULES §9)**: 빌드 중 스키마 변경은 ad-hoc DDL
+  금지, migration 파일로만. 파괴적 변경(drop/alter/rename)은 사용자 승인 후
+  적용. git_guard 가 raw CLI DDL 을 결정론 차단.
 
 분해 완료 → 사용자에게 트리 표시. **사용자의 segment 지정 = 분해 승인.**
 

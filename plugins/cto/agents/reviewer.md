@@ -52,9 +52,12 @@ These are your mandatory missions; run them yourself with Bash:
 - **API testing** — hit every endpoint in scope with `curl` and/or
   `pytest`. Status codes, response shapes, auth boundaries, error
   paths. Paste the actual command + output into your report.
-- **DB integrity** — query the database directly with SQL. Row counts,
+- **DB integrity** — query the database directly with **read-only** SQL
+  (SELECT only; no DDL — git_guard blocks it, RULES §9). Row counts,
   foreign-key orphans, constraint coverage, data the API claims to
-  have written. Paste query + result into your report.
+  have written. Paste query + result into your report. Also verify the
+  schema matches the plan data model and that any schema change went
+  through a **migration file** (not ad-hoc DDL) — RULES §9.
 
 A review that skipped these two is not a review.
 

@@ -74,6 +74,9 @@
   명시할 때만. (RULES.md §1)
 - **파괴적 명령**: `rm -rf`, DB `DROP`/`TRUNCATE`, 패키지 설치는 사용자 컨펌 필요.
   (RULES.md §2·§3)
+- **DB 스키마**: ad-hoc DDL(raw `ALTER`/`DROP COLUMN|INDEX`/`DROP TABLE`) 금지 —
+  스키마 변경은 migration 파일로만, 파괴적 변경은 사용자 승인. git_guard 가 raw CLI
+  DDL 차단(alembic 통과). 현황 조회 = `./run.sh schema`. (RULES.md §9)
 - **런타임 생성물**: `claude-project/<cto>/`, `.sources/`, `~/.harness-claude/`,
   `.git/info/exclude`(런타임이 자동 생성) 는 수동 편집 X.
 - **RULES.md / PROCESS.md**: 시스템 동작의 권위 소스. 수정은 신중 + 정합 검증 +

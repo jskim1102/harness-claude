@@ -16,6 +16,7 @@
 - extract 동작: CEO가 understand-anything으로 파일 수준 위치 분석(plan ## 3 기록) → CTO가 추출·통합 ckpt 분해 → developer가 직접 복사·적응. 소스 read-only. git URL 소스는 `./run.sh fetch <url>` 로 `.sources/` shallow clone
 - run.sh: `down`/`delete-cto`는 CTO가 띄운 dev서버·워커 프로세스까지 정리 (tmux kill만으론 잔존 — rtsp 부활 사고 교훈)
 - 빌드 잔재(plan.md, specs/)는 완성 후에도 유지 (이력)
+- DB 스키마 = migration 전용 (RULES §9): 빌드 중 스키마 변경은 ad-hoc DDL 금지, migration 파일로만. 파괴적 변경은 사용자 승인. git_guard 가 raw CLI DDL(ALTER/DROP) 결정론 차단. 사용자는 `./run.sh schema [<name>]` 로 빌드별 테이블·컬럼 현황 조회 (정적 스캔, 읽기전용)
 - /goal 요건: Claude Code v2.1.139+ — 확인 완료 (현재 2.1.173, run.sh CLAUDE_MIN_VERSION 이 스폰 시 강제)
 
 ## 모듈 vs 프로젝트
@@ -298,6 +299,7 @@ open-design 참고: 벤더링은 design-systems/ + 스킬 2~3개만(앱/데몬 X
 
 # ── 조회 ──
 ./run.sh ls / ports / help
+./run.sh schema [<name>]                         # DB 스키마 현황 (테이블·컬럼, 읽기전용)
 
 # ── 종료/삭제 ──
 ./run.sh down                # 전 세션 kill + dev서버/워커 프로세스까지 정리
