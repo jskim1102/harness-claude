@@ -1,0 +1,30 @@
+{
+  "name": "codex-review",
+  "version": "0.1.0",
+  "description": "Cross-model full-codebase review agent for completed harness projects.",
+  "author": {
+    "name": "Harness Claude"
+  },
+  "license": "UNLICENSED",
+  "keywords": [
+    "code-review",
+    "codex",
+    "harness",
+    "cross-model"
+  ],
+  "interface": {
+    "displayName": "Codex Review",
+    "shortDescription": "Runs independent Codex reviews for completed harness projects.",
+    "longDescription": "Invokes the Codex CLI as a GPT-5-family reviewer over a full project tree and its spec, writes a structured report, and sends a triage summary to the CEO.",
+    "developerName": "Harness Claude",
+    "category": "Productivity",
+    "capabilities": [
+      "Code review",
+      "Report generation",
+      "Message bus"
+    ],
+    "defaultPrompt": [
+      "Run a cross-model review for this harness project."
+    ]
+  }
+}
