@@ -51,6 +51,12 @@ Flow details (timeline, segment loop, gates): PROCESS.md — follow it.
 - **`design-html`** only — basic semantic UI, minimal CSS; at most one
   open-design system as reference. No consultation, no variant board,
   no user pick.
+- **extract 모듈** (plan source=extract, 프론트가 `.sources/` 에 있음):
+  phase2 = 소스 프론트 UI **추출** (컴포넌트·훅·페이지를 `From:` 원본에서
+  복사 → styled 토큰·HUD 제거 → 평범한 React). design-html 은 셸/베이스라인
+  에만. 추출 task 가 `[dev]` 로 분해됐으면 developer 와 협업한다 — 어느 쪽이든
+  **프론트는 phase2 에서 완성**되어 게이트2 에 실 UI 레이아웃이 보여야 한다.
+  빈 스캐폴드로 phase2 를 끝내지 마라 (실 UI 는 phase4 로 미루지 않는다).
 
 ## Flexible Skills (your judgment)
 
@@ -90,10 +96,20 @@ The developer sets up the environment. Watch your inbox.
 3. When the HTML/CSS lands in the frontend source, message the
    developer to start the dev server and the CTO that gate 2 is ready.
 
+**RULES §5.3 (무조건)**: vite scaffold 의 `vite.config.*` 는 항상
+`server: { host: true, allowedHosts: true }` 를 포함한다 — dev 서버 `0.0.0.0`
+바인딩 + 외부 도메인/IP 의 Host 헤더 허용. `host: true` 가 빠지면 `npm run dev`
+가 localhost 전용이라 게이트2 **외부 접속 불가** = §5.3 위반. extract 빌드라
+소스 `vite.config` 를 가져올 때도 이 두 키가 있는지 확인하고 없으면 넣는다.
+
 ### Gate 2 — live design loop (user-driven, no cap)
 - The developer starts the dev server — hot-reload, `FRONTEND_PORT`,
-  `0.0.0.0`. **Never Docker compose** — compose starts at phase3;
-  restart-per-edit is too slow for this loop.
+  `0.0.0.0` (RULES §5.3). **Never Docker compose** — compose starts at
+  phase3; restart-per-edit is too slow for this loop. **Message the CTO
+  that the dev server is up** on `FRONTEND_PORT` (`0.0.0.0`, `host:true`);
+  the CTO presents the user the 4-item access info (내부/외부 URL · `ufw allow` ·
+  포워딩) + the "접속해 디자인 시안 확인해주세요" request — 그건 CTO 의 게이트
+  의무다 (네 몫 = dev 서버 떠 있음 + 포트를 CTO 에 보고).
 - The user watches in a browser and says what to change; the CTO
   relays it to you (`harness-relay-qa` for the round-trips).
 - You edit the real source immediately; the user refreshes to check

@@ -31,10 +31,13 @@ CEO, CTO, 그 산하 sub-agent (planner / designer / developer / reviewer)
 ## 2. 파일 시스템 (irreversible)
 
 - 사용자가 명시한 디렉토리 밖 파일 수정/삭제 X
-- 다음 destructive Bash 는 사용자 명시 컨펌 필요:
+- 다음 destructive Bash 는 사용자 명시 컨펌 필요 (git_guard 결정론 차단):
   - `rm -rf`, `find -delete`
   - `dd`, `mkfs`, `wipefs`
   - 데이터베이스 `DROP`, `TRUNCATE`
+  - **`docker volume rm` / `docker volume prune` / `docker compose down -v`(`--volumes`)** —
+    볼륨=데이터 삭제 (06-12 stale volume 사고 + developer 위반 교훈). `docker compose down`(볼륨
+    보존)·`docker rm`(컨테이너) 은 통과. 재배포로 볼륨 삭제 필요 시 사용자 승인 + `HARNESS_USER_OK=fs` 마커.
 
 ## 3. 외부 영향 (network / state)
 
@@ -74,6 +77,14 @@ CEO, CTO, 그 산하 sub-agent (planner / designer / developer / reviewer)
 이 식은 `add-cto` 가 박는 `BACKEND_PORT = 8000 + offset` (= 시작포트 8001 의
 offset−1 보정) 과 같은 규칙이다. CTO 는 자기 `.env` 의 `PORT_OFFSET` 으로
 필요한 다른 서비스 포트를 계산해 추가한다.
+
+**회피 포트 (RESERVED_PORTS)**: 회사망 포트포워딩 예약 등 호스트 인프라가 이미
+잡은 포트는 로컬 포트스캔에 안 보여도 충돌한다 (라우터/방화벽 forward 는 조회
+불가). 이런 포트는 `harness/cli.py` 의 `RESERVED_PORTS` 셋에 등록 → `add-cto`
+(=`harness ports --next`) 가 그 포트로 **파생되는 offset 을 자동으로 건너뛴다**.
+현재 회피셋 = **`5175, 8005`** (2026-06-13 회사망 forward 충돌 — 5175=offset2 frontend,
+8005=offset5 backend → 두 offset 영구 스킵). 새 회피 포트 발견 시 이 셋에 추가하면
+`docs/PORT.md` "시스템 예약" 행도 자동 갱신된다.
 
 **새 서비스 포트는 자동할당 X — 반드시 사용자에게 물어본다.** 이 표에 없는
 종류(kafka, elasticsearch, grafana 등)의 포트가 새로 필요해지면, CTO 가
@@ -168,6 +179,15 @@ localhost 전용 바인딩(`127.0.0.1`) 금지 — 항상 전 인터페이스(`0
 - **docker-compose**: 포트 publish (`${BACKEND_PORT}:...`) 는 호스트 `0.0.0.0`
   노출 (docker 기본값 유지). 컨테이너 안 서버도 `0.0.0.0` 바인딩이어야 외부에서 닿음.
 - 백엔드가 다른 오리진의 프론트를 받으면 CORS 허용 설정도 함께 (프로젝트별).
+
+### 5.4 시크릿·서명키 — 이미지에 굽지 말 것
+
+서명키(JWT private key 등)·시크릿을 Docker 이미지 레이어에 `COPY` 금지. 이미지가
+새면 키 유출 = 토큰 위조. 런타임 주입만:
+- `.dockerignore` 에 `*.pem` / `keys/` / `.env` 등록 (빌드 컨텍스트서 제외).
+- 키/시크릿은 런타임 volume 마운트(`./keys:/app/keys:ro`) 또는 env/secret 으로 주입.
+- 이미지는 secret-free — `docker run <img> find / -name '*.pem'` 에 앱 키 0개여야.
+(2026-06-18 auth-service: Dockerfile `COPY keys/` 로 RS256 private key 가 이미지에 박힘 — 사용자 보안리뷰 적발.)
 
 
 ---
@@ -284,3 +304,42 @@ DB 스키마는 데이터모델 = 가장 비가역적인(one-way door) 설계 �
   차단한다(§2 와 동일 통로). migration(alembic·ORM)은 CLI 를 거치지 않으므로
   통과 — 즉 "ad-hoc DDL 만 막고 정식 migration 은 허용"이 된다. 사용자가
   명시 지시한 경우 `HARNESS_USER_OK=db` 마커로 통과.
+
+## 10. 3rd-party / OAuth 통합 테스트 — 실 provider shape
+
+외부 provider(OAuth, 결제, 메시징 등) 연동 테스트는 **HTTP transport 만 mock**
+하고 provider 의 **실제 request/response shape 를 재현**한다. 경계 함수(예:
+`fetch_userinfo`)를 통째로 정규화된 값으로 교체하면 그 함수 자체 계약이 한 번도
+안 돌아 실 연동 버그가 숨는다.
+- transport(httpx 등)만 mock + real-shape fixture → 우리 정규화/파싱이 실제 실행.
+- callback/webhook 테스트는 provider 가 **실제로 보내는 모양**대로 구동
+  (OAuth: code+state 만·redirect_uri 없음; 에러는 error-in-200 또는 `?error=` redirect).
+- e2e 계약 테스트로 authorize→callback→exchange 전 라운드트립을 실 shape 로.
+(2026-06-18 auth-service: 합성 mock 이 실 provider flow 가려 같은 클래스 버그 4× —
+scope 누락·userinfo 미정규화·callback redirect_uri 필수→422·error-redirect→422.)
+
+## 11. 단회소비 토큰 = atomic consume
+
+단회용 토큰(refresh 회전·비번리셋·OAuth state·one-time code 등)의 검사+소비는
+**단일 atomic 조건부 UPDATE** 로: `UPDATE ... SET used=true WHERE <hash> AND
+used=false AND <not-expired> RETURNING ...`. SELECT→검사→UPDATE 금지 — N 동시
+요청이 다 통과해 한 토큰이 여러 번 소비된다(비번리셋이면 계정탈취).
+- deadlock/serialization(`40P01`/`40001`) retry-once → 그래도 실패면 4xx (500 X).
+- 소비 후 필요한 관련행(예: user)은 **같은 statement(CTE)** 로 가져온다 — 소비
+  커밋 후 별도 SELECT 는 동시부하서 자기 행을 못 봐 `NoResultFound`→500.
+- in-process 테스트(ASGITransport)는 이 race 못 잡음 — cross-connection(별 세션/
+  멀티워커)로 검증.
+(2026-06-18 auth-service: refresh·reset·oauth state/code 에서 3× 재발, reset 은 계정탈취.)
+
+## 12. 하네스 네임스페이스 (teammate ↔ CTO 격리)
+
+teammate(planner/designer/developer/reviewer)의 Bash 와 CTO 의 Bash 는 **네트워크
+네임스페이스가 격리**(teammate 가 바인드한 host 포트는 host/사용자에서 안 보임)되고
+**PID 네임스페이스는 공유**된다.
+- **사용자 대상 서버 기동은 CTO 가** 자기 Bash 에서 — teammate 가 띄운 raw host
+  서버는 사용자가 못 붙는다. (단 `docker compose` publish 포트는 daemon 이 host 에
+  올리므로 teammate 가 띄워도 도달.)
+- **프로세스 종료는 background-task ID 로만.** 광범위 `pkill -f <cmdline>` 금지 —
+  PID ns 공유라 동일 cmdline 의 CTO host 프로세스까지 죽인다.
+(2026-06-18 auth-service: teammate uvicorn host 미도달 + teammate 광범위 pkill 이
+CTO 의 host 서버 종료.)

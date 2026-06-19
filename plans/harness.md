@@ -5,6 +5,7 @@
 # 전체 시스템 특징
 
 - CTO tmux는 현재 phase:ckpt와 사용된 스킬·해당 스킬을 사용한 에이전트를 출력 (`developer ★ test-driven-development` 형식)
+- teammate 표시 = **기본 `teammateMode: in-process`** (lead 1 pane + 하네스 skill pane = 2분할; teammate 출력이 lead pane 에 섞임). 사용자가 teammate 별 분리를 원하면 `./run.sh split-cto <name>` → `teammateMode: auto`(Claude Code 가 planner/designer/developer/reviewer 를 각자 tmux pane 에) 로 전환·재기동. 되돌리기 = `add-cto`(기본 in-process). in-process 가 기본인 이유 = "사용자가 CTO 와만 대화"(Q1) — 분리는 opt-in.
 - CTO 터미널은 항상 `alias claude='claude --dangerously-skip-permissions'`으로 실행
 - CEO/CTO 터미널 창 항상 독립 운영 — observe 폐기
 - codex 리뷰 = 사용자 요청 시만 (`/codex-review <name>`). 자동 트리거 전부 폐기. 메커니즘(.pending 마커 + --consume 위조방지)은 유지
@@ -13,8 +14,8 @@
 - 기존 체계 전면 폐기: greenfield/feature-extract/stock 3분할, modules/INDEX.md, MODULE.md, use-modules.md, autopilot wake-loop·상태파일(autopilot-state/mode-state)
 - 모듈 완성 표시 = `modules/<name>/specs/USAGE.md` 존재 (없으면 소비 금지, fail-closed). 1단계 Library Check = `modules/*/specs/USAGE.md` 스캔
 - README.md는 사용자 전용 — 시스템 자동 작성 금지 (RULES §1. USAGE.md는 별개)
-- extract 동작: CEO가 understand-anything으로 파일 수준 위치 분석(plan ## 3 기록) → CTO가 추출·통합 ckpt 분해 → developer가 직접 복사·적응. 소스 read-only. git URL 소스는 `./run.sh fetch <url>` 로 `.sources/` shallow clone
-- run.sh: `down`/`stop-cto`/`delete-cto`는 CTO가 띄운 dev서버·워커 프로세스까지 정리 (tmux kill만으론 잔존 — rtsp 부활 사고 교훈). `stop-cto <name>`는 한 CTO만 비파괴 정지(dir/specs/sqlite/포트 보존) → `add-cto`로 재개; `delete-cto`는 dir까지 완전 삭제
+- extract 동작: CEO가 understand-anything으로 **파일 수준** 위치 분석(plan ## 3 기록) → CTO/planner가 원본 소스를 **직접 읽어** 라인 수준 추출, task 에 `From: .sources/…:Lx-Ly` 원본 포인터 박음(acceptance = 원본 대비 diff, 기능 재진술 X) → developer가 `From:` 원본 **복사·적응**(산문 재구성 금지). 커버리지 기계검증이 extract ckpt 의 `From:` 부재를 차단(planner가 원본 안 읽고 새로 짜는 것 방지). 소스 read-only. git URL 소스는 `./run.sh fetch <url>` 로 `.sources/` shallow clone
+- run.sh: `down`/`stop-cto`/`delete-cto`는 CTO가 띄운 dev서버·워커 프로세스 **+ docker compose 컨테이너**까지 정리 (tmux kill·pkill 만으론 잔존 — rtsp 부활 사고 교훈: 컨테이너는 docker daemon 자식이라 cmdline/cwd 매치로 안 잡혀 별도 `compose down` + 프로젝트명 스윕 필요. 볼륨/이미지는 보존). `stop-cto <name>`는 한 CTO만 비파괴 정지(dir/specs/sqlite/포트 보존) → `add-cto`로 재개; `delete-cto`는 dir까지 완전 삭제
 - 빌드 잔재(plan.md, specs/)는 완성 후에도 유지 (이력)
 - DB 스키마 = migration 전용 (RULES §9): 빌드 중 스키마 변경은 ad-hoc DDL 금지, migration 파일로만. 파괴적 변경은 사용자 승인. git_guard 가 raw CLI DDL(ALTER/DROP) 결정론 차단. 사용자는 `./run.sh schema [<name>]` 로 빌드별 테이블·컬럼 현황 조회 (정적 스캔, 읽기전용)
 - /goal 요건: Claude Code v2.1.139+ — 확인 완료 (현재 2.1.173, run.sh CLAUDE_MIN_VERSION 이 스폰 시 강제)
@@ -101,7 +102,8 @@
 # 1) CTO 스폰 (새 터미널)
 ./run.sh add-cto claude-project/<name>/plan.md    # 프로젝트 빌드 CTO
 ./run.sh add-cto modules/<name>/plan.md           # 모듈 빌드 CTO
-#   → tmux 세션 cto-<name> 생성, plan.md 읽고 분해 자동 시작
+#   → tmux 세션 cto-<name> 생성. 분해는 자동 시작 안 함 — attach 후 /model·/effort
+#     설정하고 /start-project 로 수동 시작 (모델/effort 선택 window 확보)
 #   → plan.md 없으면 스폰 실패 (1단계 선행 강제)
 #   → harnessd 자동 기동
 
@@ -118,22 +120,22 @@ Ctrl+b → d                        # detach
 ## 2단계 요약
 
 1. CTO : plan.md 읽고 전체 phase/ckpt 트리 구성 → `specs/spec.md` + `specs/tasks.md`
-   (phase1=환경설정, phase2=프론트 디자인, phase3+=개발 — 고정. 축2=extend면 기존 트리 append)
+   (phase1=환경설정, phase2=프론트엔드[디자인·extract 전부], phase3+=백엔드·로직·glue — 고정. 축2=extend면 기존 트리 append)
 2. 사용자 : 트리 보고 segment 지정 — phase1·2도 segment로 실행
 3. CTO : phase1 = 환경설정 — 포트(offset→.env/.env.example/compose)·venv+패키지·Docker pull·Dockerfile(+GPU면 Dockerfile-gpu)
    ※ 작성·준비만, 컨테이너 실행 X
    🤚 사용자: 환경설정 확인 ← **게이트 1**
-4. CTO : phase2 = 프론트 디자인 — 시안 → dev 서버(hot-reload) 기동
+4. CTO : phase2 = 프론트엔드 — **프론트 산출물 전부(디자인이든 extract든)** → dev 서버(hot-reload) 기동
    🤚 사용자: **라이브 디자인 루프** ← **게이트 2**
-   브라우저 접속 → 수정사항 말함 → designer/developer 즉시 수정 → 새로고침 확인 → 반복 → 승인
-5. phase3+ 개발은 3단계로 — **Docker compose 기동은 phase3부터**
+   **CTO 무조건(모든 축)**: dev 서버 `0.0.0.0`(§5.3) → **내/외부 접속 4항목**(내부 URL · 외부 URL · `sudo ufw allow` · 포트포워딩 — **정확 형식 = PROCESS §3 step4**) 제시 + "접속해 시안 확인" 요청 → 브라우저 접속 → 수정 → 새로고침 → 반복 → 승인
+5. phase3+ = 백엔드·로직·glue (3단계) — **phase3 진입 = dev 정지 → FULL compose(backend+frontend+db) 상시 가동, 사용자 언제든 내/외부 접속** (정확 절차·명령 = PROCESS §2/§3)
 
 ## 2단계 특징
 
 - 산출물 2파일 분리: spec.md(기능 상세 — plan ## 4 요점을 펼침) + tasks.md(phase→ckpt 트리, ckpt ID `phaseN.ckptN` = segment dispatch 단위)
-- 분해 공식 고정: phase1=환경설정 → phase2=프론트 디자인 → phase3+=개발
+- 분해 공식 고정 (레이어 기준): phase1=환경설정 → phase2=프론트엔드(디자인+extract 전부) → phase3+=백엔드·로직·glue. extract 면 프론트 추출도 phase2 (게이트2에서 실 UI 보여야 — 빈 스캐폴드 금지)
 - **장치1 — 역참조 커버리지**: 모든 ckpt가 spec 기능라벨(`← F<n>`) 역참조. "모든 Feature ≥1 ckpt" 기계 검증 (fail-closed, 누락 차단)
-- **장치2 — supplied/to-build 태그**: 재료(modules/extract) 기반 기능은 `[supplied:<출처>]` 필수 표기 → 재구현 착각 차단
+- **장치2 — supplied/to-build 태그**: 재료(modules/extract) 기반 기능은 `[supplied:<출처>]` 필수 표기 → 재구현 착각 차단. extract(`.sources/`) 기능은 추가로 task 에 `From:` 원본 포인터 필수(planner가 원본 읽은 증거 — 기계검증 차단, modules 재사용은 USAGE.md 통합이라 면제)
 - 사람 게이트: 사용자가 트리 보고 segment 지정 = 사실상 분해 승인 (별도 리뷰 게이트 없음)
 
 **spec.md / tasks.md 형식:**
@@ -293,16 +295,17 @@ open-design 참고: 벤더링은 design-systems/ + 스킬 2~3개만(앱/데몬 X
 ```bash
 # ── 세션 기동 ──
 ./run.sh ceo                                     # CEO 활성화
-./run.sh add-cto claude-project/<name>/plan.md   # 프로젝트 빌드 CTO
+./run.sh add-cto claude-project/<name>/plan.md   # 프로젝트 빌드 CTO (세션만 — 분해 수동 시작)
 ./run.sh add-cto modules/<name>/plan.md          # 모듈 빌드 CTO
-./run.sh attach cto-<name>                       # tmux attach 동일
+./run.sh attach cto-<name>                       # attach → /model·/effort → /start-project
+./run.sh split-cto <name>                        # teammate 별 tmux pane 분리 (auto, 재기동; 되돌리기=add-cto)
 
 # ── 조회 ──
 ./run.sh ls / ports / help
 ./run.sh schema [<name>]                         # DB 스키마 현황 (테이블·컬럼, 읽기전용)
 
 # ── 종료/삭제 ──
-./run.sh down                # 전 세션 kill + dev서버/워커 프로세스까지 정리
+./run.sh down                # 전 세션 kill + dev서버/워커 프로세스 + docker compose 컨테이너까지 정리
 ./run.sh stop-cto <name>     # 한 CTO 정지 (작업 보존 — 세션+프로세스만, dir/specs/포트 유지). 재개 = add-cto
 ./run.sh delete-cto <name>   # 특정 CTO 삭제 (세션+프로세스+dir 잔재)
 ./run.sh delete-cto --all
@@ -345,14 +348,14 @@ open-design 참고: 벤더링은 design-systems/ + 스킬 2~3개만(앱/데몬 X
 |---|---|---|---|
 | 1 Plan 작성 | CEO ↔ 사용자 | `/build-project`·`/build-module <brief>` → brief 정렬 → 축2·3 확인 → `<빌드dir>/plan.md` 작성 (Library Check 포함) | 🤚 **plan 확정** |
 | 1 Plan 검사 | CEO | 작성된 plan.md 내용/scope/전제 자체 점검 후 CTO로 | ⚙️ **plan 자체 점검** |
-| 2 스폰 | 사용자 | `./run.sh add-cto <빌드dir>/plan.md` → `./run.sh attach cto-<name>` (plan.md 없으면 스폰 실패) | 🤚 **스폰 실행** |
+| 2 스폰 | 사용자 | `./run.sh add-cto <빌드dir>/plan.md` → `attach` → 세션에서 /model·/effort 후 `/start-project` (분해 수동 시작; plan.md 없으면 스폰 실패) | 🤚 **스폰 + 분해 시작** |
 | 2 분해 | CTO | plan.md → `specs/spec.md` + `specs/tasks.md` (phase→ckpt 트리) + 커버리지 기계검증 (fail-closed) | ⚙️ **커버리지 기계검증** |
 | 3 구간지정 | 사용자 | 트리 보고 **`phaseN.ckptN~phaseM.ckptM`** 지정 (= 분해 승인, phase 걸쳐도 됨) | 🤚 **segment 지정 = 분해 승인** |
 | 3 phase1 환경설정 | developer | 포트(`.env`/`.env.example`/compose)·venv+패키지·Docker pull·Dockerfile(+GPU면 Dockerfile-gpu) — **작성·준비만, 컨테이너 실행 X** | 🤖 **자동 진행** |
 | 3 게이트1 | 사용자 | 환경설정 확인 | 🤚 **환경 확인** |
-| 3 phase2 프론트 디자인 | designer | 디자인 시스템 → 시안 → production HTML/CSS (module=단순/project=화려) → dev 서버(hot-reload) 기동 | 🤖 **자동 진행** |
-| 3 게이트2 | 사용자 ↔ designer/developer | **라이브 디자인 루프**: 브라우저 접속 → 수정사항 말함 → 즉시 수정 → 새로고침 확인 → 반복 → 승인 | 🤚 **디자인 승인 (대화 반복)** |
-| 3 phase3+ 빌드 | developer | segment 를 `/goal` autopilot 으로 자동 진행 (조건: 범위 전 ckpt `[x]`+검증 증거, `or stop after N turns`) — **compose 기동 시작** | 🤖 **goal autopilot** |
+| 3 phase2 프론트엔드 | designer | 프론트 산출물 전부 (디자인=시스템→시안→HTML/CSS / extract=소스 UI 추출, module=단순/project=화려) → dev 서버(hot-reload) 기동 | 🤖 **자동 진행** |
+| 3 게이트2 | 사용자 ↔ designer/developer | **CTO 무조건(모든 축)**: dev `0.0.0.0`(§5.3) → **내/외부 접속 4항목**(내부/외부 URL · `ufw allow` · 포워딩 — 정확 형식 PROCESS §3 step4) + "접속해 시안 확인" 요청. **라이브 디자인 루프**: 접속 → 수정 → 새로고침 → 반복 → 승인 (compose 로 미루지 마라) | 🤚 **디자인 승인 (대화 반복)** |
+| 3 phase3+ 빌드 | developer | segment 를 `/goal` autopilot 으로 자동 진행 (조건: 범위 전 ckpt `[x]`+검증 증거, `or stop after N turns`) — **phase3 진입 시 dev 정지 → FULL compose(backend+frontend+db) 상시 가동, 사용자 언제든 내/외부 접속** | 🤖 **goal autopilot** |
 | 3 자체 검증 | CTO → reviewer | 필요 판단 시 reviewer 호출 — API 테스트(curl·pytest)·DB 무결성(SQL)·코드 평가 → 지적 시 수정 → 사용자에 "완료" 보고(증거 포함) | ⚙️ **reviewer 검증** |
 | 3 게이트3 | 사용자 | 웹 브라우저 실사용 테스트 — PASS→다음 segment(구간지정으로 복귀) / FAIL→재작업 | 🤚 **실사용 테스트** |
 | 마감 (module 한정) | CTO | 마지막 segment 통과 후 `specs/USAGE.md` 작성 = 재사용 가능 표시 | ⚙️ **USAGE.md 작성** |

@@ -38,10 +38,11 @@
 
 ```bash
 ./run.sh ceo                                  # CEO 시작 (현재 셸을 claude 로 교체)
-./run.sh add-cto <빌드dir>/plan.md             # CTO 추가 (claude-project/<n>/plan.md | modules/<n>/plan.md)
+./run.sh add-cto <빌드dir>/plan.md             # CTO 추가 (claude-project/<n> | modules/<n>; 세션만 — attach 후 /start-project 수동 시작)
 ./run.sh attach cto-<name>                    # CTO 화면 접속 (observe 폐기 — 터미널 독립)
+./run.sh split-cto <name>                     # teammate 별 tmux pane 분리 (auto, 재기동; 되돌리기=add-cto)
 ./run.sh test-cto <name> "<prompt>"           # CTO 비대화형 스모크
-./run.sh down                                 # 전체 종료 (+dev서버/워커 프로세스 정리)
+./run.sh down                                 # 전체 종료 (+dev서버/워커 프로세스 +docker compose 컨테이너 정리)
 ./run.sh stop-cto <name>                      # 한 CTO 정지 (작업 보존 — 비파괴, resume = add-cto)
 ```
 

@@ -38,8 +38,17 @@ def main():
     missing = []
     if not ROLE_TAG.search(text):
         missing.append("`[role]` tag — one of " + " ".join("[" + r + "]" for r in ROLES))
-    if text.count("|") < 2:
-        missing.append("`| <file paths> | <acceptance>` — both pipe-delimited sections")
+    # pipe 슬롯은 `Run:` 앞에 산다 (`[role] … | <files> | <acceptance>. Run: <cmd>`).
+    # 정확히 2개(3슬롯)여야 한다 — 적으면 슬롯 누락, 많으면 슬롯 본문에 stray `|`
+    # 가 섞여 downstream split 이 깨진다(gotcha #3 결정론화). Run 명령 자체의
+    # pipe(`pytest | tail`)는 구분자가 아니므로 Run: 이후는 세지 않는다.
+    slot_seg = re.split(r"\bRun:", text, maxsplit=1)[0]
+    n_pipes = slot_seg.count("|")
+    if n_pipes != 2:
+        missing.append(
+            "`| <file paths> | <acceptance>` — Run: 앞 슬롯 구간 pipe 정확히 2개 "
+            "(현재 {}); 슬롯 본문의 `|` 는 or/,// 로 교체".format(n_pipes)
+        )
     if not RUN_CMD.search(text):
         missing.append("`Run: <command>` — the verification command")
 

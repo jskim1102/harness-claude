@@ -15,15 +15,15 @@ running this in practice with multiple CTOs sharing one machine.
 
 ## When to spawn
 
-Spawn only on an **explicit signal**. Three paths trigger it:
+Spawn only on an **explicit signal**. Two paths trigger it:
 
-0. **add-cto auto-kickoff** — `run.sh add-cto` 가 스폰 직후 CTO 세션에
-   `/start-project ...` 를 자동 타이핑한다. 이것은 사용자가 add-cto 를
-   실행한 데서 위임된 **허용된 spawn 신호**다 — 추가 확인 없이 진행.
-
-1. **Slash command** — `/start-project <goal>` (preferred). The command
-   body is the canonical spawn prompt and handles team naming, plan
-   approval mode, and the first SendMessage to the planner.
+1. **Slash command** — `/start-project <goal>` (preferred). After
+   `run.sh add-cto` spawns the CTO session it does **NOT** auto-start —
+   it leaves an empty prompt so the user can set `/model`·`/effort`
+   first, then the user types `/start-project` to begin. That manual
+   `/start-project` IS the explicit spawn signal. The command body is
+   the canonical spawn prompt and handles team naming, plan approval
+   mode, and the first SendMessage to the planner.
 
 2. **Natural language** — phrases like "팀 만들어 / 팀 spawn / agent
    team 띄워 / create a team / build me X with agents". Extract the

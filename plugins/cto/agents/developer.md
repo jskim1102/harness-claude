@@ -41,7 +41,10 @@ write review findings.
    confirmation — escalate via the CTO.
 3. **Docker prep** — pull base images, author the `Dockerfile`
    (+ `Dockerfile-gpu` when the project uses GPU), author
-   `docker-compose.yml`.
+   `docker-compose.yml`. **RULES §5.3 (무조건)**: 백엔드 서버는 `--host 0.0.0.0`
+   바인딩 (uvicorn CMD / 코드 어디서 host 를 정하든 `0.0.0.0`, `127.0.0.1` 금지),
+   compose 포트 publish 는 호스트 `0.0.0.0` 노출(docker 기본 유지) + 컨테이너 안
+   서버도 `0.0.0.0` — 외부 네트워크에서 닿아야 한다. (다른 오리진 프론트면 CORS 허용도.)
 4. **DB migration 셋업 (DB 쓰는 빌드만, RULES §9)** — migration 툴
    (alembic 등) 초기화 + plan 데이터모델 기준 **첫 migration** 작성.
    초기 스키마도 raw `CREATE TABLE` 스크립트가 아니라 migration 으로.
@@ -55,18 +58,29 @@ port plan (which variable → which number → what will listen), and file
 existence (`.env`, `.env.example`, Dockerfile, compose). Send that
 evidence to the CTO, who surfaces it as **게이트1** (user gate).
 
-## phase2 — supporting the designer
+## phase2 — frontend (designer-led; you support)
 
-phase2 belongs to the designer. Your job: keep a dev server running
-for the live design loop — hot-reload, bound to `FRONTEND_PORT`, host
-`0.0.0.0` (RULES §5.3). Do not use compose here (a restart per edit
-kills the loop — dev server only). Fix wiring issues the designer
-surfaces during 게이트2 immediately.
+phase2 = the frontend (PROCESS §2 — 프론트 산출물 전부, 디자인이든 extract든).
+The designer leads. Your job: keep a dev server running for the live
+design loop — hot-reload, bound to `FRONTEND_PORT`, host `0.0.0.0`
+(RULES §5.3), and **report the access URL** (`http://<host>:FRONTEND_PORT`)
+to the CTO so it hands it to the user (PROCESS §3 step4 의무 — 모든 축).
+Do not use compose here (a restart per edit kills the loop — dev server
+only). For **extract** builds, frontend-extract `[dev]` tasks may land in
+phase2 — do them so the real UI is viewable at gate2 (never leave phase2
+an empty scaffold; 실 UI 를 phase3+/compose 로 미루지 않는다). Fix wiring
+issues the designer surfaces during 게이트2 immediately.
 
 ## phase3+ — 개발
 
-At phase3 entry, start the stack (`docker compose up`). Then work the
-dispatched chain:
+**phase3 진입 — dev 정지 → FULL compose, 끝까지 유지:**
+① 게이트2 dev 서버(vite/uvicorn) 종료해 `FRONTEND_PORT`/`BACKEND_PORT` 반환
+(안 끄면 compose 와 호스트 포트 충돌 `address already in use`) →
+② **`docker compose up -d --build` (backend + frontend + db 전 서비스)** →
+③ **phase3+ 내내 유지** (segment 사이 `compose down` 금지; 기능·배선 추가 시
+`compose up -d --build <svc>` 무중단 갱신). 사용자 언제든 내/외부 접속 가능해야
+하므로 상시 가동 — 프론트 백엔드 미배선이어도 컨테이너는 떠서 UI 보임.
+Then work the dispatched chain:
 
 **스키마 변경 = migration 전용 (RULES §9).** 빌드 중 DB 스키마를 바꿀 땐
 ad-hoc DDL (raw `ALTER`/`DROP`, ORM `drop_all()`, `sqlite3`/`psql`/`mysql`
@@ -96,9 +110,23 @@ ad-hoc DDL (raw `ALTER`/`DROP`, ORM `drop_all()`, `sqlite3`/`psql`/`mysql`
 8. Self-claim the next unblocked `[dev]` task.
 
 Tasks tagged `[supplied:<source>]` wire vendored/extracted material —
-never reimplement a supplied feature from scratch (RULES §7). If a
-task is blocked on something not ready, mark it `[!]` and `SendMessage`
-the CTO — never idle silently, never route around a `[!]` blocker.
+never reimplement a supplied feature from scratch (RULES §7).
+
+**Extract tasks carry a `From:` pointer** (`From: .sources/<proj>/<file>:Lx-Ly`).
+The source IS the implementation: **open the `From:` file FIRST, copy
+that code into the target, then apply only the adaptation the acceptance
+slot states** (strip the out-of-scope parts, rename, wire). Do NOT
+reconstruct the feature from the prose — the prose is the diff from
+source, not a build spec. Goal = the extracted code alone makes the
+feature work. Verbatim/near-verbatim copy is plumbing → TDD-exempt;
+cover it with a characterization test (test-after, run the copied code
+and assert its existing behavior) rather than a from-scratch failing
+test that would rewrite working source. State the exemption in your
+completion note.
+
+If a task is blocked on something not ready, mark it `[!]` and
+`SendMessage` the CTO — never idle silently, never route around a `[!]`
+blocker.
 
 ### Floating skills (invoke as the situation calls)
 

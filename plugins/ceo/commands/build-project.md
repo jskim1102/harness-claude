@@ -25,6 +25,9 @@ phase/ckpt 분해는 여기서 하지 않는다 (CTO 2단계 몫). codex 호출 
 3. **조건부 고정 (축3 source ≠ scratch — 자동 선택)**:
    - 재료가 코드(modules/ 또는 기존 프로젝트)면 → `understand-anything` 으로 분석.
      extract 면 **"기능이 어느 파일들에 있는지" 파일 수준**까지 파악해 ## 3 에 기록.
+     (라인 수준 코드 추출 — 어느 함수/줄을 복사하고 뭘 떼나 — 은 CTO/planner 몫:
+     planner 가 원본을 직접 읽어 `From:` 포인터로 task 에 박는다. CEO 는 "어느
+     파일에 그 기능이 있나" 까지만.)
    - 외부/시장 조사가 필요하면 → `deep-research`.
    - extract 소스가 git URL 이면 먼저 `./run.sh fetch <url>` 로 `.sources/` 에 받는다.
      소스는 read-only — 절대 수정하지 않는다.
@@ -50,8 +53,9 @@ phase/ckpt 분해는 여기서 하지 않는다 (CTO 2단계 몫). codex 호출 
    ```
    plan 확정: claude-project/<name>/plan.md
    다음 — 새 터미널에서:
-     ./run.sh add-cto claude-project/<name>/plan.md
+     ./run.sh add-cto claude-project/<name>/plan.md     # 세션만 — 분해 자동 시작 X
      ./run.sh attach cto-<name>
+   세션 안에서: /model · /effort 설정 → /start-project (분해 시작)
    ```
 
 ## 유동 스킬 (필요 판단 시)

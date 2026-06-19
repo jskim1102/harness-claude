@@ -54,9 +54,15 @@ code — and when you do ask, state your default: "defaulting to X — override?
 - **phase1 = 환경설정** — 포트(offset→`.env`/`.env.example`/compose) ·
   venv+패키지 · Docker pull · Dockerfile(+GPU 프로젝트면 Dockerfile-gpu).
   **작성·준비만** — 컨테이너 실행 ckpt 를 phase1 에 넣지 않는다.
-- **phase2 = 프론트엔드 디자인** — 무조건 두 번째. module=단순 / project=화려 (축1 이 결정).
-- **phase3+ = 개발** — 재료(축3) 벤더링/추출 → glue → 백엔드/로직.
-  compose 기동은 여기부터.
+- **phase2 = 프론트엔드** — 무조건 두 번째. **프론트 산출물 전부 여기**
+  (디자인이든 extract든; module=단순 / project=화려, 축1 이 결정). extract 면
+  프론트 UI 추출(컴포넌트·훅·페이지)도 phase2 — 게이트2 에서 dev 서버로 실 UI 가
+  보여야 한다. **빈 스캐폴드로 끝내고 실 UI 를 phase3+ 로 미루지 마라.**
+- **phase3+ = 백엔드·로직·glue** — 재료(축3) **백엔드** 벤더링/추출 → glue → API/로직/DB.
+  **phase3 첫 ckpt = (dev 정지 →) FULL `compose up -d`(backend+frontend+db 전 서비스),
+  phase3+ 내내 유지**하도록 분해 (segment 사이 down 금지, `up -d --build <svc>` 무중단 갱신).
+  프론트는 phase2 에 완성·컨테이너화(Dockerfile/compose 서비스 = phase1 준비) 돼 있어야
+  phase3 full compose 가능 — 배선 늦어도 프론트 컨테이너는 phase3 부터 떠 **사용자 상시 접속.**
 - 축2=`extend:<프로젝트>` 면 기존 tasks.md 트리에 phase 를 **append**
   한다 — 기존 phase/ckpt 재번호 금지.
 
@@ -98,16 +104,21 @@ Every feature gets a stable `[F<n>]` label and exactly one tag. 재료
 
 ## Coverage Check (fail-closed — RULES §7)
 
-After decomposition, verify BOTH directions yourself:
+After decomposition, verify ALL directions yourself:
 
 1. Every ckpt heading back-references a spec label (`← F<n>`).
 2. Every spec Feature — **supplied included** — is referenced by ≥1
    ckpt. An unreferenced feature = planned but assigned to nowhere.
+3. Every **extract**-supplied feature (`[supplied:.sources/...]`) has a
+   `From:` source pointer in its ckpt's task block. No `From:` = you
+   decomposed from prose instead of from the source (see Extract below).
 
-Failure = decomposition incomplete: fix the tree — no handoff, no
-segment may start. Report the result to the CTO in your handoff message
-(e.g. "7 features / 12 ckpts — all covered"). The user's segment
-designation is the approval of your decomposition.
+`${CLAUDE_SKILL_DIR}/scripts/scan_spec_coverage.sh specs/` machine-checks
+all three (exit 0 clean / 1 omission·stray·`NO From:`). Failure =
+decomposition incomplete: fix the tree — no handoff, no segment may
+start. Report the result to the CTO in your handoff message (e.g. "7
+features / 12 ckpts — all covered, extract ckpts cite From:"). The
+user's segment designation is the approval of your decomposition.
 
 ## Module Reuse
 
@@ -116,6 +127,35 @@ When plan.md `## 3` (Library Check) designates `reuse:<slug>`, read
 integration ckpts from it. **USAGE.md 존재 = 재사용 가능 모듈** — no
 USAGE.md = mid-build, consumption forbidden (RULES §7); escalate to the
 CTO instead of guessing the module's interface.
+
+## Extract — 원본 읽고 추출 (축3=extract)
+
+When the source is `extract` (plan.md `## 3` names a `.sources/<proj>`
+path), the original code **is the implementation** — your job is to
+locate and copy it, not to redesign it. The CEO points at the feature
+and its source **files** (file-level); **you read those files and pull
+the exact code** (function/line-level). Do this BEFORE authoring tasks:
+
+1. **Open the `.sources/<proj>` files** named in plan.md `## 3` with
+   `Read`/`Grep`. Find the exact functions and line ranges that make up
+   each extract feature, plus what must be stripped (the parts of the
+   file that belong to features this build excludes).
+2. **Author extract tasks that carry `From:`** (harness-task-format):
+   `... | <target> | <adaptation>. From: .sources/<proj>/<file>:Lx-Ly. Run: ...`.
+   The `From:` is the source you just read; the acceptance slot states
+   the **diff from source** (what to strip / rename / wire) — NOT a prose
+   re-description of the feature. The source is the spec.
+3. **Do not generate "how should we implement F?" questions** for extract
+   features. The source already answers HOW — if something is genuinely
+   ambiguous, it is an *adaptation* question (what to keep vs strip),
+   resolved by reading the source, not a design question.
+
+Acceptance criterion for an extract feature = **the extracted code alone
+makes the feature work** (developer verifies by running it), with the
+inference/out-of-scope parts removed. Verbatim copy is verified by a
+characterization test (test-after), not from-scratch TDD — strict TDD
+would rewrite working source (`harness-task-format` precedent; the
+developer owns this call).
 
 ## Build Observation (after handoff)
 

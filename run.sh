@@ -11,13 +11,16 @@
 #
 # Commands (새 체계 — plans/harness.md 정본):
 #   ./run.sh ceo                              # start CEO chat (exec claude here)
-#   ./run.sh add-cto <빌드dir>/plan.md         # spawn one CTO (plan.md 경로가 유일 인자;
+#   ./run.sh add-cto <빌드dir>/plan.md         # spawn one CTO — 세션만 띄움, 분해는
+#                                             # attach 후 /start-project 로 수동 시작
+#                                             # (/model·/effort 먼저); plan.md 경로가 유일 인자;
 #                                             # 부모 dir = 빌드타입(claude-project|modules),
 #                                             # dir 이름 = CTO 이름. plan.md 없으면 실패)
 #   ./run.sh attach cto-<name>                # tmux attach
+#   ./run.sh split-cto <name>                 # teammate 별 tmux pane 분리 (재기동; 되돌리기=add-cto)
 #   ./run.sh test-cto <name> "<p>"            # non-interactive smoke test (claude --print)
 #   ./run.sh ls / ports / help                # 조회
-#   ./run.sh down                             # kill all sessions + dev서버/워커 프로세스 정리
+#   ./run.sh down                             # kill all sessions + dev서버/워커 프로세스 + docker compose 컨테이너 정리
 #   ./run.sh stop-cto <name>                  # 한 CTO 정지 (작업 보존, resume 가능)
 #   ./run.sh delete-cto <name>|--all          # CTO 완전 삭제 (세션+프로세스+dir+상태)
 #   ./run.sh fetch <git-url>                  # extract 소스 .sources/ shallow clone
@@ -35,6 +38,9 @@ export HARNESS_ROOT="$REPO"
 write_role_settings() {
     local target_dir="$1"
     local role="$2"
+    # teammate 표시 모드: in-process(기본 — lead pane 1개 + 하네스 skill pane 2분할)
+    # | auto(Claude Code 가 teammate 를 각자 tmux pane 에 분리 — `split-cto` 가 씀).
+    local teammate_mode="${3:-in-process}"
 
     # Slash commands (both roles).
     rm -rf "$target_dir/.claude/commands"
@@ -90,7 +96,7 @@ write_role_settings() {
   "env": {
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
   },
-  "teammateMode": "in-process",
+  "teammateMode": "$teammate_mode",
   "model": "claude-opus-4-8",
   "effortLevel": "xhigh",
   "statusLine": {
@@ -296,15 +302,40 @@ _ensure_harnessd() {
     fi
 }
 
+# CTO 세션 하단에 6줄 skill-activity tail pane 추가 (idempotent — 'tail' pane 이
+# 이미 있으면 skip). attach/observe 안 거쳐도 ★ 스킬 실행이 보이게 한다.
+# add-cto(기본)·split-cto(팀 분할) 공통 — split 모드에서도 teammate pane 과 별개로
+# "지금 누가 어떤 skill 도는지"를 한 줄 로그로 보여준다.
+_attach_skill_pane() {
+    local name="$1"
+    mkdir -p "$HOME/.harness-claude"
+    touch "$HOME/.harness-claude/skill-activity.log"
+    tmux has-session -t "=cto-$name" 2>/dev/null || return 0
+    if tmux list-panes -t "cto-$name" 2>/dev/null | grep -q 'tail'; then
+        echo "skill-activity pane already present, skipping split"
+        return 0
+    fi
+    local win
+    win=$(tmux list-windows -t "cto-$name" -F '#{window_index}' | head -1)
+    tmux split-window -v -l 6 -t "cto-$name:${win}" \
+      "printf '\\033[1m== skill activity (cto:${name}) ==\\033[0m\\n'; tail -n 20 -F $HOME/.harness-claude/skill-activity.log | grep --line-buffered -E '\\[cto:${name}\\]'"
+    # return focus to the claude pane (top); pane index varies by tmux config
+    tmux select-pane -t "cto-$name:${win}" -U 2>/dev/null || true
+    # Set claude pane title so daemon's _find_by_pane_title('cto:NAME') can match.
+    tmux select-pane -t "cto-$name" -T "cto:$name" 2>/dev/null || true
+}
+
 cmd_add_cto() {
-    # 새 시그니처 (plans/harness.md): 인자 1개 = plan.md 경로.
+    # 시그니처 (plans/harness.md): plan.md 경로 1개.
     #   ./run.sh add-cto claude-project/<name>/plan.md   # 프로젝트 빌드 CTO
     #   ./run.sh add-cto modules/<name>/plan.md          # 모듈 빌드 CTO
+    # 분해는 자동 시작 안 함 — attach 후 /model·/effort 고르고 /start-project 로 시작.
     # 부모 dir 가 빌드타입(축1)·CTO 이름·작업 dir 를 전부 확정한다.
     # plan.md 가 없으면 스폰 실패 (1단계 CEO plan 선행 강제 — fail-closed).
+    # 인자: plan.md 경로 1개 (위치 인자). 플래그 없음.
     local plan_arg="${1:?usage: $0 add-cto <claude-project|modules>/<name>/plan.md}"
     if [[ $# -gt 1 ]]; then
-        echo "error: add-cto 는 인자 1개 (plan.md 경로). 구 --module/--plan 모드는 폐기됨." >&2
+        echo "error: add-cto 는 인자 1개 (plan.md 경로)." >&2
         return 1
     fi
     case "$plan_arg" in
@@ -380,31 +411,15 @@ cmd_add_cto() {
 
     start_session "cto-$name" "$dir" "cto:$name"
 
-    # Auto-kickoff: /start-project 슬래시커맨드를 직접 타이핑 — 팀 spawn 의
-    # 명시 트리거다 (harness-team-spawn "explicit user signal" 충족; add-cto
-    # kickoff = 허용된 spawn 신호로 SKILL.md 에 문서화됨).
-    ( sleep 12 && tmux send-keys -t "cto-$name" \
-        "/start-project plan.md 분해 시작 (build_type=$build_type)" Enter ) &
-    echo "auto-kickoff queued (typed in ~12s) — /start-project, build_type=$build_type"
+    # 분해는 자동 시작하지 않는다 — CTO 세션을 빈 claude 프롬프트로 띄워두고,
+    # 사용자가 attach 후 /model·/effort 를 고른 뒤 직접 /start-project 로 시작한다
+    # (모델/effort 선택 window 확보). /start-project = 팀 spawn 의 명시 사용자
+    # 신호 (harness-team-spawn "When to spawn" path 1). send-keys auto-kickoff 폐기.
+    echo "CTO 세션 대기 중 — 분해 자동 시작 안 함 (build_type=$build_type, 디렉토리가 확정)."
+    echo "  다음: ./run.sh attach cto-$name → 세션 안에서 /model · /effort 설정 → /start-project"
 
-    # Add a 6-line skill-activity tail pane at the bottom of the CTO session
-    # so the ★ shows even when the user attaches directly (not via observe).
-    mkdir -p "$HOME/.harness-claude"
-    touch "$HOME/.harness-claude/skill-activity.log"
-    if tmux has-session -t "=cto-$name" 2>/dev/null; then
-        local win
-        win=$(tmux list-windows -t "cto-$name" -F '#{window_index}' | head -1)
-        if tmux list-panes -t "cto-$name" 2>/dev/null | grep -q 'tail'; then
-            echo "skill-activity pane already present, skipping split"
-        else
-            tmux split-window -v -l 6 -t "cto-$name:${win}" \
-              "printf '\\033[1m== skill activity (cto:${name}) ==\\033[0m\\n'; tail -n 20 -F $HOME/.harness-claude/skill-activity.log | grep --line-buffered -E '\\[cto:${name}\\]'"
-            # return focus to the claude pane (top); pane index varies by tmux config
-            tmux select-pane -t "cto-$name:${win}" -U 2>/dev/null || true
-            # Set claude pane title so daemon's _find_by_pane_title('cto:NAME') can match.
-            tmux select-pane -t "cto-$name" -T "cto:$name" 2>/dev/null || true
-        fi
-    fi
+    # 6줄 skill-activity tail pane 추가 (attach 직접 해도 ★ 가 보이게).
+    _attach_skill_pane "$name"
 
     echo "attach: tmux attach -t cto-$name"
 }
@@ -484,6 +499,48 @@ _kill_project_processes() {
     fi
 }
 
+# Internal: tear down the build's Docker compose stack so containers don't
+# outlive the CTO. _kill_project_processes only catches HOST processes
+# (cmdline/cwd) — compose containers are docker-daemon children, so they
+# survive a tmux kill + pkill (rtsp 부활 사고, 2026-06-12: 삭제된 빌드의
+# frontend/backend/mediamtx 컨테이너가 24h 잔존 → 다음 빌드 포트 점유, 결정 요청).
+# 2단 방어: (1) compose 파일 있으면 `compose down --remove-orphans`,
+# (2) dir 가 이미 삭제돼 compose 파일이 없어도 프로젝트명 패턴으로 잔존 컨테이너 스윕.
+# 볼륨·이미지는 보존 (데이터/캐시 — 비파괴). docker 없으면 no-op.
+_down_compose_stack() {
+    local dir="$1"
+    [[ -z "$dir" ]] && return 0
+    command -v docker >/dev/null 2>&1 || return 0
+    # 안전핀: $REPO 아래 빌드 dir 만 (임의 프로젝트명 docker rm 방지).
+    case "$dir" in
+        "$REPO"/claude-project/*|"$REPO"/modules/*) ;;
+        *) return 0 ;;
+    esac
+    local proj cf="" f
+    proj="$(basename "$dir")"
+    for f in docker-compose.yml docker-compose.yaml compose.yml compose.yaml; do
+        [[ -f "$dir/$f" ]] && { cf="$dir/$f"; break; }
+    done
+    if [[ -n "$cf" ]]; then
+        if timeout 60 docker compose -f "$cf" down --remove-orphans >/dev/null 2>&1; then
+            echo "  ✓ docker compose down ($proj — 컨테이너/네트워크 정리, 볼륨 보존)"
+        else
+            echo "  - docker compose down 스킵/실패 ($proj) — docker 미동작이거나 stack 없음"
+        fi
+    fi
+    # 잔존 스윕: compose 파일이 없어도(dir 삭제됨) 프로젝트명으로 남은 컨테이너 제거.
+    # compose v2=<proj>-<svc>-<n> / v1=<proj>_<svc>_<n>. name 필터는 정규식(^앵커).
+    local leftover
+    leftover="$(timeout 30 docker ps -aq --filter "name=^${proj}[-_]" 2>/dev/null || true)"
+    if [[ -n "$leftover" ]]; then
+        if timeout 60 docker rm -f $leftover >/dev/null 2>&1; then
+            echo "  ✓ removed leftover $proj containers ($(echo "$leftover" | grep -c .)개)"
+        else
+            echo "  - leftover $proj 컨테이너 제거 실패 — 수동 확인 필요"
+        fi
+    fi
+}
+
 # Internal: delete one CTO's traces. Caller already validated name.
 _delete_cto_traces() {
     local name="$1"
@@ -508,6 +565,8 @@ _delete_cto_traces() {
 
     # dev 서버/워커 프로세스부터 정리 — rm 후 프로세스가 dir 를 되살리는 것 방지.
     _kill_project_processes "$dir"
+    # docker compose 컨테이너 정리 — rm 전에 (compose 파일 필요). 잔존 방지.
+    _down_compose_stack "$dir"
 
     if [[ -d "$dir" ]]; then
         rm -rf "$dir" && echo "  ✓ removed $dir"
@@ -678,12 +737,63 @@ cmd_stop_cto() {
     # 2) CTO 가 띄운 dev 서버/워커 프로세스 정리 (tmux kill 만으론 잔존).
     if [[ -n "$dir" ]]; then
         _kill_project_processes "$dir"
-        echo "  ✓ stopped dev/worker processes under ${dir#"$REPO"/}"
+        _down_compose_stack "$dir"
+        echo "  ✓ stopped dev/worker processes + compose stack under ${dir#"$REPO"/}"
         echo "재개: ./run.sh add-cto ${dir#"$REPO"/}/plan.md"
     else
         echo "  - 빌드 dir 미존재 (modules/$name·claude-project/$name) — 프로세스 정리 생략"
         echo "재개: ./run.sh add-cto <빌드dir>/plan.md"
     fi
+}
+
+# split-cto <name> — 한 CTO 를 teammate-별-pane 분리 모드로 전환 + 재기동.
+# 기본(add-cto) = teammateMode in-process (lead 1 pane + 하네스 skill pane = 2분할,
+# teammate 출력이 lead pane 에 섞임). split-cto = teammateMode auto → Claude Code 가
+# planner/designer/developer/reviewer 를 **각자 tmux pane** 에 띄움 → lead pane 은
+# 사용자↔CTO 만. teammateMode 는 세션 시작 시 읽히므로 세션 재기동 필요(작업
+# .env/specs/tasks.md 보존). split 모드에선 하네스 skill pane 안 붙인다(teammate
+# pane 들이 활동을 보여줌; 추가 split 은 레이아웃만 빽빽). 되돌리기 = `add-cto`(기본).
+cmd_split_cto() {
+    local name="${1:?usage: $0 split-cto <name>}"
+    if ! [[ "$name" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
+        echo "error: name must be kebab-case." >&2
+        return 1
+    fi
+    if [[ "$name" == "ceo" ]]; then
+        echo "error: 'ceo' is reserved — not a CTO." >&2
+        return 1
+    fi
+    local dir="" base
+    for base in claude-project modules; do
+        [[ -d "$REPO/$base/$name" ]] && { dir="$REPO/$base/$name"; break; }
+    done
+    if [[ -z "$dir" ]]; then
+        echo "error: 빌드 dir 없음 (claude-project/$name·modules/$name) — 먼저 add-cto." >&2
+        return 1
+    fi
+    if [[ ! -f "$dir/plan.md" ]]; then
+        echo "error: $dir/plan.md 없음 — split-cto 전에 1단계(plan) 필요." >&2
+        return 1
+    fi
+    _check_claude_version || return 1
+    _ensure_harnessd
+
+    echo "Switching CTO '$name' → split-pane teammate mode (auto):"
+    # 1) 기존 세션 정지 (settings.json 은 세션시작에 읽혀 재기동 필요; 작업은 보존)
+    if tmux kill-session -t "cto-$name" 2>/dev/null; then
+        echo "  ✓ stopped session cto-$name (재기동용)"
+        _kill_project_processes "$dir"
+    fi
+    # 2) settings.json 을 auto(split-pane) 로 재작성
+    write_role_settings "$dir" "cto" "auto"
+    echo "  ✓ teammateMode=auto — teammate 가 각자 tmux pane 에"
+    # 3) 세션 재기동 + skill-activity pane (teammate pane 과 별개로 skill 로그도 표시)
+    start_session "cto-$name" "$dir" "cto:$name"
+    _attach_skill_pane "$name"
+    echo "CTO 세션 재기동 — 분해 자동시작 안 함."
+    echo "  다음: ./run.sh attach cto-$name → /model · /effort → /start-project"
+    echo "  → lead pane(너↔CTO) + skill-activity + planner/designer/developer/reviewer 각자 pane."
+    echo "  되돌리기(기본 2분할 in-process): ./run.sh add-cto ${dir#"$REPO"/}/plan.md"
 }
 
 cmd_down() {
@@ -706,6 +816,7 @@ cmd_down() {
         [[ -d "$d" ]] || continue
         [[ "$(basename "$d")" == "ceo" ]] && continue
         _kill_project_processes "${d%/}"
+        _down_compose_stack "${d%/}"
     done
 }
 
@@ -826,6 +937,7 @@ mental model:
       # plan.md 경로가 유일 인자 — 부모 dir=빌드타입, dir명=CTO 이름.
       # plan.md 없으면 스폰 실패 (1단계: CEO 창에서 /build-project | /build-module)
   ./run.sh attach cto-<name>                       # tmux attach 동일
+  ./run.sh split-cto <name>                        # teammate 를 각자 tmux pane 으로 분리 (재기동; 되돌리기=add-cto)
 
 ── 조회 ──
   ./run.sh ls                                      # 세션 목록
@@ -834,9 +946,9 @@ mental model:
   ./run.sh help
 
 ── 종료/삭제 ──
-  ./run.sh down                  # 전 세션 kill + dev서버/워커 프로세스 정리
-  ./run.sh stop-cto <name>       # 한 CTO 정지 (작업 보존 — 세션+프로세스만, dir/specs/포트 유지). 재개: add-cto
-  ./run.sh delete-cto <name>     # CTO 완전 삭제 (세션+프로세스+dir+sqlite+로그)
+  ./run.sh down                  # 전 세션 kill + dev서버/워커 프로세스 + docker compose 컨테이너 정리
+  ./run.sh stop-cto <name>       # 한 CTO 정지 (작업 보존 — 세션+프로세스+compose 컨테이너, dir/specs/포트/볼륨 유지). 재개: add-cto
+  ./run.sh delete-cto <name>     # CTO 완전 삭제 (세션+프로세스+compose 컨테이너+dir+sqlite+로그; 볼륨/이미지 보존)
   ./run.sh delete-cto --all
 
 ── 유틸 ──
@@ -857,6 +969,7 @@ case "${1:-}" in
     add-cto)   shift; cmd_add_cto "$@" ;;
     delete-cto) shift; cmd_delete_cto "$@" ;;
     stop-cto)  shift; cmd_stop_cto "$@" ;;
+    split-cto) shift; cmd_split_cto "$@" ;;
     ports)     shift; cmd_ports "$@" ;;
     fetch)     shift; cmd_fetch "$@" ;;
     fetch-source) shift; cmd_fetch "$@" ;;   # 구명 호환

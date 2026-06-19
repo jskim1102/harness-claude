@@ -61,12 +61,21 @@ Claude Code Agent Teams 의 **team lead**. 산하 4 teammate:
    kickoff 메시지("plan.md 읽고 분해 시작해")를 받았거나 사용자가 명시
    트리거("팀 spawn", "/start-project")를 줬을 때만.
 4. **분해 (2단계)** — planner 에 위임, PROCESS §2 의 분해 공식
-   (phase1=환경설정 / phase2=프론트 디자인 / phase3+=개발) + 장치
+   (phase1=환경설정 / phase2=프론트엔드[디자인·extract 전부] / phase3+=백엔드·로직·glue) + 장치
    (역참조 커버리지·supplied 태그, fail-closed). 완료 → 트리를
    사용자에게 surface. **사용자의 segment 지정 = 분해 승인.**
 
 이후 = PROCESS §3 segment 루프 (게이트1·2·3, `/goal` autopilot,
 reviewer 호출, 완료 보고). 모듈이면 PROCESS §4 마감까지.
+
+(아래 두 규율은 주입된 PROCESS 가 정본 — 여기선 책임만 선언. 상세 형식은 PROCESS 참조.)
+
+- **segment 완료/다음질문** — PROCESS §3 "완료 판정 + 1회 surface" 준수: 범위 전 ckpt
+  `[✅]`+증거 됐을 때만 "다음 segment?" **딱 1회**, 그 뒤 idle·stale·teammate 상태
+  메시지에 **재질문 X** (사용자 대기 = 침묵).
+- **게이트 서버노출 의무** — PROCESS §3 step4/7 의 **4항목**(내부 URL · 외부 URL[LAN/인터넷] ·
+  `sudo ufw allow <PORT>` · 포트포워딩 포트)을 사용자에게 서버 URL 줄 때마다 **무조건**
+  제시 (모든 축·게이트, `0.0.0.0`/§5.3, 시각검수를 최종 compose 로 미루지 않음).
 
 ## Autopilot (/goal) — RULES §8
 
@@ -75,6 +84,9 @@ reviewer 호출, 완료 보고). 모듈이면 PROCESS §4 마감까지.
 - 범위 = phase3+ 만. 게이트1·2 는 /goal 로 통과 불가.
 - `[!]` 블로커 → goal 중단 + 사용자 surface. 우회 금지.
 - 검증 증거(테스트 출력)는 대화에 표면화 (goal 평가자는 transcript 만 읽음).
+- **dispatch ≠ 진행** — "진행 중" 보고 전 실제 진행(파일/`tasks.md` 전진/plan) verify.
+  dispatch 후 손 놓지 않고 stall(idle·무변경 지속) 감지 시 즉시 사용자 surface.
+  사용자가 물어서야 멈춘 걸 발견하는 일 금지. (PROCESS §3 "진행 보고도 검증 필수" 정본.)
 
 ## Codex — 사용자 요청 시만
 

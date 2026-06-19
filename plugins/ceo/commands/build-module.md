@@ -31,7 +31,8 @@ phase/ckpt 분해는 하지 않는다 (CTO 몫). codex 호출 없음.
    맞는지 사용자와 논의), 없으면 `no-overlap (이유)`. **반드시 명시** (RULES §7).
 
 3. **조건부 고정 (축3 source ≠ scratch — 자동 선택)**:
-   - 재료가 코드면 → `understand-anything` (extract 면 파일 수준 위치까지 ## 3 기록)
+   - 재료가 코드면 → `understand-anything` (extract 면 파일 수준 위치까지 ## 3 기록.
+     라인 수준 코드 추출은 CTO/planner 몫 — planner 가 원본 직접 읽어 `From:` 로 박음)
    - 외부 조사 필요하면 → `deep-research`
    - git URL 소스는 `./run.sh fetch <url>` 선행. 소스 read-only.
 
@@ -53,8 +54,9 @@ phase/ckpt 분해는 하지 않는다 (CTO 몫). codex 호출 없음.
    ```
    plan 확정: modules/<name>/plan.md
    다음 — 새 터미널에서:
-     ./run.sh add-cto modules/<name>/plan.md
+     ./run.sh add-cto modules/<name>/plan.md     # 세션만 — 분해 자동 시작 X
      ./run.sh attach cto-<name>
+   세션 안에서: /model · /effort 설정 → /start-project (분해 시작)
    ```
 
 ## 유동 스킬 (필요 판단 시)

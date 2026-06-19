@@ -24,6 +24,8 @@ check "add-cto 인자 2개 거부"        1 ./run.sh add-cto a b
 check "observe 폐기 안내"            1 ./run.sh observe
 check "delete-cto ceo 차단"          1 ./run.sh delete-cto ceo
 check "delete-cto 비실존 우아 처리"   0 ./run.sh delete-cto no-such-cto-zz
+check "split-cto ceo 차단"           1 ./run.sh split-cto ceo
+check "split-cto 비실존 dir 거부"     1 ./run.sh split-cto no-such-build-zz
 mkdir -p /tmp/smoke-badbase/x && touch /tmp/smoke-badbase/x/plan.md
 check "add-cto 잘못된 base 거부"     1 ./run.sh add-cto /tmp/smoke-badbase/x/plan.md
 rm -rf /tmp/smoke-badbase
@@ -76,6 +78,15 @@ printf '# T\n### phase3.ckpt1 x  ← F1\n### phase3.ckpt2 y  ← F2\n' > /tmp/sm
 check "전부 커버 → 0"            0 bash $SC /tmp/smoke-cv/specs/
 printf '# T\n### phase3.ckpt1 x  ← F1, ← F9\n' > /tmp/smoke-cv/specs/tasks.md
 check "누락+stray → 1"           1 bash $SC /tmp/smoke-cv/specs/
+# extract From: 강제 (.sources/ 만 — modules/ 재사용은 면제)
+printf '# S\n## Features\n- [F1] crud [supplied:.sources/x/ipcam.py]\n' > /tmp/smoke-cv/specs/spec.md
+printf '# T\n### phase3.ckpt1 crud  ← F1\n- [ ] [dev] extract | t.py | copy. From: .sources/x/ipcam.py:L1-9. Run: pytest\n' > /tmp/smoke-cv/specs/tasks.md
+check "extract +From: → 0"        0 bash $SC /tmp/smoke-cv/specs/
+printf '# T\n### phase3.ckpt1 crud  ← F1\n- [ ] [dev] build crud | t.py | 전부 구현. Run: pytest\n' > /tmp/smoke-cv/specs/tasks.md
+check "extract -From: → 1"        1 bash $SC /tmp/smoke-cv/specs/
+printf '# S\n## Features\n- [F1] m [supplied:modules/auth]\n' > /tmp/smoke-cv/specs/spec.md
+printf '# T\n### phase3.ckpt1 m  ← F1\n- [ ] [dev] mount | app.py | included. Run: pytest\n' > /tmp/smoke-cv/specs/tasks.md
+check "modules -From: → 0 (면제)"  0 bash $SC /tmp/smoke-cv/specs/
 printf '# S\n## 다른헤딩\n- [F1] a\n' > /tmp/smoke-cv/specs/spec.md
 check "ground-truth 없음 → 1"     1 bash $SC /tmp/smoke-cv/specs/
 rm -rf /tmp/smoke-cv
@@ -96,12 +107,36 @@ gg 2 "git commit -m x"
 gg 2 "git push origin main"
 gg 2 "git init"
 gg 2 "rm -rf src/"
+# argument-aware (리뷰 P1): git -C <path> / -c <val> 가 서브커맨드를 못 가리게
+gg 2 "git -C . commit -m x"
+gg 2 "git -C . reset --hard"
+gg 2 "git -C . checkout -- file.py"
+gg 2 "git -c user.name=x commit -m y"
+# rm 분리/long/대문자 force 변형
+gg 2 "rm -r -f src/"
+gg 2 "rm --recursive --force src/"
+gg 2 "rm -R -f src/"
+# git restore: worktree 복원은 파괴(차단), staged-only 는 안전(통과)
+gg 2 "git restore file.py"
+gg 2 "git restore --staged --worktree file.py"
+gg 0 "git restore --staged ."
+gg 0 "rm -r src/"
 gg 2 "sqlite3 db 'DROP TABLE t'"
 gg 2 "psql -c 'ALTER TABLE users ADD COLUMN x int'"
 gg 2 "sqlite3 db 'DROP INDEX idx_email'"
 gg 0 "alembic upgrade head"
 gg 0 "git status"
 gg 0 "rm -rf /tmp/x"
+gg 2 "docker volume rm rtsp-streaming_ipcam_db"
+gg 2 "docker volume prune -f"
+gg 2 "docker compose down -v"
+gg 2 "docker compose down --volumes"
+gg 2 "docker compose -f x.yml down -v"
+gg 0 "docker compose down"
+gg 0 "$(printf 'docker compose up -d --build\nnote: compose down -v 는 git_guard 가 차단')"
+gg 0 "docker compose -f x/docker-compose.yml down --remove-orphans"
+gg 0 "docker rm -f rtsp-streaming-backend"
+gg 0 "HARNESS_USER_OK=fs docker volume rm x"
 gg 0 "HARNESS_USER_OK=git git commit -m ok"
 check "git_guard 비Bash 무시"     0 bash -c "echo '{\"tool_name\":\"Edit\"}' | python3 $GG"
 check "git_guard 깨진 JSON fail-open" 0 bash -c "echo bad | python3 $GG"
@@ -109,9 +144,12 @@ check "git_guard 깨진 JSON fail-open" 0 bash -c "echo bad | python3 $GG"
 echo "== [7] harness CLI =="
 check "roles"                    0 harness roles
 check "ports --next 숫자"         0 bash -c "harness ports --next | grep -qE '^[0-9]+$'"
+check "ports: RESERVED offset 회피" 0 python3 -c "import sys; sys.path.insert(0,'.'); from harness.cli import _next_free_offset; assert _next_free_offset([{'offset':1},{'offset':3}])==4, 'offset2=5175 회피 실패'; assert _next_free_offset([{'offset':1},{'offset':3},{'offset':4}])==6, 'offset5=8005 회피 실패'"
 check "daemon import"            0 python3 -c "import harness.daemon"
 o=$(grep -c "observe 화면" harness/daemon.py)
 [[ "$o" == "0" ]] && ok "daemon 메시지에 observe 없음" || bad "daemon observe 잔재"
+check "stall: tasks 미완 카운트" 0 python3 -c "import sys; sys.path.insert(0,'.'); from harness.daemon import _parse_tasks_incomplete as f; assert f('- [ ] a\n- [✅] b\n- [!] c\n- [x] d')==2, f('got %d' % f('- [ ] a\n- [✅] b\n- [!] c\n- [x] d'))"
+check "stall: verdict 결정론" 0 python3 -c "import sys; sys.path.insert(0,'.'); from harness.daemon import _stall_verdict as v; assert v(True,False,2,400) is True; assert v(False,False,2,400) is False; assert v(True,True,2,400) is False; assert v(True,False,0,400) is False; assert v(True,False,2,100) is False"
 
 echo
 echo "== smoke: PASS $PASS / FAIL $FAIL =="

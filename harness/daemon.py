@@ -4,7 +4,7 @@ import re
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -27,6 +27,18 @@ BUSY_MARKERS = (
 )
 
 CEO_INBOX_FLAG = HARNESS_HOME / "inbox-ceo.flag"
+
+# Autopilot stall detector (spec: docs/superpowers/specs/2026-06-19-harnessd-stall-detector-design.md).
+# A CTO session is "stalled" when its pane is idle AND no project file changed AND
+# the CTO sent no surface message AND tasks.md still has incomplete items — for
+# STALL_SEC. Busy pane / recent file change / recent outbound msg all reset it, so
+# slow-but-working builds and gate-waits are never flagged. Surface-only to CEO.
+STALL_SEC = 300.0                 # idle+무진행 임계 (5분)
+STALL_SCAN_THROTTLE_SEC = 30.0    # find 진행스캔 최소 간격
+STALL_SCAN_WINDOW_SEC = 60.0      # find -mmin 창 (≥ throttle 라 스캔 사이 변경 안 놓침)
+STALL_BACKOFF_MAX_SEC = 1200.0    # 재알림 backoff 상한 (20분)
+STALL_EXCLUDE_DIRS = (".venv", "node_modules", ".git", "dist", "__pycache__", ".pytest_cache")
+_TASK_INCOMPLETE_RE = re.compile(r"^\s*-\s*\[[ !]\]")
 
 # Module-level state for CEO-less mode warning suppression and pane caching.
 _ceo_warned = False
@@ -372,6 +384,171 @@ def _update_ceo_flag(has_unread: bool) -> None:
         pass
 
 
+def _parse_tasks_incomplete(text: str) -> int:
+    """Count incomplete task lines ('- [ ]' or '- [!]'). Completed '[✅]'/'[x]'
+    excluded. Pure — unit-tested in smoke."""
+    return sum(1 for line in text.splitlines() if _TASK_INCOMPLETE_RE.match(line))
+
+
+def _first_incomplete_line(text: str) -> str:
+    """First '- [ ]'/'- [!]' line (trimmed, capped) for the alert body; '(불명)' if none."""
+    for line in text.splitlines():
+        if _TASK_INCOMPLETE_RE.match(line):
+            return line.strip()[:120]
+    return "(불명)"
+
+
+def _stall_verdict(idle: bool, has_surface: bool, incomplete: int, elapsed: float) -> bool:
+    """Deterministic stall decision from resolved signals. Pure — unit-tested.
+    Stall = pane idle AND no recent surface AND tasks incomplete AND idle ≥ STALL_SEC.
+    (Busy pane / recent file change feed `elapsed` upstream by resetting last_progress.)"""
+    return idle and not has_surface and incomplete > 0 and elapsed >= STALL_SEC
+
+
+def _project_recent_change(cwd: str, log: logging.Logger) -> bool:
+    """True if any project file (excluding heavy dirs) changed within
+    STALL_SCAN_WINDOW_SEC. FAIL-OPEN to True (assume progress) on any error so a
+    broken scan never falsely flags a stall."""
+    if not cwd or cwd == "(unknown)" or cwd.startswith("-") or not os.path.isdir(cwd):
+        return True
+    mins = max(1, int(STALL_SCAN_WINDOW_SEC // 60))
+    names: list[str] = []
+    for d in STALL_EXCLUDE_DIRS:
+        if names:
+            names.append("-o")
+        names += ["-name", d]
+    cmd = (
+        ["find", cwd, "("] + names + [")", "-prune", "-o",
+         "-type", "f", "-mmin", f"-{mins}", "-print", "-quit"]
+    )
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=TMUX_TIMEOUT_SEC)
+    except (OSError, subprocess.TimeoutExpired):
+        log.warning("stall find scan failed/timeout cwd=%s", cwd)
+        return True
+    if r.returncode != 0:
+        return True
+    return bool(r.stdout.strip())
+
+
+def _cto_recent_surface(name: str, cutoff_utc: str) -> bool:
+    """True if cto:<name> sent any message after cutoff (UTC 'YYYY-MM-DD HH:MM:SS').
+    FAIL-OPEN to True (assume surfaced) on error → never falsely flag."""
+    try:
+        with connect() as c:
+            row = c.execute(
+                "SELECT 1 FROM msg WHERE from_role=? AND created > ? LIMIT 1",
+                (f"cto:{name}", cutoff_utc),
+            ).fetchone()
+        return row is not None
+    except Exception:
+        return True
+
+
+def _stall_already_alerted(name: str) -> bool:
+    """Unread stall alert for this cto already in CEO inbox? Dedup guard (survives
+    daemon restarts). FAIL-OPEN to True → never double-insert."""
+    try:
+        with connect() as c:
+            row = c.execute(
+                "SELECT 1 FROM msg WHERE from_role='harnessd' AND to_role='ceo' "
+                "AND read_at IS NULL AND body LIKE ? LIMIT 1",
+                (f"[system] cto:{name} 무진행 의심%",),
+            ).fetchone()
+        return row is not None
+    except Exception:
+        return True
+
+
+def _detect_one_stall(session, now, stall_state, log):
+    name = session[len("cto-"):]
+    st = stall_state.setdefault(
+        session, {"last_progress": now, "last_scan": 0.0, "next_alert": 0.0, "count": 0}
+    )
+
+    cwd = _session_cwd(session)
+    tasks_text = ""
+    if cwd and cwd != "(unknown)":
+        tp = os.path.join(cwd, "specs", "tasks.md")
+        if os.path.isfile(tp):
+            try:
+                tasks_text = Path(tp).read_text(encoding="utf-8")
+            except OSError:
+                tasks_text = ""
+    incomplete = _parse_tasks_incomplete(tasks_text)
+
+    def _reset():
+        st["last_progress"] = now
+        st["count"] = 0
+        st["next_alert"] = 0.0
+
+    # No tasks.md or build complete → no stall possible.
+    if incomplete <= 0:
+        _reset()
+        return
+    # Busy pane = actively working.
+    if not _pane_idle(session):
+        _reset()
+        return
+    # Idle: throttled file-change scan; any recent change = progress.
+    if now - st["last_scan"] >= STALL_SCAN_THROTTLE_SEC:
+        st["last_scan"] = now
+        if _project_recent_change(cwd, log):
+            _reset()
+            return
+
+    elapsed = now - st["last_progress"]
+    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=STALL_SEC)).strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+    has_surface = _cto_recent_surface(name, cutoff)
+    if not _stall_verdict(True, has_surface, incomplete, elapsed):
+        return
+
+    # Stall confirmed — backoff + dedup before surfacing.
+    if now < st["next_alert"]:
+        return
+    next_backoff = min(STALL_SEC * (2 ** st["count"]), STALL_BACKOFF_MAX_SEC)
+    if _stall_already_alerted(name):
+        st["next_alert"] = now + next_backoff  # already unread; don't duplicate
+        return
+
+    body = (
+        f"[system] cto:{name} 무진행 의심\n"
+        f"  {int(elapsed // 60)}분간 pane idle + 파일변경 0 + surface 없음. "
+        f"tasks.md 미완 {incomplete}개.\n"
+        f"  다음 미완: {_first_incomplete_line(tasks_text)}\n"
+        f"  의도된 대기면 무시. 아니면 확인:\n"
+        f"    ./run.sh attach {session}"
+    )
+    try:
+        with connect() as c:
+            c.execute(
+                "INSERT INTO msg (from_role, to_role, body) VALUES ('harnessd', 'ceo', ?)",
+                (body,),
+            )
+    except Exception:
+        log.exception("stall insert failed cto=%s", name)
+        return
+    st["count"] += 1
+    st["next_alert"] = now + next_backoff
+    log.info("stall surfaced: cto=%s elapsed=%.0fs incomplete=%d", name, elapsed, incomplete)
+
+
+def detect_stalls(log: logging.Logger, stall_state: dict) -> None:
+    """Per active CTO session, surface a silent autopilot stall to CEO inbox.
+    FAIL-OPEN per session — any error skips that session, never crashes the daemon."""
+    sessions = _list_cto_sessions()
+    for gone in [s for s in stall_state if s not in sessions]:
+        stall_state.pop(gone, None)
+    now = time.monotonic()
+    for session in sorted(sessions):
+        try:
+            _detect_one_stall(session, now, stall_state, log)
+        except Exception:
+            log.exception("stall check error session=%s", session)
+
+
 def tick(
     log: logging.Logger,
     last_woken: dict[str, float],
@@ -463,11 +640,13 @@ def main() -> None:
     last_woken: dict[str, float] = {}
     last_unread: dict[str, int] = {}
     backoff: dict[str, float] = {}
+    stall_state: dict[str, dict] = {}
     try:
         while True:
             try:
                 discover_ctos(log)
                 reap_stale_cto_notifications(log)
+                detect_stalls(log, stall_state)
                 tick(log, last_woken, last_unread, backoff)
             except Exception:
                 log.exception("tick error")

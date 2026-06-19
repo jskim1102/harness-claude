@@ -9,8 +9,11 @@ RULES.md 는 advisory(모델 신뢰) — 모델이 "지금 커밋하는 게 좋�
 
 차단 카테고리:
   git   — commit / commit --amend / push / tag / reset --hard / rebase /
-          checkout -- / init, gh pr create|merge / gh release
-  fs    — rm -rf(-fr, -r -f 변형 포함) / find -delete / dd of= / mkfs / wipefs
+          checkout -- / restore(worktree 복원) / init, gh pr create|merge / gh release
+          (전역옵션 `-C <path>`·`-c <val>` 가 끼어도 서브커맨드 탐지)
+  fs    — rm -rf(-fr, -r -f 변형 포함) / find -delete / dd of= / mkfs / wipefs /
+          docker volume rm|prune / docker compose down -v|--volumes (볼륨=데이터 삭제;
+          compose down·docker rm 은 통과)
   db    — DROP TABLE|DATABASE / TRUNCATE / WHERE 없는 DELETE FROM /
           ALTER TABLE / DROP COLUMN|INDEX (raw ad-hoc DDL — RULES §9 는
           스키마 변경을 migration 전용으로 강제. alembic/ORM 은 CLI 를
@@ -38,24 +41,49 @@ import sys
 
 OVERRIDE_RE = re.compile(r"\bHARNESS_USER_OK=(\w[\w,-]*)")
 
+# git 전역 옵션(서브커맨드 앞에 오는 것) — 서브커맨드 탐지 전에 소비한다.
+# 값을 받는 -C <path> / -c <name=val> 와 --git-dir=… 류가 끼어도 서브커맨드를
+# 놓치지 않게 한다. (이전 `(-\S+\s+)*` 는 `git -C . commit` 의 `.` 에서 끊겨
+# commit 을 못 봤다 — 리뷰 P1.) 값받는 형(-c/-C)을 일반 -\S+ 보다 먼저 둬서
+# 다음 토큰을 값으로 소비하게 한다.
+_G = (
+    r"(?:\s+(?:-[cC]\s+\S+"
+    r"|--(?:git-dir|work-tree|namespace|exec-path|super-prefix|config-env)(?:=\S+|\s+\S+)"
+    r"|-\S+))*"
+)
+
+# rm 의 recursive·force 플래그를 각각 독립 lookahead 로 본다 (한 토큰 -rf 뿐
+# 아니라 -r -f 분리형, --recursive --force long 형, 대문자 -R 까지). 같은 줄
+# ([^\n|;&] = 연산자·줄 안 넘음) 안에서만 본다.
+_REC = r"(?=[^\n|;&]*\s(?:-\w*[rR]\w*|--recursive)(?:\s|$))"
+_FRC = r"(?=[^\n|;&]*\s(?:-\w*f\w*|--force)(?:\s|$))"
+
 # (category, pattern, human reason)
 RULES = [
     # ── git (RULES §1) ──
-    ("git", r"\bgit\s+(-\S+\s+)*commit\b", "git commit"),
-    ("git", r"\bgit\s+(-\S+\s+)*push\b", "git push"),
-    ("git", r"\bgit\s+(-\S+\s+)*tag\b", "git tag"),
-    ("git", r"\bgit\s+(-\S+\s+)*init\b", "git init"),
-    ("git", r"\bgit\s+(-\S+\s+)*reset\s+--hard\b", "git reset --hard"),
-    ("git", r"\bgit\s+(-\S+\s+)*rebase\b", "git rebase"),
-    ("git", r"\bgit\s+(-\S+\s+)*checkout\s+--\s", "git checkout --"),
+    ("git", r"\bgit" + _G + r"\s+commit\b", "git commit"),
+    ("git", r"\bgit" + _G + r"\s+push\b", "git push"),
+    ("git", r"\bgit" + _G + r"\s+tag\b", "git tag"),
+    ("git", r"\bgit" + _G + r"\s+init\b", "git init"),
+    ("git", r"\bgit" + _G + r"\s+reset\s+--hard\b", "git reset --hard"),
+    ("git", r"\bgit" + _G + r"\s+rebase\b", "git rebase"),
+    ("git", r"\bgit" + _G + r"\s+checkout\s+--\s", "git checkout --"),
     ("git", r"\bgh\s+pr\s+(create|merge)\b", "gh pr create/merge"),
     ("git", r"\bgh\s+release\b", "gh release"),
     # ── fs (RULES §2) ──
-    ("fs", r"\brm\s+(-\w*\s+)*-\w*[rf]\w*[rf]\w*\b", "rm -rf"),
+    ("fs", r"\brm" + _REC + _FRC, "rm -rf"),
     ("fs", r"\bfind\b[^|;&]*-delete\b", "find -delete"),
     ("fs", r"\bdd\s+[^|;&]*\bof=/dev/", "dd of=/dev/*"),
     ("fs", r"\bmkfs\b", "mkfs"),
     ("fs", r"\bwipefs\b", "wipefs"),
+    # docker volume 파괴 (데이터 손실 = §2). 06-12 stale volume 사고 + [26] 위반
+    # (developer 가 CEO 보호 볼륨을 compose down -v 로 삭제 — git_guard 미차단이 원인).
+    # `compose down`(볼륨 보존)·`docker rm`(컨테이너; run.sh _down_compose_stack 사용)은 통과.
+    ("fs", r"\bdocker\s+volume\s+rm\b", "docker volume rm (볼륨 삭제)"),
+    ("fs", r"\bdocker\s+volume\s+prune\b", "docker volume prune"),
+    # 한 줄 안에서만 매칭 ([^|;&\n] = 줄 안 넘음) — descriptive 멀티라인 prose(메시지·
+    # decisions·tasks 에 명령 언급)는 안 걸리고, 실제 1줄 명령만 잡는다.
+    ("fs", r"\bdocker(\s+compose|-compose)\b[^|;&\n]*\bdown\b[^|;&\n]*(\s-v\b|\s--volumes\b)", "docker compose down -v (볼륨 삭제)"),
     # ── db (RULES §2) ──
     ("db", r"\b(sqlite3|psql|mysql)\b[^|;&]*\bDROP\s+(TABLE|DATABASE)\b", "DROP TABLE/DATABASE"),
     ("db", r"\b(sqlite3|psql|mysql)\b[^|;&]*\bTRUNCATE\b", "TRUNCATE"),
@@ -67,6 +95,9 @@ DB_DELETE_RE = re.compile(
     r"\b(sqlite3|psql|mysql)\b[^|;&]*\bDELETE\s+FROM\b(?![^|;&]*\bWHERE\b)",
     re.IGNORECASE,
 )
+# git restore 기본은 worktree 복원(작업본 폐기) = `checkout --` 동급 파괴 (리뷰 P1).
+# '--staged'(-S) 만 있으면 unstage 라 안전; '--worktree'(-W) 포함이면 파괴.
+GIT_RESTORE_RE = re.compile(r"\bgit" + _G + r"\s+restore\b(?P<tail>[^\n|;&]*)", re.IGNORECASE)
 TMP_RM_RE = re.compile(r"\brm\s+(-\w+\s+)*(['\"]?/tmp/|\$TMPDIR)")
 
 
@@ -97,6 +128,15 @@ def main() -> int:
             hits.append((cat, reason))
     if DB_DELETE_RE.search(cmd) and "db" not in overrides:
         hits.append(("db", "DELETE FROM (WHERE 없음)"))
+    for m in GIT_RESTORE_RE.finditer(cmd):
+        tail = m.group("tail")
+        staged = re.search(r"(?:^|\s)(?:--staged|-S)\b", tail)
+        worktree = re.search(r"(?:^|\s)(?:--worktree|-W)\b", tail)
+        if staged and not worktree:
+            continue  # unstage-only — 안전
+        if "git" not in overrides:
+            hits.append(("git", "git restore (worktree 복원 — 작업본 파괴)"))
+        break
 
     if not hits:
         return 0

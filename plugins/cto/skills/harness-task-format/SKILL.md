@@ -48,6 +48,50 @@ worked examples.
 The two tokens are different gates (creation vs. completion) and are
 not interchangeable. Details in `references/bypass-tokens.md`.
 
+## The `From:` token — extract tasks (축3=extract)
+
+When a task builds a feature that is **extracted from source code**
+(`spec.md` tags it `[supplied:.sources/<proj>/...]` — i.e. NOT
+`[supplied:modules/...]`), the task line MUST carry a `From:` pointer
+to the exact source location:
+
+```
+[role] <verb> <what> | <target files> | <adaptation>. From: <source path[:Lx-Ly][, ...]>. Run: <command>
+```
+
+`From:` is a free-text token parallel to `Run:` — the `TaskCreated`
+hook ignores it (it only checks role / ≥2 pipes / `Run:`), so adding it
+is non-breaking. It is the field that makes the developer **copy from
+the original instead of reconstructing from prose**.
+
+Two things change for extract tasks:
+
+1. **`From:`** names the source file(s) and line range(s) the developer
+   opens and copies — taken from the source the planner actually read.
+   The source lives under `.sources/` (read-only clone) so line numbers
+   are stable.
+2. **The acceptance slot states the ADAPTATION, not a re-description.**
+   The source IS the spec; acceptance = the diff from source (what to
+   strip / rename / wire), not a prose restatement of the feature.
+
+```
+❌ [dev] build ipcam CRUD | backend/app/ipcam.py | _register_stream/_remove_stream/list/create/update/delete... 전부 구현. Run: pytest
+   (prose re-description — developer rebuilds from scratch)
+✅ [dev] extract ipcam CRUD | backend/app/ipcam.py | 복사 후 inference(L167-214)·detections import 제거. From: .sources/ai-monitoring/backend/app/ipcam.py:L30-68,L97-154. Run: cd backend && .venv/bin/python -c "from app.ipcam import router"
+```
+
+**Why `[supplied:modules/...]` is exempt:** module reuse integrates a
+finished module through its `USAGE.md` contract (API/mount), not by
+copying raw code — there is no source file to point `From:` at. Only
+extract (raw code copy) needs it.
+
+**Enforcement (fail-closed):**
+`${CLAUDE_SKILL_DIR}/scripts/scan_spec_coverage.sh specs/` checks that
+every ckpt whose `← F<n>` resolves to an extract-supplied feature has at
+least one `From:` token in its task block. A missing `From:` =
+`NO From: <ckpt>` and a nonzero exit = decomposition incomplete, no
+handoff (same gate as the coverage back-ref check).
+
 ## Pre-flight validation
 
 `${CLAUDE_SKILL_DIR}/scripts/validate_task_line.sh` mirrors the hook
@@ -71,7 +115,8 @@ by. Read them before authoring `tasks.md`.
 ### 1. Drop the second pipe and the hook rolls you back, even when acceptance is one word
 
 Dropping the second pipe is the most common rollback we hit. The hook
-counts `|` characters and rolls back at < 2, even if the acceptance
+counts `|` characters in the slot segment (everything before `Run:`) and
+rolls back unless there are **exactly 2**, even if the acceptance
 criterion is one obvious word.
 
 ```
@@ -99,14 +144,15 @@ Stick to the four canonical role names exactly.
 
 ### 3. The pipe character is reserved — do not let it appear inside slot bodies
 
-The hook just counts pipes. It does not parse escape sequences. If
-your `<what>` or `<acceptance>` description contains a literal `|`,
-the hook over-counts and downstream tools that split on `|` to extract
-slots will mis-split.
+The hook counts pipes in the slot segment (before `Run:`) and requires
+**exactly 2**. It does not parse escape sequences. A stray `|` in your
+`<what>` or `<acceptance>` over-counts → rollback (so downstream tools
+that split on `|` never see garbage). The Run command's own pipes
+(`Run: pytest | tail`) are after `Run:` and are not counted.
 
 ```
 ❌ [dev] add OR | AND filter | src/filter.ts | parses A|B|C. Run: npm test
-   (5 pipes — splits into garbage)
+   (5 slot pipes — rolled back)
 ✅ [dev] add OR/AND filter | src/filter.ts | parses A or B or C. Run: npm test
 ```
 
@@ -158,8 +204,8 @@ or merge them into one task. Watch especially for index files
 collisions because every feature touches them.
 
 **Groups nest inside the phase→ckpt tree.** `specs/tasks.md` is a
-markdown heading tree (PROCESS.md §2 — 분해 공식 고정: phase1=환경설정,
-phase2=프론트 디자인, phase3+=개발):
+markdown heading tree (PROCESS.md §2 — 분해 공식 고정, 레이어 기준: phase1=환경설정,
+phase2=프론트엔드[디자인·extract 전부], phase3+=백엔드·로직·glue):
 
 ```
 ## phase3 — 인증

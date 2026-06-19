@@ -56,8 +56,10 @@ pip install -e .          # harness CLI 설치 (run.sh 가 ports/inbox 등에 �
 ./run.sh add-cto modules/<name>/plan.md           # 모듈
 #   plan.md 경로가 유일 인자 — 부모 dir=빌드타입, dir명=CTO 이름.
 #   plan.md 없으면 스폰 실패 (1단계 선행 강제).
+#   분해 자동 시작 안 함 — attach 후 /model·/effort 설정하고 /start-project 로 시작.
 #   CTO 가 자동으로 specs/spec.md + specs/tasks.md (phase→ckpt 트리) 분해.
 ./run.sh attach cto-<name>        # CTO 화면 접속 (detach: Ctrl+B d)
+./run.sh split-cto <name>         # teammate 를 각자 tmux pane 으로 분리 (재기동; 되돌리기=add-cto)
 
 # 3단계 — segment 개발 (CTO 채팅에서)
 #   "phase1.ckpt1 ~ phase2.ckpt2 진행해"        # segment 지정
@@ -93,7 +95,7 @@ harness status                # CTO 별 현재 ckpt + 진행률
 ## 종료 / 삭제
 
 ```bash
-./run.sh down                 # 전 세션 kill + CTO 가 띄운 dev서버/워커 프로세스 정리
+./run.sh down                 # 전 세션 kill + CTO 가 띄운 dev서버/워커 프로세스 + docker compose 컨테이너 정리
 ./run.sh stop-cto <name>      # 한 CTO 만 정지 (작업 보존 — 세션+프로세스만, dir/specs/포트 유지)
 ./run.sh delete-cto <name>    # CTO 완전 삭제 (세션+프로세스+dir+sqlite+로그+포트반환)
 ./run.sh delete-cto --all     # 전체 CTO 삭제 (modules/ 의 완성 모듈은 보호)
