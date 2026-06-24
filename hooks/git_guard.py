@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """PreToolUse(Bash) guard — RULES §1·§2 의 비가역 명령을 결정론으로 차단.
 
-배경 (plans/harness.md "시스템 점검" / docs/LATER.md "Hard rule 결정론 강제"):
+배경 (docs/LATER.md "Hard rule 결정론 강제"):
 CEO/CTO 는 --dangerously-skip-permissions 로 돌아 권한 확인창이 없다.
 RULES.md 는 advisory(모델 신뢰) — 모델이 "지금 커밋하는 게 좋겠다"고
 합리화하면 막을 게 없었다. 이 훅이 Bash 명령을 실행 직전에 가로채
@@ -18,6 +18,12 @@ RULES.md 는 advisory(모델 신뢰) — 모델이 "지금 커밋하는 게 좋�
           ALTER TABLE / DROP COLUMN|INDEX (raw ad-hoc DDL — RULES §9 는
           스키마 변경을 migration 전용으로 강제. alembic/ORM 은 CLI 를
           안 거치므로 통과; sqlite3·psql·mysql 직접 호출만 차단)
+  docker — docker build / docker compose build / `--build` 포함 up /
+          서비스 미지정 bare `up`·`up -d` (전 서비스 = app 컨테이너 기동).
+          RULES §13: 개발·검수는 dev 서버(./dev.sh up)로, compose 는 사용자가
+          "docker화 해" 할 때만. 예외 ② — 이미지 전용 의존 서비스(mediamtx 등)
+          만 띄우는 `up [-d] <service…>`(--build 없음)는 통과 (app 코드는 dev 서버).
+          `compose down`·`docker rm` 은 통과.
 
 사용자 허가 통로 (override):
   사용자가 명시적으로 시킨 작업("커밋해")은 명령 앞에 마커를 붙여 실행:
@@ -37,6 +43,7 @@ fail-open 아님 — 이 훅은 GATE: 매칭되면 exit 2 + stderr 사유 (Claud
 """
 import json
 import re
+import shlex
 import sys
 
 OVERRIDE_RE = re.compile(r"\bHARNESS_USER_OK=(\w[\w,-]*)")
@@ -90,6 +97,8 @@ RULES = [
     # RULES §9 — 스키마 변경은 migration 전용. raw CLI DDL 차단 (alembic/ORM 은 CLI 경유 X → 통과).
     ("db", r"\b(sqlite3|psql|mysql)\b[^|;&]*\bALTER\s+TABLE\b", "ALTER TABLE (ad-hoc DDL — migration 사용)"),
     ("db", r"\b(sqlite3|psql|mysql)\b[^|;&]*\bDROP\s+(COLUMN|INDEX)\b", "DROP COLUMN/INDEX (ad-hoc DDL — migration 사용)"),
+    # ── docker (RULES §13) 는 regex 가 아니라 _docker_hits() 토크나이저로 검사 (아래).
+    #    regex 는 `compose -f x.yml up` 처럼 flag 가 끼면 우회됐다 (감사 #1).
 ]
 DB_DELETE_RE = re.compile(
     r"\b(sqlite3|psql|mysql)\b[^|;&]*\bDELETE\s+FROM\b(?![^|;&]*\bWHERE\b)",
@@ -99,6 +108,46 @@ DB_DELETE_RE = re.compile(
 # '--staged'(-S) 만 있으면 unstage 라 안전; '--worktree'(-W) 포함이면 파괴.
 GIT_RESTORE_RE = re.compile(r"\bgit" + _G + r"\s+restore\b(?P<tail>[^\n|;&]*)", re.IGNORECASE)
 TMP_RM_RE = re.compile(r"\brm\s+(-\w+\s+)*(['\"]?/tmp/|\$TMPDIR)")
+_DOCKER_TOK = ("docker", "docker-compose")
+
+
+def _docker_hits(cmd: str) -> list[str]:
+    """RULES §13 docker 검사 — shlex 토큰 분석 (regex 우회 방지: `-f x.yml`,
+    `--env-file .env` 등 flag 가 compose 와 verb 사이에 끼어도 잡는다).
+      build / compose build           → 차단 (app 이미지 빌드)
+      up + `--build`                  → 차단
+      up + 서비스 미지정(bare/-d)     → 차단 (전 서비스 = app 컨테이너)
+      up + 서비스 명시(--build 없음)  → 통과 (예외 ② mediamtx 등 이미지 전용)
+    명령줄을 shell 연산자(; & | 개행)로 쪼개 segment 별 검사."""
+    out: list[str] = []
+    base = ("개발은 dev 서버(./dev.sh up), compose 는 'docker화 해' 시만 (RULES §13)")
+    for seg in re.split(r"[\n;&|]+", cmd):
+        seg = seg.strip()
+        if not seg:
+            continue
+        try:
+            toks = shlex.split(seg)
+        except ValueError:
+            toks = seg.split()
+        di = next((i for i, t in enumerate(toks)
+                   if t in _DOCKER_TOK or t.endswith("/docker") or t.endswith("/docker-compose")), -1)
+        if di < 0:
+            continue
+        rest = toks[di + 1:]
+        if rest and rest[0] == "compose":
+            rest = rest[1:]
+        if not rest:
+            continue
+        if "build" in rest:
+            out.append(f"docker build/compose build — {base}")
+        elif "up" in rest:
+            after = rest[rest.index("up") + 1:]
+            if "--build" in after:
+                out.append(f"docker compose up --build — {base}")
+            elif not [t for t in after if not t.startswith("-")]:
+                out.append(f"docker compose up (전 서비스 = app 컨테이너) — {base}")
+            # 서비스 명시 → 예외 ② 통과
+    return out
 
 
 def main() -> int:
@@ -137,6 +186,9 @@ def main() -> int:
         if "git" not in overrides:
             hits.append(("git", "git restore (worktree 복원 — 작업본 파괴)"))
         break
+    if "docker" not in overrides:
+        for reason in _docker_hits(cmd):
+            hits.append(("docker", reason))
 
     if not hits:
         return 0

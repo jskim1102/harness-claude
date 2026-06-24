@@ -39,7 +39,7 @@ planner 에게 첫 SendMessage:
 ```
 SendMessage to planner: plan.md (프로젝트 루트) 를 읽고 PROCESS §2 분해를
 실행하라. writing-plans 로 specs/spec.md + specs/tasks.md (phase→ckpt 트리)
-작성. 분해 공식 고정(레이어 기준): phase1=환경설정 / phase2=프론트엔드(디자인·extract 전부 — extract 면 프론트 UI 추출도 phase2, 게이트2 에 실 UI 보여야) / phase3+=백엔드·로직·glue
+작성. 분해 공식 고정(레이어 기준): phase1=환경설정(포트·백엔드 venv·프론트 scaffold+npm·Docker·dev.sh, 실행 X) / phase2=프론트엔드 UI/디자인(scaffold·deps 는 phase1; extract 전부 — extract 면 프론트 UI 추출도 phase2, 게이트2 에 실 UI 보여야) / phase3+=백엔드·로직·glue
 (축2=extend 면 기존 트리 append). 장치: 모든 ckpt 가 spec 라벨(← F<n>) 역참조,
 재료 기반 기능은 [supplied:<출처>] 태그. 완료 시 알려라.
 ```

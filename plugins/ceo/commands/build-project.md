@@ -14,8 +14,8 @@ phase/ckpt 분해는 여기서 하지 않는다 (CTO 2단계 몫). codex 호출 
 
 1. **brainstorming (고정 스킬)** — `<brief>` 를 사용자와 정렬한다. 특히:
    - 축2 (target): `new` | `extend:<기존프로젝트>` — brief 분석으로 추론하고 **사용자 확인**
-   - 축3 (source): `scratch` | `modules:[slug…]` | `extract:[프로젝트/기능…]` | 조합 — 추론 + **사용자 확인**
-   - `<name>` (kebab-case) 도 여기서 확정.
+   - 축3 (source): `scratch` | `modules:[slug…]` | `extract:[프로젝트/기능…]` | 조합(여럿이면 `+` 나열: `modules:[x] + extract:[y/기능]`) — 추론 + **사용자 확인**
+   - `<name>` (kebab-case) — **CEO 가 제안하고 사용자 승인 후 확정** (dir 이름이 되므로 dir 생성 전에).
 
 2. **Library Check (고정 동작, fail-closed)** — `modules/*/specs/USAGE.md` 를
    스캔한다. brief 와 겹치는 모듈이 있으면 `reuse:<slug> (이유)`, 없으면
@@ -28,7 +28,6 @@ phase/ckpt 분해는 여기서 하지 않는다 (CTO 2단계 몫). codex 호출 
      (라인 수준 코드 추출 — 어느 함수/줄을 복사하고 뭘 떼나 — 은 CTO/planner 몫:
      planner 가 원본을 직접 읽어 `From:` 포인터로 task 에 박는다. CEO 는 "어느
      파일에 그 기능이 있나" 까지만.)
-   - 외부/시장 조사가 필요하면 → `deep-research`.
    - extract 소스가 git URL 이면 먼저 `./run.sh fetch <url>` 로 `.sources/` 에 받는다.
      소스는 read-only — 절대 수정하지 않는다.
 
@@ -53,16 +52,25 @@ phase/ckpt 분해는 여기서 하지 않는다 (CTO 2단계 몫). codex 호출 
    ```
    plan 확정: claude-project/<name>/plan.md
    다음 — 새 터미널에서:
-     ./run.sh add-cto claude-project/<name>/plan.md     # 세션만 — 분해 자동 시작 X
+     ./run.sh add-cto <name>                            # 세션만 — 분해 자동 시작 X
      ./run.sh attach cto-<name>
    세션 안에서: /model · /effort 설정 → /start-project (분해 시작)
    ```
 
-## 유동 스킬 (필요 판단 시)
+## 유동 스킬 (사용자 요청 시)
 
-- `office-hours` — 제품 아이디어가 모호하거나 "만들 가치" 검증이 필요할 때
-- `grill-me` — 사용자가 plan 을 더 압박하고 싶을 때
-- `deep-research` — 조건부 외에도 조사가 필요할 때
+- `grill-me` — 사용자가 plan 을 더 압박하고 싶을 때 (user opt-in)
+
+## deep-research (제안 게이트 — 사용자 승인 시만)
+
+CEO 가 자율 실행 X. 외부 사실이 없으면 *지금* 못 닫는 plan 필드
+(Goal / Constraints / 축2·축3)가 있을 때만 사용자에게 **제안**한다 —
+"외부조사(deep-research) 돌릴까요?" → 승인 시에만 실행. 관측 케이스:
+- 규제·표준 산업(의료/금융/결제/개인정보 등) → Constraints
+- 핵심 기능 기술 실현가능성 불명 → Build Type/Goal
+- 외부 의존(3rd-party API/데이터) 존재·제약 → Constraints/축3
+
+미룰 수 있는 미지수는 deep-research 가 아니라 `## 6 Open Questions` 로 (CTO 가 분해 때 조사).
 
 ## Boundaries
 

@@ -104,8 +104,9 @@ The developer sets up the environment. Watch your inbox.
 
 ### Gate 2 — live design loop (user-driven, no cap)
 - The developer starts the dev server — hot-reload, `FRONTEND_PORT`,
-  `0.0.0.0` (RULES §5.3). **Never Docker compose** — compose starts at
-  phase3; restart-per-edit is too slow for this loop. **Message the CTO
+  `0.0.0.0` (RULES §5.3). **Never Docker compose** — phase3+ 도 dev
+  서버(`./dev.sh up`)로 돌린다; docker compose 는 사용자 명시(`docker화 해`)
+  시만 (RULES §13). restart-per-edit 은 이 루프엔 너무 느리다. **Message the CTO
   that the dev server is up** on `FRONTEND_PORT` (`0.0.0.0`, `host:true`);
   the CTO presents the user the 4-item access info (내부/외부 URL · `ufw allow` ·
   포워딩) + the "접속해 디자인 시안 확인해주세요" request — 그건 CTO 의 게이트

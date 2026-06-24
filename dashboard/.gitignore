@@ -1,0 +1,17 @@
+# 재생성물 — 소스(package.json/package-lock.json/requirements.txt)에서 install 로 복원.
+# 커밋 X (repo 비대·OS 종속 바이너리 방지).
+
+# frontend
+frontend/node_modules/
+frontend/dist/
+
+# backend
+backend/.venv/
+**/__pycache__/
+
+# 런타임 산출물
+.env
+.dev.pids
+.dev-logs/
+.dash.pids
+.dash-logs/

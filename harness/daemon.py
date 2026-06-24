@@ -324,7 +324,7 @@ def discover_ctos(log: logging.Logger) -> None:
             f"\n"
             f"보시려면 사용자가 새 터미널에서:\n"
             f"  ./run.sh attach {session}\n"
-            f"(CEO/CTO 터미널 독립 운영 — observe 폐기, plans/harness.md)"
+            f"(CEO/CTO 터미널 독립 운영 — observe 폐기)"
         )
         with connect() as c:
             c.execute(

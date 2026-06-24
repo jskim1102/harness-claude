@@ -16,7 +16,7 @@ from harness.db import connect
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CTO_SEARCH_DIRS = (
     REPO_ROOT / "claude-project",
-    REPO_ROOT / "modules",   # 모듈 빌드 CTO (plans/harness.md)
+    REPO_ROOT / "modules",   # 모듈 빌드 CTO
 )
 HARNESS_HOOK_MARKER = "hooks/session_start.py"  # appears in our settings.json
 
@@ -70,12 +70,13 @@ def _fence_untrusted(body: str) -> str:
 
 
 # Allowlist of valid sender/role syntaxes. A role is the literal 'ceo' or
-# 'harnessd', or a 'cto:'/'codex-review:' prefix followed by a kebab name
+# 'harnessd', or a 'cto:'/'codex-review:'/'codex-protocol-review:' prefix
+# followed by a kebab name
 # (same kebab pattern run.sh enforces for CTO names). Anything else — newlines,
 # control chars, prompt-injection markers — is rejected before it can be stored
 # as from_role and later surfaced into CEO context.
 _ROLE_RE = re.compile(
-    r"^(ceo|cto:[a-z0-9]+(-[a-z0-9]+)*|codex-review:[a-z0-9]+(-[a-z0-9]+)*|harnessd)\Z"
+    r"^(ceo|cto:[a-z0-9]+(-[a-z0-9]+)*|codex-review:[a-z0-9]+(-[a-z0-9]+)*|codex-protocol-review:[a-z0-9]+(-[a-z0-9]+)*|harnessd)\Z"
 )
 # Mirror of daemon.py's _CTO_SESSION_RE — a live tmux session name must be a
 # kebab cto-<name> before we trust it as a CTO. Without this the discover-roles
@@ -96,7 +97,8 @@ def _role(explicit: str | None = None) -> str:
     if not _ROLE_RE.match(role):
         _die(
             f"error: invalid role {role!r}; expected ceo, harnessd, "
-            f"cto:<name>, or codex-review:<name> (kebab name)"
+            f"cto:<name>, codex-review:<name>, or "
+            f"codex-protocol-review:<name> (kebab name)"
         )
     return role
 
@@ -111,7 +113,8 @@ def cmd_send(args: argparse.Namespace) -> int:
     if not _ROLE_RE.match(to_role):
         _die(
             f"error: invalid target role {to_role!r}; expected ceo, harnessd, "
-            f"cto:<name>, or codex-review:<name> (kebab name)"
+            f"cto:<name>, codex-review:<name>, or "
+            f"codex-protocol-review:<name> (kebab name)"
         )
     if args.body_stdin and args.body is not None:
         _die("error: --body and --body-stdin are mutually exclusive")
@@ -317,7 +320,7 @@ _BOX_RE = re.compile(r"^\s*[-*]\s*\[(✅| |x|X|!)\]")
 
 def _current_ckpt(tasks_path: Path) -> dict:
     """첫 미완료 ckpt 헤딩 (체크박스 전부 [x] 가 아닌 첫 ###). 새 체계
-    (plans/harness.md): 상태 = specs/tasks.md 체크박스만, 상태파일 없음."""
+    (PROCESS.md §3): 상태 = specs/tasks.md 체크박스만, 상태파일 없음."""
     out = {"ckpt": None, "title": None, "all_done": False}
     try:
         text = tasks_path.read_text(encoding="utf-8")
@@ -476,11 +479,17 @@ PORT_COLS = [
     ("MTX API", "MEDIAMTX_API_PORT"),
     ("MTX HLS", "MEDIAMTX_HLS_PORT"),
     ("MTX RTSP", "MEDIAMTX_RTSP_PORT"),
+    ("MTX WebRTC", "MEDIAMTX_WEBRTC_PORT"),
+    ("MTX ICE", "MEDIAMTX_ICE_UDP_PORT"),
     ("PostgreSQL", "POSTGRES_PORT"),
     ("Redis", "REDIS_PORT"),
     ("MinIO API", "MINIO_API_PORT"),
     ("MinIO Console", "MINIO_CONSOLE_PORT"),
 ]
+
+# DB engine column ("DB") rendered immediately after this port column.
+DB_ENGINE_AFTER = "POSTGRES_PORT"
+DB_ENGINE_HEADER = "DB"
 
 
 # add-cto 가 자동 할당하는 1차 포트의 base (run.sh: BACKEND=8000+offset, FRONTEND=5173+offset).
@@ -507,6 +516,46 @@ def _read_env_ports(env_path: Path) -> dict[str, str]:
     return out
 
 
+def _detect_db_engine(proj: Path, env: dict[str, str]) -> str:
+    """Best-effort DB engine name for the DB column. Priority: .env DATABASE_URL
+    scheme → postgres env vars → docker-compose image / sqlite mention → sqlite
+    file. Returns '—' when no DB signal (e.g. pre-build or DB-less project)."""
+    def _name(url: str) -> str:
+        u = url.strip().lower()
+        if u.startswith("postgres"):
+            return "PostgreSQL"
+        if u.startswith("sqlite"):
+            return "SQLite"
+        if u.startswith(("mysql", "mariadb")):
+            return "MySQL"
+        if u.startswith("mongodb"):
+            return "MongoDB"
+        return ""
+    n = _name(env.get("DATABASE_URL", ""))
+    if n:
+        return n
+    if env.get("POSTGRES_PORT") or env.get("POSTGRES_DB"):
+        return "PostgreSQL"
+    blob = ""
+    for cf in sorted(proj.glob("docker-compose*.yml")):
+        try:
+            blob += cf.read_text(encoding="utf-8", errors="ignore").lower()
+        except OSError:
+            pass
+    m = re.search(r"image:\s*[\"']?(postgres|mysql|mariadb|mongo)", blob)
+    if m:
+        return {"postgres": "PostgreSQL", "mysql": "MySQL",
+                "mariadb": "MySQL", "mongo": "MongoDB"}[m.group(1)]
+    if "sqlite" in blob:
+        return "SQLite"
+    for depth in ("*.db", "*/*.db", "*/*/*.db", "*.sqlite", "*/*.sqlite",
+                  "*.sqlite3", "*/*.sqlite3"):
+        for f in proj.glob(depth):
+            if ".venv" not in f.parts and "node_modules" not in f.parts:
+                return "SQLite"
+    return "—"
+
+
 def _docker_published_ports() -> set[str]:
     """Host ports published by running containers (best-effort; empty if docker absent)."""
     try:
@@ -517,6 +566,29 @@ def _docker_published_ports() -> set[str]:
     except (OSError, subprocess.TimeoutExpired):
         return set()
     return set(re.findall(r":(\d+)->", r.stdout)) if r.returncode == 0 else set()
+
+
+def _host_listening_ports() -> set[str]:
+    """Host TCP ports in LISTEN state (best-effort; empty if ss absent). Includes
+    docker-proxy listeners, so dev (host-process) ports = host_listening − published."""
+    try:
+        r = subprocess.run(
+            ["ss", "-ltnH"],
+            capture_output=True, text=True, timeout=4,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return set()
+    if r.returncode != 0:
+        return set()
+    out: set[str] = set()
+    for line in r.stdout.splitlines():
+        cols = line.split()
+        if len(cols) < 4:
+            continue
+        m = re.search(r":(\d+)$", cols[3])  # 0.0.0.0:8001 / [::]:8001 / *:8001
+        if m:
+            out.add(m.group(1))
+    return out
 
 
 def _live_cto_sessions() -> set[str]:
@@ -555,7 +627,10 @@ def _scan_port_projects() -> list[dict]:
             if not be.isdigit():
                 continue
             seen.add(child.name)
-            found.append({"name": child.name, "offset": int(be) - 8000, "ports": ports})
+            found.append({
+                "name": child.name, "offset": int(be) - 8000,
+                "ports": ports, "db": _detect_db_engine(child, ports),
+            })
     found.sort(key=lambda r: (r["offset"], r["name"]))
     return found
 
@@ -598,25 +673,37 @@ def _md_table(header: list[str], rows: list[list[str]]) -> list[str]:
 
 def _render_ports_md(projects: list[dict]) -> str:
     pub = _docker_published_ports()
+    host = _host_listening_ports()
     live_ctos = _live_cto_sessions()
-    header = ["프로젝트", "offset", "CTO세션"] + [c[0] for c in PORT_COLS] + ["상태"]
+    header = ["프로젝트/모듈", "offset", "CTO세션"]
+    for _label, var in PORT_COLS:
+        header.append(_label)
+        if var == DB_ENGINE_AFTER:
+            header.append(DB_ENGINE_HEADER)
+    header.append("상태")
     rows = []
     for pj in projects:
         ports = pj["ports"]
         declared = up = 0
-        cto = "✅ 활성" if pj["name"] in live_ctos else "✋ 없음"
+        cto = "✅ 활성" if pj["name"] in live_ctos else "✋ 비활성"
         cells = [pj["name"], str(pj["offset"]), cto]
         for _label, var in PORT_COLS:
             v = ports.get(var, "")
             if not v:
                 cells.append("—")
-                continue
-            declared += 1
-            if v in pub:
-                up += 1
-                cells.append(f"{v} ✅")
             else:
-                cells.append(f"{v} ✋")
+                declared += 1
+                if v in pub:
+                    up += 1
+                    cells.append(f"{v} 🐳")
+                elif var in ("BACKEND_PORT", "FRONTEND_PORT") and v in host:
+                    # host - pub = dev.sh (호스트 프로세스); app 컬럼만 dev 개념 존재
+                    up += 1
+                    cells.append(f"{v} 💻")
+                else:
+                    cells.append(f"{v} ✋")
+            if var == DB_ENGINE_AFTER:
+                cells.append(pj.get("db") or "—")
         if declared == 0:
             cells.append(".env만")
         elif up == declared:
@@ -627,6 +714,8 @@ def _render_ports_md(projects: list[dict]) -> str:
             down = [
                 ports[var] for _l, var in PORT_COLS
                 if ports.get(var) and ports[var] not in pub
+                and not (var in ("BACKEND_PORT", "FRONTEND_PORT")
+                         and ports[var] in host)
             ]
             cells.append(f"⚠ {up}/{declared} (down: {', '.join(down)})")
         rows.append(cells)
@@ -637,6 +726,8 @@ def _render_ports_md(projects: list[dict]) -> str:
         "> 의 `.env` 를 스캔해 재생성한다. **직접 편집 금지** (재생성 시 덮어씀).",
         "> 진실원천 = 각 프로젝트 `.env`. offset = `BACKEND_PORT − 8000`.",
         "> MinIO 등 `.env` 에 없는 포트(docker-compose 하드코딩)는 `—` 로 나온다.",
+        "> `DB` = DB 엔진 탐지 (.env DATABASE_URL/POSTGRES → docker-compose 이미지/sqlite → sqlite 파일).",
+        "> 🐳 docker · 💻 dev.sh(backend/frontend) · ✋ down",
         "",
         "## 현황",
         "",
@@ -650,6 +741,7 @@ def _render_ports_md(projects: list[dict]) -> str:
                 ["시스템 PostgreSQL", "5432", "localhost only"],
                 ["SSH", "8164", "—"],
                 ["회사망 forward (회피)", "5175, 8005", "라우터 포트포워딩 예약 — add-cto 가 파생 offset 자동 회피"],
+                ["harness-dashboard", "8165, 8166", "웹 관리 콘솔(읽기전용 v1, dashboard/) — 외부노출은 frontend 8166 만"],
             ],
         ),
         "",

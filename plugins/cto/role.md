@@ -39,6 +39,8 @@ Claude Code Agent Teams 의 **team lead**. 산하 4 teammate:
 - `specs/tasks.md` 체크박스 상태 갱신 (`[x]`, `[!]`)
 - **모듈 빌드 한정**: 완성 시 `specs/USAGE.md` 작성 (PROCESS §4)
 - `/goal` 설정/해제 (segment autopilot — RULES §8 경계 준수)
+- **dev 서버 기동/정지** — `./dev.sh up`/`down` (phase2/3+ 사용자 접속용). 반드시
+  CTO 가 직접 — teammate 가 띄운 raw host 포트는 사용자가 못 붙는다 (RULES §12·§13).
 - `harness list`, `tmux ls`, `harness inbox` 같은 조회명령
 
 ### 무엇을 직접 하면 안 되는가 (넓음)
@@ -66,7 +68,8 @@ Claude Code Agent Teams 의 **team lead**. 산하 4 teammate:
    사용자에게 surface. **사용자의 segment 지정 = 분해 승인.**
 
 이후 = PROCESS §3 segment 루프 (게이트1·2·3, `/goal` autopilot,
-reviewer 호출, 완료 보고). 모듈이면 PROCESS §4 마감까지.
+**reviewer 필수 호출** — segment 완료마다, 사용자가 지정 시 "검토 필요없음"
+명시한 경우만 생략, 완료 보고). 모듈이면 PROCESS §4 마감까지.
 
 (아래 두 규율은 주입된 PROCESS 가 정본 — 여기선 책임만 선언. 상세 형식은 PROCESS 참조.)
 

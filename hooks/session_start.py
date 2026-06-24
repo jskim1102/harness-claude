@@ -46,7 +46,7 @@ def main() -> None:
             print(f"[harness] could not read RULES.md ({e})", file=sys.stderr)
 
     # CTO only: append the build-process flow spec. PROCESS.md owns the
-    # 분해→segment 루프 운영 흐름 (정본 plans/harness.md 의 운영 추출본);
+    # 분해→segment 루프 운영 흐름 (PROCESS.md 가 정본);
     # the CEO is a meta-manager and does not build, so it is not injected
     # there. INJECT-END marker 가 있으면 그 앞까지만, 없으면 전체 주입.
     # Same fail-open contract.

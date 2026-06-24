@@ -39,7 +39,7 @@ def _extract_skill_name(tool_input):
 
 def _extract_agent(payload):
     """어느 에이전트가 이 스킬을 쓰는지 best-effort 로 알아낸다.
-    표기 규칙 (plans/harness.md): `<에이전트> ★ <스킬>`.
+    표기 규칙 (PROCESS.md §6): `<에이전트> ★ <스킬>`.
     소스 우선순위: hook payload 의 에이전트 키 → 환경변수 →
     transcript 경로 힌트 → 'cto' (lead 폴백). fail-open."""
     if isinstance(payload, dict):
@@ -99,7 +99,7 @@ def main():
     skill = _extract_skill_name(p.get("tool_input")) or "<unknown>"
     agent = _extract_agent(p)
 
-    # 1) terminal-visible line — `<에이전트> ★ <스킬>` (plans/harness.md 표기)
+    # 1) terminal-visible line — `<에이전트> ★ <스킬>` (PROCESS.md §6 표기)
     YELLOW = "\033[33m"
     BOLD = "\033[1m"
     CYAN = "\033[36m"

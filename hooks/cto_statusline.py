@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """CTO statusline — 현재 작업 중인 phase:ckpt 를 상시 표시한다.
-(plans/harness.md "전체 시스템 특징": CTO tmux 는 현재 phase:ckpt 출력)
+(PROCESS.md §6: CTO tmux 는 현재 phase:ckpt 출력)
 
 Claude Code 의 statusLine command 로 settings.json 에 배선된다 (run.sh
 write_role_settings). stdin 으로 세션 JSON 을 받고, stdout 한 줄이

@@ -1,7 +1,7 @@
 # 하네스 빌드 프로세스
 
 위치: `plugins/_shared/` (RULES.md 옆 — canonical 운영 스펙). SessionStart 가
-**CTO 세션에** 주입한다. 설계 배경·이력의 정본 = `plans/harness.md`.
+**CTO 세션에** 주입한다. 본 문서 = CTO 빌드 운영 프로세스의 **정본**.
 하드룰(git/파일/포트/인박스/충실도/autopilot 경계)은 RULES.md — 본 문서는 **흐름**.
 
 > 모드 legend: 🤚 사용자 확인 · 🤖 goal 기반 autopilot · ⚙️ 자체 리뷰
@@ -19,7 +19,7 @@
 plan.md 의 3축 선언을 그대로 따른다:
 - 축1 deliverable: `module` | `project`
 - 축2 target: `new` | `extend:<기존프로젝트>` (extend = 기존 tasks.md 트리에 append)
-- 축3 source: `scratch` | `modules:[slug…]` | `extract:[프로젝트/기능…]` | 조합
+- 축3 source: `scratch` | `modules:[slug…]` | `extract:[프로젝트/기능…]` | 조합 (여럿이면 `+` 로 나열: `modules:[x] + extract:[y/기능]` — 출처 귀속은 분해 때 feature 단위 `[supplied:…]` 태그로)
 
 ## 1. 타임라인 (전체 흐름)
 
@@ -27,40 +27,43 @@ plan.md 의 3축 선언을 그대로 따른다:
 |---|---|---|---|
 | 1 Plan 작성 | CEO ↔ 사용자 | `/build-project`·`/build-module <brief>` → `<빌드dir>/plan.md` (3축 + Library Check) | 🤚 plan 확정 |
 | 1 Plan 검사 | CEO | plan.md 자체 점검 후 CTO로 | ⚙️ |
-| 2 스폰 | 사용자 | `./run.sh add-cto <빌드dir>/plan.md` (plan.md 없으면 실패) | 🤚 |
-| 2 분해 | CTO | plan.md → `specs/spec.md` + `specs/tasks.md` + 커버리지 기계검증 | ⚙️ |
+| 2 스폰 | 사용자 | `./run.sh add-cto <name>` (plan.md 없으면 실패) | 🤚 |
+| 2 분해 | planner (CTO 경유) | plan.md → `specs/spec.md` + `specs/tasks.md` + 커버리지 기계검증 | ⚙️ |
 | 3 구간지정 | 사용자 | `phaseN.ckptN~phaseM.ckptM` 지정 (= 분해 승인) | 🤚 |
-| 3 phase1 환경설정 | developer | 포트·venv·Docker 준비 (실행 X) | 🤖 |
+| 3 phase1 환경설정 | developer | 포트·백엔드 venv·프론트 scaffold+npm·Docker·dev.sh 준비 (실행 X) | 🤖 |
 | 3 게이트1 | 사용자 | 환경설정 확인 | 🤚 |
-| 3 phase2 프론트 디자인 | designer | 시스템→시안→HTML/CSS → dev 서버 기동 | 🤖 |
+| 3 phase2 프론트 디자인 | designer | 시스템→시안→HTML/CSS → 프론트 dev 서버 기동(`vite dev`; backend 는 phase3) | 🤖 |
 | 3 게이트2 | 사용자 ↔ designer/developer | 라이브 디자인 루프 → 승인 | 🤚 대화 반복 |
-| 3 phase3+ 빌드 | developer | `/goal` autopilot — compose 기동 시작 | 🤖 |
-| 3 자체 검증 | CTO → reviewer | 필요 시 API·DB·코드 검증 → 수정 → 완료 보고 | ⚙️ |
+| 3 phase3+ 빌드 | developer | `/goal` autopilot — dev 서버 상시 가동 (`compose up` 은 `"docker화 해"` 시만, RULES §13) | 🤖 |
+| 3 자체 검증 | CTO → reviewer | **필수** API·DB·코드 검증 → 수정 → 보고 (사용자가 segment 지정 시 "검토 필요없음" 명시한 경우만 생략) | ⚙️ |
 | 3 게이트3 | 사용자 | 브라우저 실사용 테스트 → PASS=다음 segment | 🤚 |
 | 마감 (module 한정) | CTO | `specs/USAGE.md` 작성 = 재사용 가능 표시 | ⚙️ |
-| codex (옵션) | 사용자 → CEO | 사용자가 원할 때만 `/codex-review <name>` | 🤚 |
+| codex (옵션) | 사용자 → CEO | 사용자가 원할 때만 `/codex-review <name>` 또는 `/codex-protocol-review` | 🤚 |
 
 - `[!]` 블로커 = 어느 단계든 goal 중단 → 사용자 surface
-- 🤖 구간이라도 게이트1·2는 `/goal` 로 통과 불가 (RULES §8)
+- 🤖 구간이라도 게이트1·2·3은 `/goal` 로 통과 불가 (RULES §8) — 게이트3(사용자 브라우저 실사용)도 CTO 자가 선언 불가
 
 ## 2. 분해 (CTO — 스폰 직후)
 
 plan.md 읽고 전체 phase/ckpt 트리를 만든다 → `<빌드dir>/specs/spec.md` + `specs/tasks.md`.
 
 **분해 공식 (고정):**
-- phase1 = 환경설정 — 포트(offset→`.env`/`.env.example`/compose)·venv+패키지·
-  Docker pull·Dockerfile(+GPU 프로젝트면 Dockerfile-gpu). DB 쓰는 빌드면
+- phase1 = 환경설정 — 포트(offset→`.env`/`.env.example`/compose)·백엔드 venv+패키지·
+  프론트 scaffold(vite 등)+`package.json`+`npm install`→node_modules·
+  Docker pull·Dockerfile(+GPU 프로젝트면 Dockerfile-gpu)·`dev.sh`(호스트 러너 — venv+vite
+  detached `up`/`down`, compose `up -d`/`down` 짝). DB 쓰는 빌드면
   migration 툴(alembic 등) 셋업 + plan 데이터모델 → **첫 migration** 작성
   (RULES §9). **작성·준비만, 컨테이너 실행 X**
-- phase2 = 프론트엔드 — **프론트 산출물 전부 여기** (디자인이든 extract든; module=단순 / project=화려).
+- phase2 = 프론트엔드 — **프론트 UI/디자인 산출물 전부 여기** (scaffold·deps 는 phase1; 디자인이든 extract든; module=단순 / project=화려).
   extract 면 프론트 UI 추출(컴포넌트·훅·페이지)도 phase2 — 백엔드 없이도 dev 서버로 **레이아웃/시안 검수** 가능 (live 데이터는 백엔드 contract 기준 phase3+). **무조건 두 번째.**
+  - **dev-form 단독 검수 경로 의무 (게이트2 전제)**: 핵심 UI 가 백엔드 데이터에 게이트되면(예: 목록 API 0행 → 진입버튼 없음 → 핵심 화면 도달불가) dev 서버 단독은 빈 껍데기가 된다. phase2 는 백엔드/compose 없이 **핵심 UI 전 경로**가 검수되도록 mock/local-state(예: dev-only `?mock` 가드)를 **내장**한다 — phase3 진입 시 제거. planner 는 이 검수경로를 phase2 ckpt **acceptance 에 명시**하고, CTO 는 게이트2 surface 전 dev-form 으로 핵심 UI 도달을 직접 확인한다.
 - phase3+ = 백엔드·로직·glue — 재료(축3) **백엔드** 벤더링/추출 → glue → API/로직/DB.
-  **phase3 진입 = (phase2 dev 서버 정지 →) FULL `docker compose up -d` (backend + frontend + db
-  전 서비스) 기동 → phase3+ 내내 계속 떠둔다** (segment 사이에 내리지 않음; 기능·배선 추가 시
-  `compose up -d --build <svc>` 로 재빌드·재기동해도 스택은 유지). **사용자가 언제든 내/외부
-  네트워크로 접속 가능해야 한다** (프론트가 phase2 에 완성돼 phase3 부터 컨테이너로 뜸 — 배선이
-  늦는 빌드도 프론트 컨테이너는 떠서 UI 보임, 배선 진행되며 갱신). dev 서버 안 끄고 compose 하면
-  같은 호스트 포트(`FRONTEND_PORT`/`BACKEND_PORT`) 충돌 `address already in use`.
+  **개발·검수는 dev 서버로 (RULES §13 — docker build/compose 는 사용자 명시 시만).** 백엔드
+  `uvicorn --reload`(`0.0.0.0:BACKEND_PORT`) + 프론트 `vite dev`(`0.0.0.0:FRONTEND_PORT`,
+  `/api` 프록시)를 **CTO 가** 띄운다 → 코드 고치면 사용자가 **새로고침으로 즉시** 확인(컨테이너
+  재빌드 불편 회피). **사용자가 언제든 내/외부 네트워크로 접속 가능해야 한다.** 이미지로만 도는
+  의존(mediamtx/db 등)만 컨테이너로 띄운다. **docker build / `compose up` 은 사용자가
+  `"docker화 해"` 지시할 때만** — 그 전엔 dev 서버 유지.
 - 축2=extend 면 기존 트리에 phase append (재번호 금지)
 
 **형식:**
@@ -73,7 +76,7 @@ plan.md 읽고 전체 phase/ckpt 트리를 만든다 → `<빌드dir>/specs/spec
 ```markdown
 # Tasks: <name>           # specs/tasks.md
 ## phase1 — 환경설정
-### phase1.ckpt1 포트→.env/compose · venv · Docker · Dockerfile
+### phase1.ckpt1 포트→.env/compose · 백엔드 venv · 프론트 scaffold+npm · Docker · Dockerfile · dev.sh
 ## phase2 — 프론트엔드 디자인
 ### phase2.ckpt1 <디자인 작업>
 ## phase3 — <개발...>
@@ -120,27 +123,49 @@ plan.md 읽고 전체 phase/ckpt 트리를 만든다 → `<빌드dir>/specs/spec
    외부접속이 필요한 **모든 포트**(프론트 + 외부에서 API/WS 직접 호출 시 백엔드)에 대해 `ufw allow` + 포워딩 포트를 빠짐없이 명시한다.
    게이트2 시각 검수를 **최종 compose 로 미루지 않는다** (extract 빌드도 동일 — 프론트가 phase2 에
    있으니 빈 껍데기가 아니라 실 UI 레이아웃이 보여야 한다).
+   **게이트2 전제 (사용자 명시)**: phase2 종료 시 CTO 는 **무조건** 위 4항목(내/외부 접속 URL)을 제시하고,
+   사용자는 그 URL 에 접속해 **프론트엔드 UI 디자인을 실제로 검수할 수 있어야** 한다. 핵심 UI 가 백엔드에
+   게이트돼 빈 화면만 보이면 게이트2 불성립 — 백엔드/compose 없이 핵심 UI 전 경로가 보이도록
+   mock/local-state 를 phase2 에 내장한다(§2 분해공식 참조). 사용자가 빈 화면 보고서야 패치하는 사후대응
+   금지 — by-design 으로 phase2 에 들어가야 한다.
    **라이브 디자인 루프**: 사용자가 브라우저로 보며 수정사항 말함 →
    designer/developer 즉시 수정 → 사용자는 새로고침으로 확인 → 반복 → 승인.
    **compose 로 띄우지 말 것** (수정마다 재기동 비효율 — dev 서버만).
-5. segment 완료 시 CTO 판단으로 reviewer 호출(무조건 X) — API 테스트(curl·pytest)·
-   DB 무결성(SQL)·코드 평가. 지적 → `[dev]` 수정 → 재검증.
-6. CTO → 사용자 "완료" 보고 (검증 증거 포함). reviewer 결과는 **파일 X, 보고 메시지**.
+5. **segment 완료 시 reviewer 호출 필수** — API 테스트(curl·pytest)·DB 무결성(SQL)·
+   코드 평가. 지적 → `[dev]` 수정 → 재검증. **생략은 사용자가 segment 지정 때 "이번
+   segment 검토 필요없음" 이라고 명시한 경우에만** (그 외엔 항상 리뷰). 결정론 백스톱:
+   planner 가 각 phase3+ ckpt 에 `[review]` task 를 박고, reviewer 가 그 task 를
+   verify sentinel 과 함께 완료해야 ckpt 가 닫힌다 (완료게이트 훅 — RULES §8).
+6. CTO → 사용자 **자체검증 보고** (검증 증거 포함) — 이는 자체검증일 뿐, "완료" 아님(게이트3 PASS 후 완료). reviewer 결과는 **파일 X, 보고 메시지**.
 7. 사용자 : 브라우저 실사용 테스트 (🤚 게이트3) → PASS = 다음 segment / FAIL = 재작업.
-   **서버 노출 시점(게이트3 compose 기동 등 — 게이트2 뿐 아니라 사용자에게 서버 URL 을
+   **서버 노출 시점(게이트3 서버 노출(dev 서버 URL) 등 — 게이트2 뿐 아니라 사용자에게 서버 URL 을
    주는 모든 지점)에서 step4 의 4항목(내부 URL · 외부 URL · `sudo ufw allow <PORT>` · 포트포워딩 포트)
    형식으로 접속 정보를 제시한다.**
 8. 진행 상태는 `specs/tasks.md` 체크박스만 갱신 (완료 `[✅]`, 미완 `[ ]`, 블로커 `[!]`) — 별도 상태파일 금지. (레거시 `[x]` 도 완료로 인식.)
 
-**phase3+ 스택 상시 가동 (사용자 요구)**: phase3 진입부터 compose 스택(**backend + frontend + db
-전 서비스**)이 **계속 떠있어야** 한다. segment 사이에 `compose down` 금지 — 기능·배선 추가 시
-`compose up -d --build <svc>` 무중단 갱신. **사용자는 phase3+ 내내 언제든** 내/외부 네트워크로
-접속할 수 있다 (게이트3 segment 완료 때만이 아니라 상시). 프론트가 백엔드에 아직 안 붙어도
-프론트 컨테이너는 떠서 UI 가 보인다.
+**phase3+ dev 서버 상시 가동 (RULES §13)**: phase3 진입부터 **dev 서버**(backend
+`uvicorn --reload` + frontend `vite dev`)가 **계속 떠있어야** 한다 — CTO 가 자기 Bash 에서
+`./dev.sh up`(phase1 산출물 호스트 러너, `0.0.0.0` 바인딩) 으로 한 방 기동, `./dev.sh down` 으로 정지. **사용자는 phase3+ 내내 언제든** 내/외부 네트워크로 접속해 **수정사항을
+새로고침으로 즉시** 확인. 이미지로만 도는 의존(mediamtx/db)만 컨테이너. **docker build /
+`compose up` 은 사용자가 `"docker화 해"` 지시할 때만** — 그때부터 compose 스택을 띄우고,
+상태형 의존 재기동 시 재싱크(아래) 규칙을 따른다.
+
+**상태형 의존 재기동 = 재싱크 의무 + 핵심기능 실검증 (2026-06-22 mediamtx path 사고 정본화):**
+- `compose up -d <svc>` 로 **런타임 상태를 보유한 서비스**(예: mediamtx 의 동적 path — backend 가
+  API 로 등록, 컨테이너 재생성 시 소멸)를 갈아끼우면 그 상태가 날아간다. **재기동 후 dependent
+  재싱크(backend 재시작/sync 호출) 또는 모듈 self-heal 로 상태 복원을 확인하기 전엔 "완료" 아님.**
+  (사고: 포트 적용하려 `compose up -d mediamtx` → path 소멸 → backend 재싱크 안 함 → 스트림 죽음.)
+- **검증·게이트는 부품 체크로 끝내지 않는다** — `compose config -q`·`/health 200`·포트설정 PASS ≠
+  기능 동작. **핵심 사용자 기능이 실제로 동작하는지**(스트리밍이면 카메라별 path ready + 실제
+  재생)를 증거로 확인한다.
+- 모듈은 **각 서비스가 독립적으로 재시작돼도 자가복구(self-heal)** 되어야 한다 — 이 견고성은
+  모듈 "완성" 기준이다(미충족 모듈은 재사용 시 깨진다). USAGE.md 존재 ≠ 검증완료.
 
 **segment 완료 판정 + 1회 surface (CTO 규율 — 중복질문 방지):**
 - **완료 앵커 (결정론)**: dispatch 한 segment `phaseN.ckptN~phaseM.ckptM` 는
-  **범위 내 모든 ckpt 가 `[✅]`(전 task 완료) + 검증 증거 확보** 됐을 때만 완료다.
+  **범위 내 모든 ckpt 가 `[✅]`(전 task 완료) + 검증 증거 확보 + 게이트3 PASS 기록** 됐을 때만 완료다.
+  ckpt `[✅]` + 검증 증거 = **CTO 자체검증 완료**(step6 = 자체검증 보고)일 뿐 — "완료" 는 사용자 게이트3
+  통과 후로 예약한다. CTO 자체검증만으로 "완료" 선언 금지.
   그 전 = teammate 가 아직 작업 중 → **다음 segment 를 입에 올리지 않는다**
   (진행 보고만, 또는 침묵). dispatch 할 때 그 범위를 기억해 완료 경계로 삼는다.
 - **진행 보고도 검증 필수 (dispatch ≠ 진행)**: "구동 중"·"진행 중" 보고 전
@@ -162,9 +187,11 @@ plan.md 읽고 전체 phase/ckpt 트리를 만든다 → `<빌드dir>/specs/spec
 - 게이트(직전 segment 산출물 승인)·dispatch(다음 범위 지정)는 **직전 segment** 건 —
   현재 segment teammate 가 작업 중일 때 "다음 범위?" 를 묻지 않는다.
 
-- `/goal` 은 phase3+ 전용. 게이트1·2 를 goal 로 넘기지 않는다 (RULES §8).
+- `/goal` 은 phase3+ 전용. 게이트1·2·3 을 goal 로 넘기지 않는다 (RULES §8).
+  게이트3(사용자 브라우저 실사용 테스트)도 `/goal` autopilot 으로 통과 불가 — CTO 가 자가 선언 불가.
 - `[!]` 블로커 → goal 중단 + 사용자 surface. 우회 진행 금지.
-- codex 는 빌드 단계 아님 — 사용자가 CEO 창에서 직접 명령할 때만 (RULES §6).
+- codex 는 빌드 단계 아님 — 사용자가 CEO 창에서 직접 명령할 때만
+  (`/codex-review <name>` 또는 `/codex-protocol-review`, RULES §6).
 
 ## 4. 모듈 마감 (module 빌드 한정)
 
@@ -207,7 +234,7 @@ README.md 는 작성하지 않는다 (RULES §1 — 사용자 전용).
   `verify`(완료 보고 전 라이브 앱 실동작 확인)
 - 유동: `run` / `systematic-debugging` / `investigate` / `simplify` / `careful`
 
-### reviewer (CTO 판단 호출)
+### reviewer (segment 완료 시 필수 호출)
 - 고정: `code-review`(1차 high/재리뷰 medium) / `qa-only`(report-only)
 - 직접 실행 (스킬 X, 필수 임무): API 테스트(curl·pytest) + DB 무결성(SQL)
 - 유동: `health` / `browse`

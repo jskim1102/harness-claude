@@ -30,6 +30,7 @@
 | `hooks/` | Claude Code 훅 — `session_start.py`(role.md+RULES.md+PROCESS.md 주입), `team/`(태스크 형식·검증·idle 가드) |
 | `plugins/ceo/`, `plugins/cto/` | CEO/CTO 의 `role.md` + commands + agents + skills |
 | `plugins/_shared/` | `RULES.md`(런타임 주입 하드룰) · `PROCESS.md`(빌드 프로세스 스펙) |
+| `docs/instruction-authority.md` | **규칙 정본 색인** — concern별 정본 파일·enforcer·강제수준 map. "어떤 규칙이 어디에 정본인가"는 먼저 여기서 확인 |
 | `plugins/codex-review/` | cross-model Codex 리뷰 — `AGENT.md`(리뷰어 정의) + `scripts/review_runner.py` |
 | `docs/` | 설계 스펙·문서 |
 | `claude-project/`, `modules/`, `.sources/` | 빌드 dir (프로젝트/모듈) · extract 소스 (`.gitignore` 참조) |
@@ -38,7 +39,7 @@
 
 ```bash
 ./run.sh ceo                                  # CEO 시작 (현재 셸을 claude 로 교체)
-./run.sh add-cto <빌드dir>/plan.md             # CTO 추가 (claude-project/<n> | modules/<n>; 세션만 — attach 후 /start-project 수동 시작)
+./run.sh add-cto <name>                       # CTO 추가 (<name> 스캔 → claude-project/·modules/; 세션만 — attach 후 /start-project 수동 시작)
 ./run.sh attach cto-<name>                    # CTO 화면 접속 (observe 폐기 — 터미널 독립)
 ./run.sh split-cto <name>                     # teammate 별 tmux pane 분리 (auto, 재기동; 되돌리기=add-cto)
 ./run.sh test-cto <name> "<prompt>"           # CTO 비대화형 스모크
@@ -46,7 +47,7 @@
 ./run.sh stop-cto <name>                      # 한 CTO 정지 (작업 보존 — 비파괴, resume = add-cto)
 ```
 
-- **검증 3계층** (plans/harness.md "시스템 점검"):
+- **검증 3계층**:
   1. `./run.sh doctor` — 정합 검사 (금지토큰/참조무결성/문법/버전). **하네스 수정 후 무조건.**
   2. `./run.sh smoke` — 결정론 스모크 30+ (`tests/smoke.sh`)
   3. `/harness-audit` — 의미 감사 (6 perspective + adversarial verify, 큰 개편 후)
@@ -62,13 +63,16 @@
   Run: cmd` — `TaskCreated` 훅이 강제한다. 위반 시 자동 rollback.
   (`plugins/cto/skills/harness-task-format/`)
 - **에이전트 정의 수정**: `role.md` / `SKILL.md` / `PROCESS.md` 는 서로 참조하므로
-  한 곳을 바꾸면 정합을 맞춰라. 빌드 흐름의 정본 = `plans/harness.md`,
-  운영 추출본 = PROCESS.md (CTO 주입).
+  한 곳을 바꾸면 정합을 맞춰라. 운영 프로세스 정본 = `plugins/_shared/PROCESS.md` (CTO 주입),
+  concern별 authority = `docs/instruction-authority.md`.
 - **슬래시 `!`-line 인자**: `$0`/`$1`/`$ARGUMENTS` 는 파싱 전 bash 에 raw-splice
   되므로 in-line quoting 은 완전한 방어가 아니다. 신뢰불가 인자는 `shell=False`
   헬퍼(`codex_review_launch.py` 참고)로 통과시키고 절대 bare-interpolate 하지 마라.
   (RULES.md §6.1)
 - **마크다운**: 한영 혼용 (이 repo 는 한국어 기반). 코드·명령·경로·API 명은 영어.
+- **하네스 파일 편집 주의**: 에이전트가 고치는 파일은 IDE 탭을 닫아둘 것
+  (stale-buffer 덮어쓰기 사고 실발생). 리뷰/감사 도는 중 같은 파일을 동시
+  수정하지 말 것 (반박 노이즈).
 
 ## 경계 (사용자 명시 전 금지)
 

@@ -140,7 +140,7 @@ Use Read + Grep.`,
 
   () => agent(
     `Canon-Consistency Agent. Audit at ${REPO}.
-설계 정본 = ${REPO}/plans/harness.md (먼저 정독). 운영 추출본 = plugins/_shared/PROCESS.md, 하드룰 = plugins/_shared/RULES.md.
+운영 정본 = ${REPO}/plugins/_shared/PROCESS.md, 하드룰 = plugins/_shared/RULES.md, authority 색인 = docs/instruction-authority.md (먼저 정독).
 Target: plugins/ 전체 + hooks/ + harness/*.py + run.sh.
 Find SEMANTIC drift the deterministic doctor grep cannot catch:
 (a) 정본과 모순되는 활성 지시 (예: 잘못된 phase 의미의 예시, 폐기 흐름을 가르치는 field manual),

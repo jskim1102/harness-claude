@@ -9,10 +9,10 @@
 # Each CTO runs in its own tmux session so it survives detach + can be
 # observed in a multi-pane layout.
 #
-# Commands (새 체계 — plans/harness.md 정본):
+# Commands (새 체계):
 #   ./run.sh ceo                              # start CEO chat (exec claude here)
-#   ./run.sh add-cto <빌드dir>/plan.md         # spawn one CTO — 세션만 띄움, 분해는
-#                                             # attach 후 /start-project 로 수동 시작
+#   ./run.sh add-cto <name>                   # spawn one CTO (<name> 또는 빌드dir/plan.md) — 세션만,
+#                                             # 분해는 attach 후 /start-project 로 수동 시작
 #                                             # (/model·/effort 먼저); plan.md 경로가 유일 인자;
 #                                             # 부모 dir = 빌드타입(claude-project|modules),
 #                                             # dir 이름 = CTO 이름. plan.md 없으면 실패)
@@ -98,7 +98,7 @@ write_role_settings() {
   },
   "teammateMode": "$teammate_mode",
   "model": "claude-opus-4-8",
-  "effortLevel": "xhigh",
+  "effortLevel": "high",
   "statusLine": {
     "type": "command",
     "command": "python3 $REPO/hooks/cto_statusline.py"
@@ -268,7 +268,7 @@ start_session() {
     echo "started session=$name role=$role cwd=$cwd"
 }
 
-# Minimum Claude Code version — Agent Teams + /goal (autopilot, plans/harness.md).
+# Minimum Claude Code version — Agent Teams + /goal (autopilot).
 CLAUDE_MIN_VERSION="2.1.139"
 
 # Compare two semver-ish strings. Returns 0 if $1 >= $2.
@@ -325,15 +325,20 @@ _attach_skill_pane() {
     tmux select-pane -t "cto-$name" -T "cto:$name" 2>/dev/null || true
 }
 
+# 빌드 dir 스폰 가능 검사. plan.md(1단계 신규) **또는** specs/tasks.md(분해 완료 —
+# plan 없이 재개) 가 있으면 OK. specs 존재 = 이미 plan 이 있었음을 증명하므로
+# fail-closed(§7 plan 선행) 유지 — 둘 다 없는 빈 dir 만 거부.
+_build_ready() { [[ -d "$1" ]] && { [[ -f "$1/plan.md" ]] || [[ -f "$1/specs/tasks.md" ]]; }; }
+
 cmd_add_cto() {
-    # 시그니처 (plans/harness.md): plan.md 경로 1개.
-    #   ./run.sh add-cto claude-project/<name>/plan.md   # 프로젝트 빌드 CTO
-    #   ./run.sh add-cto modules/<name>/plan.md          # 모듈 빌드 CTO
+    # 시그니처: <name> (CEO 가 만든 빌드 dir 이름) 또는 plan.md 경로/빌드 dir 1개.
+    #   ./run.sh add-cto <name>                          # claude-project/·modules/ 스캔해 resolve
+    #   ./run.sh add-cto claude-project/<name>/plan.md   # 경로 직접 지정도 가능
     # 분해는 자동 시작 안 함 — attach 후 /model·/effort 고르고 /start-project 로 시작.
     # 부모 dir 가 빌드타입(축1)·CTO 이름·작업 dir 를 전부 확정한다.
-    # plan.md 가 없으면 스폰 실패 (1단계 CEO plan 선행 강제 — fail-closed).
-    # 인자: plan.md 경로 1개 (위치 인자). 플래그 없음.
-    local plan_arg="${1:?usage: $0 add-cto <claude-project|modules>/<name>/plan.md}"
+    # 스폰 가능 = plan.md(1단계 신규) 또는 specs/tasks.md(분해 완료 → plan 없이 재개);
+    # 둘 다 없으면 실패 (fail-closed). 인자: 위치 인자 1개. 플래그 없음.
+    local plan_arg="${1:?usage: $0 add-cto <name> | <claude-project|modules>/<name>/plan.md}"
     if [[ $# -gt 1 ]]; then
         echo "error: add-cto 는 인자 1개 (plan.md 경로)." >&2
         return 1
@@ -345,28 +350,49 @@ cmd_add_cto() {
             return 1 ;;
     esac
 
-    # 상대경로 허용 (repo 루트 기준) → 절대경로로.
-    local plan_path="$plan_arg"
-    [[ "$plan_path" != /* ]] && plan_path="$REPO/$plan_path"
-    if [[ "$(basename "$plan_path")" != "plan.md" ]]; then
-        echo "error: 인자는 plan.md 경로여야 함 (got: $plan_arg)" >&2
-        return 1
-    fi
-    if [[ ! -f "$plan_path" ]]; then
-        echo "error: plan.md not found: $plan_path" >&2
-        echo "       1단계 먼저 — CEO 창에서 /build-project 또는 /build-module 로 plan.md 작성." >&2
-        return 1
+    # arg → 빌드 dir 로 normalize + 스폰 가능(_build_ready) 검사.
+    local dir name base build_type
+    if [[ "$plan_arg" != */* && "$plan_arg" != *.md ]]; then
+        # bare name 단축 → claude-project/<name> | modules/<name> 스캔 (하나만; 둘 다면 모호).
+        if ! [[ "$plan_arg" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
+            echo "error: name must be kebab-case (lowercase, digits, hyphens)." >&2
+            return 1
+        fi
+        local _dp="$REPO/claude-project/$plan_arg" _dm="$REPO/modules/$plan_arg" _hits=()
+        _build_ready "$_dp" && _hits+=("$_dp")
+        _build_ready "$_dm" && _hits+=("$_dm")
+        if [[ ${#_hits[@]} -eq 0 ]]; then
+            echo "error: '$plan_arg' 스폰 불가 — plan.md(1단계) 도 specs/tasks.md(재개) 도 없음. /build-project | /build-module 먼저." >&2
+            return 1
+        elif [[ ${#_hits[@]} -gt 1 ]]; then
+            echo "error: '$plan_arg' 가 claude-project/ 와 modules/ 양쪽 존재 — 모호. 전체 경로로 지정." >&2
+            return 1
+        fi
+        dir="${_hits[0]}"
+    else
+        # 경로 형: <dir>/plan.md 또는 빌드 <dir> 직접 (상대경로 = repo 루트 기준).
+        local _p="$plan_arg"
+        [[ "$_p" != /* ]] && _p="$REPO/$_p"
+        [[ "$(basename "$_p")" == "plan.md" ]] && _p="$(dirname "$_p")"
+        if [[ ! -d "$_p" ]]; then
+            echo "error: 빌드 dir 없음: $_p" >&2
+            return 1
+        fi
+        dir="$(cd "$_p" && pwd)"
+        if ! _build_ready "$dir"; then
+            echo "error: '$plan_arg' 스폰 불가 — plan.md(1단계) 도 specs/tasks.md(재개) 도 없음." >&2
+            echo "       1단계 먼저 — CEO 창에서 /build-project 또는 /build-module." >&2
+            return 1
+        fi
     fi
 
-    local dir name base build_type
-    dir="$(cd "$(dirname "$plan_path")" && pwd)"
     name="$(basename "$dir")"
     base="$(basename "$(dirname "$dir")")"
     case "$base" in
         claude-project) build_type="project" ;;
         modules)        build_type="module" ;;
         *)
-            echo "error: plan.md 는 claude-project/<name>/ 또는 modules/<name>/ 아래 있어야 함 (got: $base/$name)" >&2
+            echo "error: 빌드 는 claude-project/<name>/ 또는 modules/<name>/ 아래여야 함 (got: $base/$name)" >&2
             return 1 ;;
     esac
     # 레포 밖 경로 차단 (/tmp/modules/x 같은 동명 base 우회 방지).
@@ -424,7 +450,7 @@ cmd_add_cto() {
     echo "attach: tmux attach -t cto-$name"
 }
 
-# (observe 는 폐기됨 — CEO/CTO 터미널 독립 운영. plans/harness.md)
+# (observe 는 폐기됨 — CEO/CTO 터미널 독립 운영.)
 
 # Non-interactive smoke test for a CTO sandbox. Sends a prompt to a fresh
 # claude --print invocation in the CTO's sandbox dir with HARNESS_ROLE set,
@@ -708,9 +734,10 @@ cmd_delete_cto() {
     echo "done."
 }
 
-# stop-cto — 한 CTO 만 정지하되 작업은 보존 (resume 가능). delete-cto 와 달리
-# 빌드 dir·specs·sqlite·로그·포트 오프셋을 **유지**한다. 세션 + dev서버/워커
-# 프로세스만 정리. 나중에 `add-cto <dir>/plan.md` 로 기존 specs/tasks.md 에서 재개.
+# stop-cto — 한 CTO 의 **세션(claude 에이전트)만** 정지. delete-cto 와 달리
+# 빌드 dir·specs·sqlite·로그·포트 오프셋을 유지하고, backend/frontend/compose
+# 같은 dev 서버/컨테이너도 건드리지 않는다 (계속 떠 있음). 나중에
+# `add-cto <dir>/plan.md` 로 기존 specs/tasks.md 에서 세션 재개.
 cmd_stop_cto() {
     local name="${1:?usage: $0 stop-cto <name>}"
     if ! [[ "$name" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
@@ -727,21 +754,17 @@ cmd_stop_cto() {
         [[ -d "$REPO/$base/$name" ]] && { dir="$REPO/$base/$name"; break; }
     done
 
-    echo "Stopping CTO '$name' (작업 보존 — dir/specs/sqlite/포트 유지):"
-    # 1) claude 세션 kill (에이전트 정지)
+    echo "Stopping CTO '$name' (세션만 정지 — backend/frontend/compose/포트/specs 모두 유지):"
+    # CTO claude 세션(에이전트)만 kill. dev 서버/워커/compose 컨테이너는 건드리지
+    # 않는다 — 계속 떠 있음. 세션만 내린다.
     if tmux kill-session -t "cto-$name" 2>/dev/null; then
-        echo "  ✓ killed tmux session cto-$name"
+        echo "  ✓ killed tmux session cto-$name (세션만)"
     else
         echo "  - tmux session cto-$name not running"
     fi
-    # 2) CTO 가 띄운 dev 서버/워커 프로세스 정리 (tmux kill 만으론 잔존).
     if [[ -n "$dir" ]]; then
-        _kill_project_processes "$dir"
-        _down_compose_stack "$dir"
-        echo "  ✓ stopped dev/worker processes + compose stack under ${dir#"$REPO"/}"
         echo "재개: ./run.sh add-cto ${dir#"$REPO"/}/plan.md"
     else
-        echo "  - 빌드 dir 미존재 (modules/$name·claude-project/$name) — 프로세스 정리 생략"
         echo "재개: ./run.sh add-cto <빌드dir>/plan.md"
     fi
 }
@@ -849,7 +872,7 @@ cmd_doctor() {
     echo "--- [2] 참조 무결성 ---"
     local f missing=0
     for f in hooks/cto_statusline.py hooks/session_start.py hooks/git_guard.py hooks/team/skill_announce.py \
-             plugins/_shared/RULES.md plugins/_shared/PROCESS.md plans/harness.md \
+             plugins/_shared/RULES.md plugins/_shared/PROCESS.md plugins/_shared/CODE_QUALITY.md \
              plugins/ceo/commands/build-project.md plugins/ceo/commands/build-module.md \
              plugins/cto/commands/start-project.md \
              plugins/cto/agents/planner.md plugins/cto/agents/designer.md \
@@ -890,6 +913,79 @@ cmd_doctor() {
     echo "--- [4] claude 버전 (>= $CLAUDE_MIN_VERSION) ---"
     if _check_claude_version 2>/dev/null; then echo "  ✓ $(claude --version 2>/dev/null | awk '{print $1}')"; else echo "  ✗ 버전 미달/미설치"; rc=1; fi
 
+    # 5) canon 정합성 (RULE A/B) — teammate(planner/developer/designer)는 PROCESS 를
+    #    주입받지 못해 각자 phase 공식 슬라이스를 복사해 든다(구조상 필수). 복사본이
+    #    PROCESS/RULES 와 발산하면 drift (이번 세션 phase3/compose 버그가 그것).
+    #    dedup 불가 → 복사본 동기화를 doctor 가 결정론으로 강제한다.
+    echo "--- [5] canon 정합성 (RULE A/B) ---"
+    local PLN="$REPO/plugins/cto/agents/planner.md"
+    local DEV="$REPO/plugins/cto/agents/developer.md"
+    local DSG="$REPO/plugins/cto/agents/designer.md"
+    local PRC="$REPO/plugins/_shared/PROCESS.md"
+    local RLS="$REPO/plugins/_shared/RULES.md"
+    local QLT="$REPO/plugins/_shared/CODE_QUALITY.md"
+    local canon_ok=1
+
+    # 5a) RULE B drift sentinel (negative) — phase3 가 'compose up' 을 기본 실행경로로
+    #     mandate 하면 위반. 게이트 문구가 없는 'phase3'+'compose up' 한 줄 = compose 버그 재발.
+    local gate='docker화 해|docker화|사용자 명시|시만|계획된 ckpt 가|only on|Never Docker compose'
+    local sentinel
+    sentinel=$(grep -hnE 'phase3' "$PLN" "$DEV" "$DSG" "$PRC" 2>/dev/null \
+        | grep -E 'compose up' | grep -vE "$gate" || true)
+    if [[ -n "$sentinel" ]]; then
+        echo "$sentinel" | head -5
+        echo "  ✗ RULE B: phase3 가 compose up 을 기본 실행경로로 mandate (게이트 문구 없음)"; canon_ok=0
+    fi
+
+    # 5b) RULE B positive — phase3 실행경로 = ./dev.sh. planner/developer/PROCESS 각각 언급해야.
+    local cf
+    for cf in "$PLN" "$DEV" "$PRC"; do
+        if ! { grep -qE 'phase3' "$cf" 2>/dev/null && grep -qE 'dev\.sh' "$cf" 2>/dev/null; }; then
+            echo "  ✗ RULE B: $(basename "$(dirname "$cf")")/$(basename "$cf") 에 phase3 실행경로 dev.sh 부재"; canon_ok=0
+        fi
+    done
+
+    # 5c) RULE A — 게이트3 가 /goal 통과불가. RULES 에 '게이트3', PROCESS 에 '게이트1·2·3' + 게이트3/goal 결속.
+    grep -qE '게이트3' "$RLS" 2>/dev/null || { echo "  ✗ RULE A: RULES.md 에 게이트3 부재"; canon_ok=0; }
+    grep -qE '게이트1·2·3' "$PRC" 2>/dev/null || { echo "  ✗ RULE A: PROCESS.md 에 게이트1·2·3 부재"; canon_ok=0; }
+    grep -qE '게이트3.*(goal|통과 불가|자가 선언)|goal.*게이트3' "$PRC" 2>/dev/null \
+        || { echo "  ✗ RULE A: PROCESS.md 에 게이트3↔goal 결속 부재"; canon_ok=0; }
+
+    # 5d) 분해 공식 핵심 토큰 동기화 — phase1=환경설정(scaffold+venv), phase2=프론트, phase3=백엔드.
+    grep -qiE 'scaffold' "$PLN" 2>/dev/null && grep -qiE 'venv' "$PLN" 2>/dev/null \
+        || { echo "  ✗ 분해공식: planner.md phase1 에 scaffold/venv 부재"; canon_ok=0; }
+    grep -qE 'phase1 = 환경설정' "$PLN" 2>/dev/null && grep -qiE 'phase2.*프론트' "$PLN" 2>/dev/null \
+        && grep -qiE 'phase3.*백엔드' "$PLN" 2>/dev/null \
+        || { echo "  ✗ 분해공식: planner.md phase 순서(환경설정/프론트/백엔드) 발산"; canon_ok=0; }
+    grep -qE 'phase1 = 환경설정' "$PRC" 2>/dev/null && grep -qiE 'phase2 = 프론트' "$PRC" 2>/dev/null \
+        && grep -qiE 'phase3.* = 백엔드' "$PRC" 2>/dev/null \
+        || { echo "  ✗ 분해공식: PROCESS.md phase 순서(환경설정/프론트/백엔드) 발산"; canon_ok=0; }
+    # reviewer 필수 (anti-drift: optional 로 돌아가면 reviewer 가 안 불린다 — 핵심 설계)
+    grep -qE 'reviewer 호출 필수' "$PRC" 2>/dev/null \
+        || { echo "  ✗ reviewer: PROCESS.md 에 'reviewer 호출 필수' 부재 (optional 드리프트)"; canon_ok=0; }
+    grep -qE '\[review\]' "$PLN" 2>/dev/null \
+        || { echo "  ✗ reviewer: planner.md 에 [review] task 백스톱 부재"; canon_ok=0; }
+    # code-quality contract — authority exists and the two operative gates consume it.
+    grep -qE 'improves or preserves code health' "$QLT" 2>/dev/null \
+        || { echo "  ✗ quality: CODE_QUALITY.md 핵심 계약 부재"; canon_ok=0; }
+    if ! { grep -qE 'Completion Evidence' "$DEV" 2>/dev/null \
+        && grep -qE 'Changed:' "$DEV" 2>/dev/null \
+        && grep -qE 'Tests:' "$DEV" 2>/dev/null \
+        && grep -qE 'Existing pattern followed:' "$DEV" 2>/dev/null \
+        && grep -qE 'Edge/risk considered:' "$DEV" 2>/dev/null \
+        && grep -qE 'Rollback:' "$DEV" 2>/dev/null; }; then
+        echo "  ✗ quality: developer.md 완료증거 5줄 게이트 부재"; canon_ok=0
+    fi
+    if ! { grep -qE 'Quality Classification Gate' "$REPO/plugins/cto/agents/reviewer.md" 2>/dev/null \
+        && grep -qE 'BLOCKER' "$REPO/plugins/cto/agents/reviewer.md" 2>/dev/null \
+        && grep -qE 'SHOULD' "$REPO/plugins/cto/agents/reviewer.md" 2>/dev/null \
+        && grep -qE 'NIT' "$REPO/plugins/cto/agents/reviewer.md" 2>/dev/null \
+        && grep -qE 'Approval requires' "$REPO/plugins/cto/agents/reviewer.md" 2>/dev/null; }; then
+        echo "  ✗ quality: reviewer.md BLOCKER/SHOULD/NIT 승인 게이트 부재"; canon_ok=0
+    fi
+
+    if [[ $canon_ok -eq 1 ]]; then echo "  ✓ RULE A/B + reviewer + quality 불변식 정합 (복사본 동기화 OK)"; else rc=1; fi
+
     echo "== doctor: $([[ $rc -eq 0 ]] && echo 'ALL CLEAN ✓' || echo 'FAIL ✗ (위 항목 수정 후 재실행)') =="
     return $rc
 }
@@ -921,9 +1017,87 @@ EOF
     exec claude
 }
 
+# 대시보드(웹 관리 콘솔) 기동/정지 — dev.sh 와 같은 detached up/down 패턴.
+# backend(uvicorn main:app, 127.0.0.1:8165) + frontend(vite, 0.0.0.0:8166, /api 프록시).
+cmd_dashboard() {
+    local action="${1:-up}"
+    local d="$REPO/dashboard" pidf="$REPO/dashboard/.dash.pids"
+    case "$action" in
+        up)
+            [[ -f "$pidf" ]] && { echo "이미 실행중 — ./run.sh dashboard down 먼저"; return 1; }
+            [[ -d "$d/backend/.venv" ]] || { echo "error: dashboard/backend/.venv 없음 — install 먼저 (python -m venv + pip install -r requirements.txt)"; return 1; }
+            [[ -d "$d/frontend/node_modules" ]] || { echo "error: dashboard/frontend/node_modules 없음 — npm install 먼저"; return 1; }
+            mkdir -p "$d/.dash-logs"
+            setsid bash -c "cd '$d/backend' && source .venv/bin/activate && exec uvicorn main:app --host 127.0.0.1 --port 8165 --reload" >"$d/.dash-logs/backend.log" 2>&1 & echo $! >>"$pidf"
+            setsid bash -c "cd '$d/frontend' && exec npm run dev" >"$d/.dash-logs/frontend.log" 2>&1 & echo $! >>"$pidf"
+            echo "dashboard up — backend :8165, frontend :8166 (logs: dashboard/.dash-logs/)"
+            if [[ -n "${DASH_TOKEN:-}" ]]; then
+                echo "  제어 토큰 활성 (DASH_TOKEN 설정됨) — 웹에서 같은 토큰 입력 시 mutation 가능"
+            else
+                echo "  ⚠ DASH_TOKEN 미설정 → 제어 버튼(세션/dev/docker) 비활성(503). 활성화: DASH_TOKEN=<비밀> ./run.sh dashboard up"
+            fi
+            ;;
+        down)
+            [[ -f "$pidf" ]] || { echo "not running"; return 0; }
+            while read -r pid; do kill -- "-$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true; done <"$pidf"
+            rm -f "$pidf"; echo "dashboard down"
+            ;;
+        *) echo "usage: ./run.sh dashboard up|down" >&2; return 1 ;;
+    esac
+}
+
+# git-listup — 대상 dir 의 git repo 에서 .gitignore 를 반영해 "업로드될 최상위
+# 목록"을 출력. 업로드 대상 = tracked(디스크 존재) ∪ untracked-not-ignored.
+# 삭제됐지만 tracked 인 파일은 제외(커밋하면 삭제로 기록되므로 repo 에 안 남음).
+# harness 루트뿐 아니라 각 프로젝트/모듈 dir 에서도 동작 (그 repo 의 .gitignore 기준).
+cmd_git_listup() {
+    local arg="${1:-.}" target
+    # bare name(슬래시 없음·'.' 아님) = 빌드 dir 이름 → claude-project/·modules/ 스캔
+    # (add-cto 와 동일 resolve; 둘 다면 모호 에러). 경로/'.' 는 그대로.
+    if [[ "$arg" == "." || "$arg" == */* || "$arg" == /* ]]; then
+        target="$arg"
+    else
+        local hits=()
+        [[ -d "$REPO/claude-project/$arg" ]] && hits+=("$REPO/claude-project/$arg")
+        [[ -d "$REPO/modules/$arg" ]] && hits+=("$REPO/modules/$arg")
+        if [[ ${#hits[@]} -eq 0 ]]; then
+            echo "error: '$arg' — claude-project/·modules/ 둘 다 없음 (경로 직접 지정도 가능)" >&2; return 1
+        elif [[ ${#hits[@]} -gt 1 ]]; then
+            echo "error: '$arg' 가 claude-project/ 와 modules/ 양쪽 존재 — 전체 경로로 지정" >&2; return 1
+        fi
+        target="${hits[0]}"
+    fi
+    [[ -d "$target" ]] || { echo "error: 디렉토리 없음: $target" >&2; return 1; }
+    (
+        cd "$target" || exit 1
+        git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+            || { echo "error: git repo 아님 ($target) — 'git init' 먼저" >&2; exit 1; }
+        # 업로드 대상 파일 목록 (디스크 존재하는 것만 — 삭제 tracked 제외)
+        local files
+        files=$( { git ls-files; git ls-files --others --exclude-standard; } 2>/dev/null \
+                 | sort -u | while IFS= read -r f; do [[ -e "$f" ]] && printf '%s\n' "$f"; done )
+        echo "● 업로드 최상위 목록 ($(pwd))"
+        echo
+        echo "파일:"
+        printf '%s\n' "$files" | awk -F/ 'NF==1 && $0!=""' | sed 's/^/  - /'
+        echo
+        echo "디렉토리:"
+        printf '%s\n' "$files" | awk -F/ 'NF>1{print $1}' | sort -u | while IFS= read -r d; do
+            [[ -n "$d" ]] || continue
+            cnt=$(printf '%s\n' "$files" | awk -F/ -v D="$d" '$1==D' | grep -c . || true)
+            other=$(printf '%s\n' "$files" | awk -F/ -v D="$d" '$1==D' | grep -vc '/\.gitkeep$' || true)
+            if [[ "$other" -eq 0 ]]; then
+                echo "  - $d/ (.gitkeep만 — 빈 폴더 유지)"
+            else
+                echo "  - $d/ ($cnt 파일)"
+            fi
+        done
+    )
+}
+
 print_usage() {
     cat <<'EOF'
-harness-claude — multi-agent control script (정본: plans/harness.md)
+harness-claude — multi-agent control script
 
 mental model:
   claude = process (one CEO or one CTO brain)
@@ -932,22 +1106,23 @@ mental model:
 
 ── 세션 기동 ──
   ./run.sh ceo                                     # CEO 활성화 (이 터미널에서)
-  ./run.sh add-cto claude-project/<name>/plan.md   # 프로젝트 빌드 CTO
-  ./run.sh add-cto modules/<name>/plan.md          # 모듈 빌드 CTO
-      # plan.md 경로가 유일 인자 — 부모 dir=빌드타입, dir명=CTO 이름.
+  ./run.sh add-cto <name>                          # CTO 추가 (<name> 스캔 resolve; 경로형도 가능)
+      # <name> = CEO 가 만든 빌드 dir 이름 → claude-project/·modules/ 중 하나로 resolve (둘 다면 에러).
+      # 경로 직접: add-cto claude-project/<name>/plan.md | modules/<name>/plan.md
       # plan.md 없으면 스폰 실패 (1단계: CEO 창에서 /build-project | /build-module)
-  ./run.sh attach cto-<name>                       # tmux attach 동일
+  ./run.sh attach-cto <name>                       # tmux attach (= attach cto-<name>)
   ./run.sh split-cto <name>                        # teammate 를 각자 tmux pane 으로 분리 (재기동; 되돌리기=add-cto)
 
 ── 조회 ──
   ./run.sh ls                                      # 세션 목록
   ./run.sh ports                                   # 포트 레지스트리 (docs/PORT.md)
   ./run.sh schema [<name>]                         # DB 스키마 현황 (테이블·컬럼, 읽기전용)
+  ./run.sh git-listup [<name>|<dir>]               # 업로드될 최상위 목록 (.gitignore 반영). name=빌드dir 스캔(tunnel→claude-project/tunnel), 기본=현재 dir
   ./run.sh help
 
 ── 종료/삭제 ──
   ./run.sh down                  # 전 세션 kill + dev서버/워커 프로세스 + docker compose 컨테이너 정리
-  ./run.sh stop-cto <name>       # 한 CTO 정지 (작업 보존 — 세션+프로세스+compose 컨테이너, dir/specs/포트/볼륨 유지). 재개: add-cto
+  ./run.sh stop-cto <name>       # 한 CTO 세션만 정지 (backend/frontend/compose/dir/specs/포트 모두 유지). 재개: add-cto
   ./run.sh delete-cto <name>     # CTO 완전 삭제 (세션+프로세스+compose 컨테이너+dir+sqlite+로그; 볼륨/이미지 보존)
   ./run.sh delete-cto --all
 
@@ -959,7 +1134,14 @@ mental model:
   ./run.sh doctor                # 정합 검사 (하네스 수정 후 무조건)
   ./run.sh smoke                 # 결정론 스모크 (tests/smoke.sh)
 
+── 대시보드 (웹 관리 콘솔) ──
+  ./run.sh dashboard up          # backend :8165 + frontend :8166 기동 (detached)
+  ./run.sh dashboard down        # 종료 (아무 터미널에서나)
+      # 최초 1회 install: dashboard/frontend `npm install`,
+      #   dashboard/backend `python -m venv .venv && .venv/bin/pip install -r requirements.txt`
+
 note: ./run.sh down does NOT kill CEO — CEO is in your shell.
+note: 빌드별 dev 서버는 각 빌드 dir 의 ./dev.sh up|down (run.sh 아님).
 EOF
 }
 
@@ -977,9 +1159,12 @@ case "${1:-}" in
     ls)        cmd_ls ;;
     down)      cmd_down ;;
     attach)    shift; cmd_attach "$@" ;;
+    attach-cto) shift; cmd_attach "cto-${1:?usage: $0 attach-cto <name>}" ;;
     doctor)    cmd_doctor ;;
     smoke)     bash "$REPO/tests/smoke.sh" ;;
     schema)    shift; python3 "$REPO/harness/schema_scan.py" "$@" ;;
+    dashboard) shift; cmd_dashboard "$@" ;;
+    git-listup) shift; cmd_git_listup "$@" ;;
     observe)   echo "observe 는 폐기됨 — CEO/CTO 터미널 독립 운영. ./run.sh attach cto-<name> 사용." >&2; exit 1 ;;
     -h|--help|help) print_usage ;;
     *) echo "unknown command: $1" >&2; print_usage >&2; exit 1 ;;

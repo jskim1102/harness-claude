@@ -22,9 +22,9 @@ phase/ckpt 분해는 하지 않는다 (CTO 몫). codex 호출 없음.
 
 1. **brainstorming (고정 스킬)** — `<brief>` 를 사용자와 정렬:
    - 축2 (target): `new` | `extend:<기존>` — 추론 + **사용자 확인**
-   - 축3 (source): `scratch` | `modules:[slug…]` | `extract:[프로젝트/기능…]` | 조합 — 추론 + **사용자 확인**
+   - 축3 (source): `scratch` | `modules:[slug…]` | `extract:[프로젝트/기능…]` | 조합(여럿이면 `+` 나열: `modules:[x] + extract:[y/기능]`) — 추론 + **사용자 확인**
    - **재사용 경계 + 계약 요점** (무엇을 노출하나, 입출력) 을 brief 에서 끌어낸다.
-   - `<name>` (kebab-case) 확정.
+   - `<name>` (kebab-case) — **CEO 제안 → 사용자 승인 후 확정** (dir 생성 전).
 
 2. **Library Check (고정 동작, fail-closed)** — `modules/*/specs/USAGE.md` 스캔.
    같은/비슷한 모듈이 이미 있으면 `reuse:<slug> (이유)` (= 기존 모듈 확장이
@@ -33,7 +33,6 @@ phase/ckpt 분해는 하지 않는다 (CTO 몫). codex 호출 없음.
 3. **조건부 고정 (축3 source ≠ scratch — 자동 선택)**:
    - 재료가 코드면 → `understand-anything` (extract 면 파일 수준 위치까지 ## 3 기록.
      라인 수준 코드 추출은 CTO/planner 몫 — planner 가 원본 직접 읽어 `From:` 로 박음)
-   - 외부 조사 필요하면 → `deep-research`
    - git URL 소스는 `./run.sh fetch <url>` 선행. 소스 read-only.
 
 4. **plan.md 작성** — `modules/<name>/` 디렉토리를 만들며 작성:
@@ -54,14 +53,20 @@ phase/ckpt 분해는 하지 않는다 (CTO 몫). codex 호출 없음.
    ```
    plan 확정: modules/<name>/plan.md
    다음 — 새 터미널에서:
-     ./run.sh add-cto modules/<name>/plan.md     # 세션만 — 분해 자동 시작 X
+     ./run.sh add-cto <name>                     # 세션만 — 분해 자동 시작 X
      ./run.sh attach cto-<name>
    세션 안에서: /model · /effort 설정 → /start-project (분해 시작)
    ```
 
-## 유동 스킬 (필요 판단 시)
+## 유동 스킬 (사용자 요청 시)
 
-- `office-hours` / `grill-me` / `deep-research`
+- `grill-me` — 사용자가 plan 을 더 압박하고 싶을 때 (user opt-in)
+
+## deep-research (제안 게이트 — 사용자 승인 시만)
+
+CEO 자율 실행 X. 외부 사실이 없으면 *지금* 못 닫는 plan 필드(Goal/Constraints/축2·축3)가
+있을 때만 사용자에게 제안 → 승인 시 실행 (규제·표준 / 기술 실현가능성 / 외부 의존 스펙).
+미룰 수 있으면 `## 6 Open Questions` 로 (CTO 조사).
 
 ## Boundaries
 

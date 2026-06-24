@@ -1,7 +1,7 @@
 # LATER.md — 나중에 고민할 것
 
 > 미해결 항목만 유지. 완료 항목은 삭제 (이력은 git/세션 기록).
-> 마지막 정리: 2026-06-12 (재설계 후 — 정본 `plans/harness.md`).
+> 마지막 정리: 2026-06-12 (재설계 후).
 
 ## Sub-agent 메모리 활성화 (미정)
 
@@ -64,7 +64,9 @@ multi-pane teammate render 가 곧 나올 가능성 (있으면 무의미).
 
 git(1)·파일삭제(2)·DB파괴(4) 는 **2026-06-12 `hooks/git_guard.py` 로 승격
 완료** (PreToolUse Bash 가드, CEO/CTO 양쪽 배선, HARNESS_USER_OK 마커 통로,
-smoke 10케이스). 남은 후보:
+smoke 10케이스). docker build/compose(§13) 는 **2026-06-24 승격 완료**
+(`docker build`/`compose build`/`--build` up/서비스 미지정 bare up 차단, 예외 ②
+이미지전용 서비스 named up 통과, `HARNESS_USER_OK=docker` 마커). 남은 후보:
 
 | 카테고리 | 패턴 | 비고 |
 |---|---|---|
@@ -84,6 +86,17 @@ smoke 10케이스). 남은 후보:
 선언" 시점만 잡을 방법 ② segment dispatch 직전 1회 검사로 충분한가.
 
 ---
+
+## dashboard 인증 — interim 완료, 풀 로그인 남음 (2026-06-24)
+
+**interim 보호 적용됨** (2026-06-24):
+- mutation 4종에 토큰 게이트 — `Depends(require_token)` + `DASH_TOKEN` env +
+  `X-Dash-Token` 헤더 `secrets.compare_digest`. 미설정 = fail-closed(503).
+- CORS `*` → `DASH_ORIGINS` env 화이트리스트(기본 cross-origin 차단).
+- backend 127.0.0.1 loopback bind 유지. frontend localStorage 토큰 + 1회 prompt.
+
+**남은 것 (풀 로그인)**: 토큰 1개 공유는 임시 — 사용자 계정/세션 로그인 UI,
+토큰 rotation, GET 현황도 인증할지 결정. 지금은 mutation 만 게이트(GET 열림).
 
 ## 기타 v2 후보 (낮은 우선순위)
 
@@ -171,3 +184,33 @@ kebab 인자(`codex-review`)는 `shell=False` 헬퍼로 차단, 자유텍스트
 
 **결정기준:** ① UX(한 줄 호출) 손상 정도 ② 헬퍼 stdin vs 파일-채널
 ③ `$ARGUMENTS` 쓰는 다른 커맨드 일괄 스윕 여부.
+
+## 스트리밍 모듈 backend path self-heal (mediamtx 사고 — 근본 fix)
+
+**갭:** backend 가 mediamtx 동적 path 를 **startup·카메라등록 때만** 등록. mediamtx 가
+재시작/재생성되면(예: `compose up -d mediamtx`) path 소멸 → backend 재싱크 안 함 → 스트림
+조용히 죽음. 2026-06-22 cam-distance 사고. **rtsp-streaming 원본 모듈에도 동일 버그.**
+
+**fix:** backend self-heal — path-miss 감지 시 자동 재등록(WHEP 접근 lazy re-register, 또는
+mediamtx 재연결 감지 재싱크). 서비스 독립 재시작에 견디게. **cam-distance 는 CTO 에 finding
+발행(id=…); rtsp-streaming 은 활성 CTO 없어 여기 기록 — 다음 빌드/유지보수 때 적용.**
+
+## 게이트 런타임 상태 결정론 검증 (위 사고 백스톱)
+
+**갭:** 완료 게이트가 `compose config -q`·`/health 200`·포트설정 부품체크만 하고 **핵심기능
+실제 동작(런타임 cross-service 상태)** 은 기계 검증 안 함. PROCESS 에 "상태형 의존 재기동 후
+재싱크+실검증" 규칙은 박았으나(advisory) 결정론 강제는 아직.
+
+**fix (queue):** 스트리밍류 완료 게이트에 "카메라별 path ready + 실제 재생" 기계 검증 훅.
+**결정기준:** ① 모듈별이라 일반 훅화 어려움 ② 위 self-heal 적용되면 ROI 낮음(최후 그물).
+
+## 하네스 웹 관리 UI — 관리액션 (v2, 읽기전용 대시보드 다음)
+
+v1 = **읽기전용 현황 대시보드** (모듈/프로젝트 목록: 이름·타입(모듈/프로젝트)·완성여부(USAGE.md)
+·CTO 활성·포트셋·compose 상태·DB 엔진. 데이터원 = `harness list`/`docs/PORT.md`/dirs).
+**v2 = 관리액션** 웹에서 직접:
+- `add-cto`(스폰) · `stop-cto`/`delete-cto` · `msg-cto`/`msg-ceo` · `ports` 재생성 · `start-project` 트리거.
+
+**결정기준:** ① 웹에서 **비가역·destructive 액션**(delete-cto/`down`/볼륨)은 권한·확인 게이트 필수 —
+RULES/git_guard 와 동일 안전선을 웹 경로에도 결정론 적용 ② 인증(auth-service 모듈 재사용?)
+③ 실시간 상태(WebSocket/폴링) — CTO 활성·compose 상태가 수시 변함.
