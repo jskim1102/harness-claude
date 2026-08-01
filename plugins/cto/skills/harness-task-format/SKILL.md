@@ -1,6 +1,6 @@
 ---
 name: harness-task-format
-description: Use when about to write `tasks.md` under `specs/`, about to call `TaskCreate` / `TaskUpdate` with a new subject line, when the `TaskCreated` hook has just rolled back a task creation and you need to diagnose the format violation, when the planner is finalizing `tasks.md` before handoff to designer or developer, or when reviewer FAIL output is being converted into a fresh group of `[dev]` fix tasks. Any time a line of the shape `[role] verb what | files | acceptance. Run: cmd` is being authored — or any time a teammate is staring at a "Task #N rejected by format check" message — this skill applies.
+description: Use when about to write `tasks.md` under `specs/`, about to call `TaskCreate` / `TaskUpdate` with a new subject line, when the `TaskCreated` hook has just rolled back a task creation and you need to diagnose the format violation, when the planner is finalizing `tasks.md` before handoff to the designer or external Codex developer, or when reviewer FAIL output is being converted into a fresh group of `[dev]` fix tasks. Any time a line of the shape `[role] verb what | files | acceptance. Run: cmd` is being authored — or any time a teammate is staring at a "Task #N rejected by format check" message — this skill applies.
 ---
 
 # harness-task-format
@@ -44,6 +44,12 @@ worked examples.
   check at completion time. Use for docs-only tasks where there is
   nothing runnable. Prefer a real `Run:` whenever possible — even
   `ls some/dir` or `--dry-run` is better than skipping.
+  **Exception — `[review]` tasks: `[skip-verify]` is IGNORED.** The
+  completion-gate hook does not honor it on a `[review]` task (a model
+  must not be able to self-waive mandatory review evidence by typing a
+  token). The ONLY way to waive review for a segment is a per-segment
+  waiver FILE the CTO writes when the user said "검토 필요없음":
+  `~/.harness-claude/review-waivers/<team>/task-<id>.waiver`.
 
 The two tokens are different gates (creation vs. completion) and are
 not interchangeable. Details in `references/bypass-tokens.md`.
@@ -191,11 +197,15 @@ unambiguously-runnable-nothing case.
 
 ### 6. Tasks in the same parallel group must not write to the same file
 
-Group structure exists so multiple teammates work in parallel. Two
-tasks in one group editing the same file = silent overwrites — whoever
-saves last wins, the other's work is gone, and the reviewer has no
-easy way to detect it because each task individually "passed" its
-verification.
+Group structure exists so one owner (the external Codex developer or one
+Claude reviewer) can fan independent work out internally when supported.
+Claude subagents create no additional visible team splits. Two tasks in one group
+editing the same file = concurrent workers owned by that actor
+silently overwriting each other — whoever saves last wins, the other's
+work is gone, and the reviewer has no easy way to detect it because
+each task individually "passed" its verification. The single owner
+owns collision-safety across its workers: keep same-file
+tasks out of one parallel group.
 
 Before locking a group, scan the `<file paths>` slot of every task in
 it. If two tasks list the same path, split them into sequential groups
@@ -218,10 +228,13 @@ phase2=프론트엔드[디자인·extract 전부], phase3+=백엔드·로직·gl
 The ckpt ID (`phaseN.ckptN`) is a **convention in the heading + the
 task's slot-2 free text** — the `TaskCreated` hook is unchanged (it
 only checks the role tag, ≥2 pipes, and `Run:`; ckpt IDs live in free
-text and pass as-is). A "group" (the parallel-dispatch, no-same-file
-unit above) is the leaf inside a ckpt. ckpt progress derives from
-nested done-box counts (완료 `[✅]`, 레거시 `[x]` 도) — no separate status
-file (cto_statusline 훅이 이 카운트로 현재 ckpt 를 표시한다 — 헤딩에
+text and pass as-is). A "group" (the unit a single role
+teammate fans out to its own Task subagents in parallel — no extra
+panes — no-same-file) is the leaf inside a ckpt. ckpt progress derives from
+nested done-box counts. **체크박스 마커 정본**: 완료 `[✅]`(초록 체크) · 미완 `[ ]` ·
+블로커 `[❓]`(박스 안 물음표). 완료는 반드시 `[✅]`, 블로커는 반드시 `[❓]` 로 쓴다 —
+레거시 `[x]`(완료)·`[!]`(블로커) 도 인식하나 **신규 작성 금지**. 별도 status
+file 없음 (cto_statusline 훅이 이 카운트로 현재 ckpt 를 표시한다 — 헤딩에
 status box 를 두지 마라). The
 segment loop (PROCESS.md §3) dispatches a `phaseN.ckptN~phaseM.ckptM`
 range, so **never renumber a ckpt ID after a segment may reference it.**
@@ -286,11 +299,11 @@ check whether the spec itself captured everything the user wanted
 - `${CLAUDE_SKILL_DIR}/scripts/validate_task_line.sh` — mirrors the hook
   regex. Pipe a candidate line on stdin (or pass as argv), exits 0 if
   valid, non-zero with a specific message on stderr otherwise.
-- `${CLAUDE_SKILL_DIR}/scripts/scan_spec_coverage.sh` — advisory G1 completeness check
+- `${CLAUDE_SKILL_DIR}/scripts/scan_spec_coverage.sh` — 커버리지 완전성 검사
   (fail-closed gate input). Compares `spec.md` `## Features` `[F<n>]` labels
   against `tasks.md` ckpt-heading `← F<n>` refs; prints omissions and
-  stray refs. Exit 0 clean / 1 omission-or-stray / 2 usage. Advisory
-  only — the reviewer's 8th step makes the FAIL call; NOT a hook.
+  stray refs. Exit 0 clean / 1 omission-or-stray / 2 usage. The planner runs it
+  after decomposition and a nonzero exit blocks handoff; NOT a hook.
 
 ## On-demand hook hint
 

@@ -1,54 +1,95 @@
 # Agent Team Protocol
 
-Shared protocol for all agent team teammates inside a CTO session. The team
-lead is the CTO (the parent Claude Code session); all other agents are
-teammates. This file is loaded as a global rule for every session — every
-teammate inherits it as priming, no `Skill` invocation required.
+Shared protocol for the two Claude teammates inside a CTO session. The team
+lead is the parent Claude Code session. The external Codex developer is a
+separate Orca tab, not a Claude teammate.
 
 ## Roles & Tags
 
-| Teammate    | Role tag    | Activity                    |
-| :---------- | :---------- | :-------------------------- |
-| `planner`   | `[plan]`    | Plan phase (phase/ckpt)     |
-| `designer`  | `[design]`  | Design phase (UI templates) |
-| `developer` | `[dev]`     | Build phase (code)          |
-| `reviewer`  | `[review]`  | Build phase (parallel QA)   |
+| Actor             | Role tag   | Activity |
+| :---------------- | :--------- | :------- |
+| Claude `planner`  | `[plan]`   | Plan phase (phase/ckpt) |
+| designer-cto (독립 세션) | `[design]` | Mockups and design contract; no production source. NOT a teammate — reach via `harness send --to designer-cto:<name>` (2026-07-29 분리) |
+| Codex developer   | `[dev]`    | Frontend/backend production code |
+| Claude `reviewer` | `[review]` | Independent API/DB/code verification |
 
-The CTO (team lead) authors and tags tasks; teammates self-claim by role.
+The CTO authors and tags tasks. Claude teammates self-claim through Agent Team
+tools. Codex works only on the segment explicitly handed to its TUI.
+
+## Team Composition
+
+The Claude team is EXACTLY two teammates: planner, reviewer. They
+spawn in that order with teammateMode in-process. NEVER spawn a Claude developer,
+a Claude designer, a second same-role teammate, or a third Claude teammate. Result in the Claude
+Project tab: lead + skill activity; teammates remain in-process and are selected
+from the lead view. The separate `codex-cto-<name>` Orca tab is the sole developer.
 
 ## Teammate Lifecycle
+
+The following lifecycle applies to Claude teammates only:
 
 1. Receive delegation via `SendMessage` from the CTO with spec path and task
    assignments.
 2. Read `specs/spec.md` + `specs/tasks.md` before any work (plan.md 는
    CEO 의도 컨텍스트 — 읽기 전용).
-3. Claim tasks via `TaskUpdate(owner=<self>, status=in_progress)`; respect
-   `blockedBy` ordering. Blocked tasks auto-unblock when dependencies complete.
+3. Announce the task you are starting to the CTO via `SendMessage`; respect
+   `blockedBy` ordering stated in your assignment.
 4. Implement exactly what the task describes. Do not silently expand scope.
-5. Self-verify (see Verification Gate below), then mark `completed` via
-   `TaskUpdate`.
-6. Update `specs/tasks.md` with `[x]` and a `> Done. <summary>` note.
-7. Notify the CTO via `SendMessage`. After finishing, self-claim any
-   unclaimed task tagged with your role.
+5. Self-verify (see Verification Gate below).
+6. Update `specs/tasks.md` with `[✅]` and a `> Done. <summary>` note.
+   (Reviewer excepted — it holds `disallowedTools: Write, Edit` and reports
+   its verdict by message only.)
+7. Notify the CTO via `SendMessage`. After finishing, ask the CTO for the
+   next unclaimed task tagged with your role.
+
+**You do not call `TaskUpdate` / `TaskList` / `TaskGet`.** Those tools are not
+propagated to sub-agents (verified by live spawn — they are absent from the
+sub-agent tool set and cannot be granted via frontmatter), so the CTO performs
+every task-store transition on your behalf from your `SendMessage`. This is the
+designed path, not a workaround.
+
+Codex does not receive `SendMessage` or use Claude `TaskUpdate`. The paired
+`cto:<name> → codex-cto:<same-name>` inbox bridge transports the approved
+`[dev]` scope and context to the attached Codex developer — it does NOT bypass
+user approval or the inbox same-turn isolation gate (RULES §6); the user still
+authorizes the segment in the next Codex turn. Codex reads the shared specs,
+updates `[dev]` checkbox state, runs verification, and reports evidence back
+through the reverse inbox. The CTO must not claim a Codex dispatch or completion
+without observing those artifacts.
 
 ## Communication Rules
 
-- **Direct to teammates**: interface clarifications, dependency questions,
-  sharing outputs they need (developer ↔ designer on UI contracts;
-  developer ↔ reviewer on test fixtures).
+- **Direct between Claude teammates**: interface clarifications, dependency
+  questions, and review/design context. Address a teammate by its name
+  (`planner` / `reviewer`); a dormant teammate wakes on receipt.
+- **`reviewer` → `planner` (계획 정합성 판정)**: the one *required* peer route.
+  A finding that falls outside the ckpt's acceptance criteria, or that
+  contradicts the plan, goes to `planner` for a 3-way ruling
+  (계획누락 / 의도된선택 / 새요구사항) **before** it can appear as a
+  BLOCKER/SHOULD in the verdict. Details: `reviewer.md` §계획 정합성 판정,
+  `planner.md` §계획 정합성 판정. The CTO must not turn an unadjudicated
+  out-of-scope finding into a `[dev]` fix task.
+- **Codex handoff**: deliver design contracts, review findings, and approved
+  `[dev]` ranges through the paired `cto:<name> → codex-cto:<name>` inbox
+  bridge. The bridge transports context only — user approval and the inbox
+  same-turn gate (RULES §6) still gate the actual dispatch.
 - **To the CTO (lead)**: blockers needing a decision, completion reports,
   scope/spec questions, sub-agent → user escalations.
-- Tools: `SendMessage` (any teammate), `TaskUpdate` (claim/complete),
-  `TaskList` / `TaskGet` (status).
+- **응답 채널 (필수)**: 메시지를 받았으면 응답은 반드시 `SendMessage` 로
+  보낸다. 평문 텍스트만 출력하면 **아무에게도 전달되지 않는다** — 발신자는
+  idle 알림만 보고 "무응답"으로 오인한다 (2026-07-29 reviewer 실사례:
+  "안녕"을 평문으로 3회 출력, lead 미수신).
+- Claude tools: `SendMessage` (Claude teammates only) — task-store tools
+  (`TaskUpdate` / `TaskList` / `TaskGet`) are lead-only; see Teammate Lifecycle.
 
 ## Completion Reporting
 
-Update all three and notify:
+Do both and notify:
 
-1. `TaskUpdate` → `completed`.
-2. In `specs/tasks.md`: `- [x] [role] description` with a `> Done. <summary>` note.
-3. `SendMessage` to the CTO **and** to any teammate that depends on your
-   output.
+1. In `specs/tasks.md`: `- [✅] [role] description` with a `> Done. <summary>`
+   note. (Reviewer excepted — no write tools; its verdict travels by message.)
+2. `SendMessage` to the CTO **and** to any teammate that depends on your
+   output. The CTO closes the task in the task store on your behalf.
 
 ## Tagged Memory Blocks (Teammate → CTO → spec memory)
 
@@ -94,7 +135,7 @@ never executed):
   flagged (`[conflict?]`), never overwritten. Filing is append-only; the CTO
   never edits a teammate's prior entry.
 - Each appended line is prefixed with the source teammate and task id, e.g.
-  `- [dev #7] chose Postgres over SQLite — needs concurrent writers`.
+  `- [design #7] chose a dense table over cards — repeated operator workflow`.
 
 This is the deliberate counterpart to the auto-accumulator: the hook
 captures mechanical env/build facts with no teammate action; tagged blocks
@@ -102,7 +143,7 @@ carry the *judgment* facts a hook cannot infer.
 
 ## Blocker Reporting
 
-Mark `[!]` in `tasks.md` with specific blocker details. `SendMessage` to
+Mark `[❓]` in `tasks.md` with specific blocker details. `SendMessage` to
 the CTO. If the same blocker persists after two attempts, the CTO escalates
 to the user.
 
@@ -114,9 +155,9 @@ Before marking ANY task complete:
 2. Confirm interface/output contracts match the task spec exactly.
 3. Confirm you only modified files listed in your task assignment.
 4. **Write the verification sentinel** (machine-enforced — see below), then
-   `TaskUpdate → completed`.
+   report completion to the CTO.
 
-If verification fails and you can't fix it within scope, mark `[!]` with
+If verification fails and you can't fix it within scope, mark `[❓]` with
 the specific failure.
 
 ## Enforced Hooks (Automated Guardrails)
@@ -140,8 +181,8 @@ A task **cannot be marked complete** unless (a) it carries a `Run:`
 command, and (b) the owning teammate wrote a **verification sentinel**
 after that command passed. The hook cannot see your transcript, so the
 sentinel is your attestation that you actually ran verification. After
-your `Run:` command passes, and immediately before
-`TaskUpdate → completed`:
+your `Run:` command passes, and immediately before you report completion
+(the CTO's proxied `TaskUpdate → completed` is what the hook gates):
 
 ```bash
 mkdir -p ~/.claude/logs/verified/<team>
@@ -153,14 +194,17 @@ consumed (deleted) on a successful completion, so it cannot be reused.
 
 - **Bypass** (docs-only / pure-research tasks): include `[skip-verify]`
   in the task subject/description.
+  **`[review]` tasks 는 예외 — `[skip-verify]` 가 무시된다** (모델이
+  토큰으로 리뷰 증거를 self-waive 하는 걸 막기 위함). 면제는 tasks.md
+  밖의 per-segment waiver 파일로만 가능하다:
+  `~/.harness-claude/review-waivers/<team>/task-<id>.waiver`.
 
 ### 3. Idle work-check (`TeammateIdle`)
 
 Before you go idle, the hook checks the task store for **unclaimed,
 unblocked tasks tagged with your role**. If any exist, you are kept
-working and nudged to either claim one
-(`TaskUpdate(owner=<you>, status=in_progress)`) or confirm to the CTO
-you're genuinely done. After 2 nudges for the same task set it lets
+working and nudged to either ask the CTO to assign one to you or confirm
+to the CTO you're genuinely done. After 2 nudges for the same task set it lets
 you idle (loop-safe). This enforces the lifecycle step "self-claim
 unclaimed tasks for your role."
 
@@ -172,10 +216,10 @@ unclaimed tasks for your role."
   acceptance criteria.
 - **Out-of-scope issues**: note in completion report; don't fix
   silently. The CTO decides whether to create a new task.
-- **Conflicting requirements**: mark `[!]`, never silently pick one
+- **Conflicting requirements**: mark `[❓]`, never silently pick one
   interpretation.
 - **Dependency on another teammate**: `SendMessage` to them directly,
-  then `[!]` if not ready.
+  then `[❓]` if not ready.
 
 ## Unknowns Stay Unknown (Anti-Hallucination)
 

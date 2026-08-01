@@ -1,0 +1,36 @@
+# run.sh 서브커맨드 정본 (RULES §15 — 하네스 공개 표면은 사용자 소유).
+#
+# tests/smoke.sh 가 run.sh 의 dispatch case 에서 실제 명령어 집합을 추출해 이 파일과
+# 대조한다. 명령어를 늘리거나 줄이면 스모크가 깨진다. 그게 의도다 —
+# **이 파일을 고치는 행위 자체가 "지금 사용자 CLI 표면을 바꾸는 중" 이라는 자각 지점**이다.
+# 사용자 승인 없이 여기를 고치면 RULES §15 위반.
+#
+# 형식: 한 줄에 하나, 정렬됨. `-h`/`--help`/`help` 같은 별칭도 포함.
+--help
+-h
+add-cto
+attach
+attach-codex-cto
+attach-designer-cto
+attach-cto
+ceo
+dashboard
+delete-cto
+doctor
+down
+fetch
+fetch-source
+git-listup
+help
+install-services
+ls
+netbind
+observe
+ports
+prune-ghosts
+regress
+schema
+smoke
+stop-ceo
+stop-cto
+test-cto

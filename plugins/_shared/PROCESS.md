@@ -6,6 +6,11 @@
 
 > 모드 legend: 🤚 사용자 확인 · 🤖 goal 기반 autopilot · ⚙️ 자체 리뷰
 
+> 역할 legend: Claude Agent Team = planner/reviewer 2명. `designer`는 독립
+> designer-cto 세션(2026-07-29 분리, `harness send --to designer-cto:<name>`
+> 발주 — 사용자 직접 대화도 가능). `developer`는
+> 별도 `codex-cto-<name>` 세션의 Codex이며 Claude teammate가 아니다.
+
 ## 0. 모듈 vs 프로젝트 (가장 먼저 — 내가 뭘 짓고 있는가)
 
 - **모듈** = 여러 프로젝트에 재사용되는 기능 단위. 그 자체가 산출물.
@@ -28,34 +33,58 @@ plan.md 의 3축 선언을 그대로 따른다:
 | 1 Plan 작성 | CEO ↔ 사용자 | `/build-project`·`/build-module <brief>` → `<빌드dir>/plan.md` (3축 + Library Check) | 🤚 plan 확정 |
 | 1 Plan 검사 | CEO | plan.md 자체 점검 후 CTO로 | ⚙️ |
 | 2 스폰 | 사용자 | `./run.sh add-cto <name>` (plan.md 없으면 실패) | 🤚 |
-| 2 분해 | planner (CTO 경유) | plan.md → `specs/spec.md` + `specs/tasks.md` + 커버리지 기계검증 | ⚙️ |
+| 2 팀 대기 | CTO + planner/reviewer | 팀 spawn만 하고 대기; 업무는 명시적 CTO dispatch 후 시작 (designer/codex 탭은 add-cto 가 이미 준비) | 🤚 |
+| 3 분해 | planner (CTO 경유) | 명시적 dispatch 후 plan.md → `specs/spec.md` + `specs/tasks.md` | ⚙️ |
 | 3 구간지정 | 사용자 | `phaseN.ckptN~phaseM.ckptM` 지정 (= 분해 승인) | 🤚 |
-| 3 phase1 환경설정 | developer | 포트·백엔드 venv·프론트 scaffold+npm·Docker·dev.sh 준비 (실행 X) | 🤖 |
+| 3 phase1 환경설정 | Codex developer | 포트·백엔드 venv·프론트 scaffold+npm·Docker·dev.sh 준비 (실행 X) | 🤖 |
 | 3 게이트1 | 사용자 | 환경설정 확인 | 🤚 |
-| 3 phase2 프론트 디자인 | designer | 시스템→시안→HTML/CSS → 프론트 dev 서버 기동(`vite dev`; backend 는 phase3) | 🤖 |
-| 3 게이트2 | 사용자 ↔ designer/developer | 라이브 디자인 루프 → 승인 | 🤚 대화 반복 |
-| 3 phase3+ 빌드 | developer | `/goal` autopilot — dev 서버 상시 가동 (`compose up` 은 `"docker화 해"` 시만, RULES §13) | 🤖 |
+| 3 phase2 프론트 | designer-cto → Codex developer | CTO 가 inbox 로 designer 발주 → 시안 → 사용자가 Claude Design 캔버스에서 미세조정 → 계약 확정 → Codex가 실제 프론트 코드 구현 → dev 서버 기동 | 🤖 |
+| 3 게이트2 | 사용자 ↔ designer-cto/Codex | 라이브 디자인 루프 (Claude Design 캔버스 + 브라우저) → 승인 | 🤚 대화 반복 |
+| 3 phase3+ 빌드 | Codex developer | 프론트/백엔드 코드 구현 (`compose up` 은 `"docker화 해"` 시만, RULES §13) | 🤖 |
 | 3 자체 검증 | CTO → reviewer | **필수** API·DB·코드 검증 → 수정 → 보고 (사용자가 segment 지정 시 "검토 필요없음" 명시한 경우만 생략) | ⚙️ |
 | 3 게이트3 | 사용자 | 브라우저 실사용 테스트 → PASS=다음 segment | 🤚 |
 | 마감 (module 한정) | CTO | `specs/USAGE.md` 작성 = 재사용 가능 표시 | ⚙️ |
-| codex (옵션) | 사용자 → CEO | 사용자가 원할 때만 `/codex-review <name>` 또는 `/codex-protocol-review` | 🤚 |
+| Codex 독립리뷰 (옵션) | 사용자 → CEO | developer Codex와 별개로 `/codex-review <name>` 또는 `/codex-protocol-review` | 🤚 |
 
-- `[!]` 블로커 = 어느 단계든 goal 중단 → 사용자 surface
+- `[❓]` 블로커 = 어느 단계든 goal 중단 → 사용자 surface
 - 🤖 구간이라도 게이트1·2·3은 `/goal` 로 통과 불가 (RULES §8) — 게이트3(사용자 브라우저 실사용)도 CTO 자가 선언 불가
 
-## 2. 분해 (CTO — 스폰 직후)
+## 2. 팀 spawn 후 대기 / 명시적 dispatch
+
+`/start-project`는 planner/reviewer를 spawn하는 것만 수행한다. 이 턴에는
+plan.md, specs, tasks, phase, ckpt, segment를 읽거나 생성·검증하지 않는다. 세 팀원이
+준비되면 CTO는 사용자에게 상태만 보고하고 대기한다. 아래 분해 절차는 사용자가 CTO에게
+분해를 명시적으로 지시하고 CTO가 planner에게 dispatch한 뒤에만 시작한다.
+
+### 2.1 분해 (명시적 CTO dispatch 후)
 
 plan.md 읽고 전체 phase/ckpt 트리를 만든다 → `<빌드dir>/specs/spec.md` + `specs/tasks.md`.
 
 **분해 공식 (고정):**
-- phase1 = 환경설정 — 포트(offset→`.env`/`.env.example`/compose)·백엔드 venv+패키지·
+- phase1 = 환경설정 — 포트(offset→`.env`/`.env.example`/compose; self-host mediamtx 는
+  `MEDIAMTX_{API,RTSP,WEBRTC,ICE_UDP}_PORT`=base+`PORT_OFFSET`, base 9997/8554/8889/8189 —
+  backend/frontend 와 동일 offset 규칙, `run.sh add-cto` 가 자동 기록)·백엔드 venv+패키지·
   프론트 scaffold(vite 등)+`package.json`+`npm install`→node_modules·
   Docker pull·Dockerfile(+GPU 프로젝트면 Dockerfile-gpu)·`dev.sh`(호스트 러너 — venv+vite
-  detached `up`/`down`, compose `up -d`/`down` 짝). DB 쓰는 빌드면
+  detached `up`/`down`, compose `up -d`/`down` 짝)·`.gitignore`(**RULES §16** — 하네스
+  산출물 `.claude/`·`plan.md`·`specs/`·`DESIGN.md`·`.source*/`·`.env` 제외. `.gitignore` 는
+  이미 추적 중인 파일에 무효라 **첫 커밋 전이 유일하게 싼 시점**)·**크로스플랫폼 방어**(아래). DB 쓰는 빌드면
   migration 툴(alembic 등) 셋업 + plan 데이터모델 → **첫 migration** 작성
   (RULES §9). **작성·준비만, 컨테이너 실행 X**
+  - **크로스플랫폼(Mac/Ubuntu/Windows clone 어디서나 작동) — phase1 필수 산출물:**
+    - 프로젝트 루트 `.gitattributes`: `* text=auto eol=lf` + `*.sh text eol=lf`.
+      Windows `git autocrlf=true` 가 셸 스크립트를 CRLF 로 체크아웃하면 리눅스 컨테이너에서
+      shebang(`#!/…bash\r`)이 깨져 `no such file or directory` 로 entrypoint 사망한다
+      (rtsp-streaming 2026-07-16 Windows backend 크래시루프 = 이 방어 부재가 근인).
+    - 셸 entrypoint 를 `COPY`+`ENTRYPOINT` 하는 Dockerfile 은 빌드시 CR 제거
+      (`RUN sed -i 's/\r$//' docker-entrypoint.sh`) — .gitattributes 를 무시한 clone
+      에서도 이미지가 정상 복구되는 2중 방어. advisory 표준(RULES 하드룰 아님 — 파일 존재라
+      git_guard 결정론 강제 부적합).
 - phase2 = 프론트엔드 — **프론트 UI/디자인 산출물 전부 여기** (scaffold·deps 는 phase1; 디자인이든 extract든; module=단순 / project=화려).
-  extract 면 프론트 UI 추출(컴포넌트·훅·페이지)도 phase2 — 백엔드 없이도 dev 서버로 **레이아웃/시안 검수** 가능 (live 데이터는 백엔드 contract 기준 phase3+). **무조건 두 번째.**
+  designer-cto 세션은 시안·디자인 시스템·구현 계약을 `DESIGN.md`와 `specs/` 아래에
+  만들고 production source는 수정하지 않는다. 승인된 계약을 Codex developer가
+  `[dev]` task로 실제 프론트 소스에 구현한다. 모든 production 코드는 Codex 소유다.
+  extract 면 프론트 UI 추출(컴포넌트·훅·페이지)도 Codex의 `[dev]` task로 phase2에 둔다 — 백엔드 없이도 dev 서버로 **레이아웃/시안 검수** 가능 (live 데이터는 백엔드 contract 기준 phase3+). **무조건 두 번째.** phase2 **최종 ckpt = CTO의 프론트 dev 서버 기동 task**(`vite dev`, `0.0.0.0:FRONTEND_PORT`) — 이 기동을 phase3.ckpt1 로 미루는 것은 **분해 오류**(결정론 게이트 차단). phase3.ckpt1 의 풀스택 `./dev.sh up` 과 별개다.
   - **dev-form 단독 검수 경로 의무 (게이트2 전제)**: 핵심 UI 가 백엔드 데이터에 게이트되면(예: 목록 API 0행 → 진입버튼 없음 → 핵심 화면 도달불가) dev 서버 단독은 빈 껍데기가 된다. phase2 는 백엔드/compose 없이 **핵심 UI 전 경로**가 검수되도록 mock/local-state(예: dev-only `?mock` 가드)를 **내장**한다 — phase3 진입 시 제거. planner 는 이 검수경로를 phase2 ckpt **acceptance 에 명시**하고, CTO 는 게이트2 surface 전 dev-form 으로 핵심 UI 도달을 직접 확인한다.
 - phase3+ = 백엔드·로직·glue — 재료(축3) **백엔드** 벤더링/추출 → glue → API/로직/DB.
   **개발·검수는 dev 서버로 (RULES §13 — docker build/compose 는 사용자 명시 시만).** 백엔드
@@ -76,9 +105,12 @@ plan.md 읽고 전체 phase/ckpt 트리를 만든다 → `<빌드dir>/specs/spec
 ```markdown
 # Tasks: <name>           # specs/tasks.md
 ## phase1 — 환경설정
-### phase1.ckpt1 포트→.env/compose · 백엔드 venv · 프론트 scaffold+npm · Docker · Dockerfile · dev.sh
+### phase1.ckpt1 포트→.env/compose · 백엔드 venv · 프론트 scaffold+npm · Docker · Dockerfile · dev.sh · .gitattributes(eol=lf) · .gitignore(RULES §16)
 ## phase2 — 프론트엔드 디자인
-### phase2.ckpt1 <디자인 작업>
+### phase2.ckpt1 <시안·디자인 계약>
+- [ ] [design] <mockup/contract task>
+### phase2.ckpt2 <프론트 구현>
+- [ ] [dev] Codex: 승인 시안을 production frontend로 구현 | <files> | <acceptance>. Run: <cmd>
 ## phase3 — <개발...>
 ### phase3.ckpt1 <작업>  ← F1
 ```
@@ -107,7 +139,14 @@ plan.md 읽고 전체 phase/ckpt 트리를 만든다 → `<빌드dir>/specs/spec
 2. CTO : segment 실행. autopilot 이면 `/goal` 설정 —
    조건 = "범위 내 전 ckpt `[✅]` + 검증 증거 제시됨, or stop after N turns".
    증거(테스트 출력)는 반드시 대화에 표면화 (goal 평가자는 transcript 만 읽음).
-3. **phase1 끝** → 증거(docker ps·포트·헬스체크) 들고 🤚 게이트1 (환경설정 확인).
+   사용자 승인 뒤 CTO는 `[dev]` 범위를 same-name inbox
+   (`cto:<name> → codex-cto:<name>`)로 구조화해 전달한다. Codex는 inbox를 읽은
+   같은 턴에는 요약만 하고, 사용자가 Codex TUI의 다음 턴에서 명시 승인한 뒤
+   실행한다(RULES §6). 완료증거/blocker는 역방향 inbox로 회신한다. 이 bridge는
+   CEO나 다른 프로젝트로 연결하지 않으며 `SendMessage(developer)`도 쓰지 않는다.
+3. **phase1 끝** → 증거(docker ps·포트·헬스체크 + `./run.sh git-listup <name>` 출력 —
+   RULES §16 A 목록이 "올라감" 에 남아 있으면 그 자리에서 `.gitignore` 수정) 들고
+   🤚 게이트1 (환경설정 확인).
 4. **phase2 끝** → dev 서버(hot-reload, `FRONTEND_PORT`, **`0.0.0.0` 바인딩 — RULES §5.3, 127.0.0.1 금지**) 기동 → 🤚 게이트2
    **CTO 의무 — 모든 축 예외 없음**: phase2 프론트가 끝나면 **무조건** dev 서버를
    `0.0.0.0` 으로 띄우고, 아래 **4항목**을 사용자에게 제시하며 **"접속해 디자인 시안 확인해주세요"** 를 명시 요청한다:
@@ -129,19 +168,49 @@ plan.md 읽고 전체 phase/ckpt 트리를 만든다 → `<빌드dir>/specs/spec
    mock/local-state 를 phase2 에 내장한다(§2 분해공식 참조). 사용자가 빈 화면 보고서야 패치하는 사후대응
    금지 — by-design 으로 phase2 에 들어가야 한다.
    **라이브 디자인 루프**: 사용자가 브라우저로 보며 수정사항 말함 →
-   designer/developer 즉시 수정 → 사용자는 새로고침으로 확인 → 반복 → 승인.
+   designer-cto 가 시안/계약 수정(사용자의 Claude Design 캔버스 수정 반영 포함) → Codex가 production 코드 반영 → 사용자는 새로고침으로 확인 → 반복 → 승인.
    **compose 로 띄우지 말 것** (수정마다 재기동 비효율 — dev 서버만).
 5. **segment 완료 시 reviewer 호출 필수** — API 테스트(curl·pytest)·DB 무결성(SQL)·
-   코드 평가. 지적 → `[dev]` 수정 → 재검증. **생략은 사용자가 segment 지정 때 "이번
+   코드 평가. 사용자의 accepted goal과 현재 working behavior가 리뷰 baseline이다.
+   실제 goal·계약·데이터·보안을 깨뜨리는 BLOCKER만 승인을 차단한다. SHOULD/NIT는
+   후속 제안으로 기록하며 정상 동작을 바꾸거나 승인을 차단하는 근거로 사용할 수 없다.
+   BLOCKER 지적만 → `[dev]` 수정 → 재검증. SHOULD/NIT는 보고서에 남기고 후속으로
+   관리한다. **생략은 사용자가 segment 지정 때 "이번
    segment 검토 필요없음" 이라고 명시한 경우에만** (그 외엔 항상 리뷰). 결정론 백스톱:
    planner 가 각 phase3+ ckpt 에 `[review]` task 를 박고, reviewer 가 그 task 를
    verify sentinel 과 함께 완료해야 ckpt 가 닫힌다 (완료게이트 훅 — RULES §8).
+   segment 의 독립 `[dev]` task는 외부 Codex developer 하나가 파일 충돌 없이 처리하고, reviewer teammate 하나가 검증을 Task subagent로 병렬 실행한다. CTO는 Claude developer나 두 번째 reviewer를 spawn하지 않는다.
+
+   **5.1 리뷰 채점표 = planner 의 인수기준 (정본: `reviewer.md` §Input Contract).**
+   reviewer 는 그 ckpt task 의 `<acceptance>` 문구와 `Run:` 명령, `spec.md` 의
+   `← F<n>` 라벨, `specs/decisions.md` 를 기준으로 판정한다. 일반 코드품질
+   (`CODE_QUALITY.md`)은 2차 참고자료다. 모든 finding 은 근거 태그를 단다 —
+   `[인수기준]` `[사양F<n>]` `[회귀]` `[범위밖]`.
+
+   **5.2 계획 정합성 판정 (필수 경유).** `[범위밖]` 이거나 계획과 충돌하는 발견은
+   reviewer 가 **planner 에게 직접** 물어 3택 판정을 받는다
+   (계획누락 / 의도된선택 / 새요구사항). **CTO 는 판정을 거치지 않은 범위 밖
+   발견을 `[dev]` 수정 task 로 만들지 않는다.** 판정별 처리:
+   - 계획누락 → planner 가 spec/tasks 갱신 → `[dev]` 발주
+   - 의도된선택 → 기각 + `decisions.md` 기록 (같은 지적 재발 방지)
+   - 새요구사항 → 사용자 판단으로 surface
+
+   **5.3 승인 동작 보호 규칙 (하드).** **사용자가 승인해서 현재 동작하는 behavior 는
+   "사양과 다르다"는 지적만으로 되돌릴 수 없다.** 되돌리려면 사용자 확인이
+   필요하며, 그런 발견은 `새요구사항` 으로 분류해 사용자에게 올린다. 이는
+   in-team reviewer 뿐 아니라 **`/codex-review` 등 외부 리뷰 결과를 반영할 때도
+   동일하게 적용**된다 (2026-07 cam-distance `enabled` · rtsp-detection fix9 사고:
+   둘 다 minor/major 사양불일치 지적이 사용자 승인 동작을 뒤집어 기능이 죽었다).
+
+   **5.4 회귀 = 최우선 BLOCKER.** 이전 ckpt 에서 통과하던 `Run:` 명령이 지금
+   실패하면 다른 어떤 finding 보다 우선해 승인을 차단한다. reviewer 는 리뷰
+   착수 시와 수정 반영 후 두 번 재실행해 비교한다.
 6. CTO → 사용자 **자체검증 보고** (검증 증거 포함) — 이는 자체검증일 뿐, "완료" 아님(게이트3 PASS 후 완료). reviewer 결과는 **파일 X, 보고 메시지**.
 7. 사용자 : 브라우저 실사용 테스트 (🤚 게이트3) → PASS = 다음 segment / FAIL = 재작업.
    **서버 노출 시점(게이트3 서버 노출(dev 서버 URL) 등 — 게이트2 뿐 아니라 사용자에게 서버 URL 을
    주는 모든 지점)에서 step4 의 4항목(내부 URL · 외부 URL · `sudo ufw allow <PORT>` · 포트포워딩 포트)
    형식으로 접속 정보를 제시한다.**
-8. 진행 상태는 `specs/tasks.md` 체크박스만 갱신 (완료 `[✅]`, 미완 `[ ]`, 블로커 `[!]`) — 별도 상태파일 금지. (레거시 `[x]` 도 완료로 인식.)
+8. 진행 상태는 `specs/tasks.md` 체크박스만 갱신 (완료 `[✅]`, 미완 `[ ]`, 블로커 `[❓]`) — 별도 상태파일 금지. 완료는 반드시 초록 체크 `[✅]` (레거시 `[x]` 도 완료로 인식하나 신규 작성 금지), 블로커는 `[❓]` (레거시 `[!]` 도 인식하나 신규 금지).
 
 **phase3+ dev 서버 상시 가동 (RULES §13)**: phase3 진입부터 **dev 서버**(backend
 `uvicorn --reload` + frontend `vite dev`)가 **계속 떠있어야** 한다 — CTO 가 자기 Bash 에서
@@ -189,9 +258,10 @@ plan.md 읽고 전체 phase/ckpt 트리를 만든다 → `<빌드dir>/specs/spec
 
 - `/goal` 은 phase3+ 전용. 게이트1·2·3 을 goal 로 넘기지 않는다 (RULES §8).
   게이트3(사용자 브라우저 실사용 테스트)도 `/goal` autopilot 으로 통과 불가 — CTO 가 자가 선언 불가.
-- `[!]` 블로커 → goal 중단 + 사용자 surface. 우회 진행 금지.
-- codex 는 빌드 단계 아님 — 사용자가 CEO 창에서 직접 명령할 때만
-  (`/codex-review <name>` 또는 `/codex-protocol-review`, RULES §6).
+- `[❓]` 블로커 → goal 중단 + 사용자 surface. 우회 진행 금지.
+- **review-codex** (`/codex-review <name>`, `/codex-protocol-review`) 는 빌드
+  단계가 아니다 — 사용자가 CEO 창에서 직접 명령할 때만 돈다 (RULES §6). 이는
+  빌드 참여자인 **codex-cto developer**(§3 same-name bridge)와 별개다.
 
 ## 4. 모듈 마감 (module 빌드 한정)
 
@@ -217,30 +287,29 @@ README.md 는 작성하지 않는다 (RULES §1 — 사용자 전용).
 - +기계 검증: 커버리지 체크 자동 실행
 - 유동: `plan-eng-review` / `harness-unknowns-check`
 
-### phase1 환경설정 (developer)
-- 고정: `verification-before-completion` — 완료 주장 전 증거 → 게이트1
-- 유동: `run` / `investigate` / `careful`
+### phase1 환경설정 (Codex developer)
+- 고정: 테스트/명령 증거를 남긴 뒤 완료 보고 → 게이트1
 
-### phase2 프론트 디자인 (designer)
+### phase2 프론트 디자인 (designer-cto → Codex developer)
 - project 고정 3: `design-consultation`(open-design 디자인시스템 152개에서
   선택/참조) → `design-shotgun`(시안 보드→사용자 선택) → `design-html`(선택된
   open-design tokens.css 사용)
 - module 고정 1: `design-html` (+필요시 open-design 시스템 1개 참조)
 - 유동: `browse` / `design-review` / `frontend-design` / open-design 스킬들
   (`.sources/open-design/skills/` 디자인 계열)
+- designer-cto 는 시안/계약만(발주·보고는 harness inbox), Codex는 production frontend 코드와 테스트를 담당.
 
-### phase3+ 개발 (developer)
-- 고정: `test-driven-development`(비즈로직, 플러밍 예외는 완료노트 명시) /
-  `verify`(완료 보고 전 라이브 앱 실동작 확인)
-- 유동: `run` / `systematic-debugging` / `investigate` / `simplify` / `careful`
+### phase3+ 개발 (Codex developer)
+- 비즈니스 로직 TDD, 완료 전 관련 테스트와 라이브 동작 증거 필수.
 
 ### reviewer (segment 완료 시 필수 호출)
 - 고정: `code-review`(1차 high/재리뷰 medium) / `qa-only`(report-only)
 - 직접 실행 (스킬 X, 필수 임무): API 테스트(curl·pytest) + DB 무결성(SQL)
 - 유동: `health` / `browse`
 - 결과 = 파일 X, 보고 메시지
+- 병렬: 독립 검증 항목이 여러 개여도 reviewer teammate 는 1명 — Task subagent 로 fan-out 후 findings 를 한 SendMessage 로 aggregate.
 
 ## 6. CTO 세션 표시 의무
 
-- 현재 작업 중인 `phaseN.ckptN` 을 tmux 상태줄/statusline 에 상시 표시.
-- 스킬 사용 표시는 `<에이전트> ★ <스킬>` 형식 (예: `developer ★ verify`).
+- 현재 작업 중인 `phaseN.ckptN` 을 Claude statusline 에 상시 표시.
+- Claude 스킬 사용 표시는 `<에이전트> ★ <스킬>` 형식 (예: `designer ★ design-html`).

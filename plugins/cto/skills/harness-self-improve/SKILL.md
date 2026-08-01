@@ -1,6 +1,6 @@
 ---
 name: harness-self-improve
-description: Use to run a retrospective that turns accumulated, recurring session facts into promotion PROPOSALS — never auto-edits. Triggers when the user says "retro", "회고", "self-improve", "돌아보고 개선해", once per build at close-out (all segments PASS + the user's final visual check) just before TeamDelete, or when you notice the same gotcha/decision recurring across specs and want to decide whether it has earned a higher memory surface. It reads project memory + per-spec learnings/decisions, finds what recurred across >=2 surfaces, and hands each candidate to harness-remember for routing through its promotion gate. This is the recurrence DETECTOR that feeds the router — it does not write RULES/PROCESS/role/AGENTS/CLAUDE/user-MEMORY itself, and it never adjudicates conflicts.
+description: Use to run a retrospective that turns accumulated, recurring session facts into promotion PROPOSALS — never auto-edits. Triggers when the user says "retro", "회고", "self-improve", "돌아보고 개선해", once per build at close-out (all segments PASS + the user's final visual check), or when you notice the same gotcha/decision recurring across specs. This is the recurrence DETECTOR that feeds harness-remember (the router) — not the router itself.
 ---
 
 # harness-self-improve
@@ -25,10 +25,10 @@ routing or its gate here; produce candidates and hand them over.**
 ## When to run
 
 - **빌드 마감(close-out)** — once per build, after all segments PASS + the
-  user's final visual check, just before `TeamDelete`. NOT per segment — it
-  runs once on the whole completed build, so a cross-segment pattern is
-  visible at the point everything is done (and a build's hard-won gotchas
-  are filed instead of evaporating when the team is torn down).
+  user's final visual check (PROCESS.md §4 마감). NOT per segment — it runs
+  once on the whole completed build, so a cross-segment pattern is visible
+  at the point everything is done (and a build's hard-won gotchas are filed
+  instead of evaporating when the team goes away).
 - **On demand** — "retro" / "회고" / when you feel a fact repeating.
 
 It is a once-per-build reflection, not a per-tool-call hook and not per-segment.

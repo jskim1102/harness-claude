@@ -51,8 +51,8 @@ disqualifying:
 - `designer` — cannot pass 게이트2 (라이브 디자인 루프 승인) while
   visual / interaction unknowns are open. Use `design-shotgun` to
   resolve via variants rather than text Q&A.
-- `developer` — cannot claim a `[dev]` task whose acceptance criteria
-  contain unknowns. `[!]` the task and message the planner.
+- external Codex `developer` — must not start a `[dev]` task whose acceptance
+  criteria contain unknowns. `[❓]` the task and surface it through the CTO.
 - `reviewer` — any open unknown in the verification report (SendMessage)
   at verdict time is automatic FAIL.
 
@@ -83,9 +83,9 @@ Decisions-section format.
 
 When relay is impossible — lead unavailable, user said "use your
 judgment", or the unknown is genuinely low-stakes and reversible —
-the planner may downgrade an unknown to "accepted-with-risk" and log
-it in `decisions.md` with a one-line rationale. The user reads
-`decisions.md` at CTO check-in and can veto. The difference between
+the planner may downgrade an unknown to "accepted-with-risk" and emit a
+one-line rationale as a `<decision>` block for the CTO to file in
+`decisions.md`. The user reads `decisions.md` at CTO check-in and can veto. The difference between
 a logged downgrade and a silent guess is surfaceability — silent
 inventions ship wrong. Full protocol (when downgrade is legal vs
 not, log format, sweeping multiple downgrades) is in
@@ -122,7 +122,7 @@ examples of each.
 The gates check `## Unknowns` for open `- [ ]` lines — they do not
 catch assumptions that were never written down. A planner who
 silently decides "auth provider = Supabase" and skips both the
-unknowns entry AND the `decisions.md` log passes every gate cleanly.
+unknowns entry AND the `<decision>` block passes every gate cleanly.
 
 This is what the scanner and anti-pattern phrases backstop: silent
 assumptions leave a verbal fingerprint ("typical pattern is...")
@@ -151,7 +151,7 @@ already answers framework and auth — those are settled facts, not
 open questions.
 
 Litmus test: would the user be annoyed to be re-asked? If yes, it's
-implicit-answered — self-answer it and log in `decisions.md`. Full
+implicit-answered — self-answer it and emit a `<decision>` block. Full
 self-answer-vs-relay decision tree (with worked examples) lives in
 `references/implicit-answers.md`.
 
@@ -170,7 +170,7 @@ Each file has its own `## Unknowns` scoped to its own domain, but the
 same underlying ambiguity can appear in both — "auth provider"
 affects spec (which API) and design (which UI flow). If spec resolves
 it and design doesn't update, design ships with a stale unknown and
-the developer gets conflicting signals.
+Codex gets conflicting signals.
 
 When an unknown in one doc resolves, sweep the other docs in the same
 spec slug for the same underlying question. The scanner's
@@ -179,36 +179,16 @@ spec slug for the same underlying question. The scanner's
 
 ### 8. "Non-blocking 으로 만들었어요" — pending question 의 unilateral 전환
 
-Variant of silent downgrade. Pattern looks like:
-- `[user-q]` relayed, user hasn't answered yet
-- Teammate or lead engineers a clever workaround so progress can
-  continue without the answer (theme-agnostic build, abstract layer,
-  feature flag, default + "swap later")
-- The original unknown quietly disappears from `## Unknowns` and
-  never appears in `decisions.md`
-- Reported to user as "안 줘도 default 로 진행" / "non-blocking 처리"
+Engineering a workaround so the build can proceed while a `[user-q]` is
+still unanswered, then dropping the unknown. Looks helpful; is a protocol
+violation — the user's choice became the agent's choice without consent.
 
-Looks helpful. Is a protocol violation. The user's choice was
-converted to the agent's choice without consent.
-
-Why it matters: even when the workaround is technically reversible
-(token swap, flag flip), the *decision authority* shifts from user to
-agent. Repeat occurrences train the team to bypass relay rounds on
-"easy" questions, until a non-reversible one slips through the same
-pattern.
-
-How to apply:
-- Lead never accepts "made it non-blocking" as a resolution. Either
-  the user answers, or the lead explicitly downgrades and logs
-  ("user has not answered; accepted-with-risk: default <X>; will
-  revisit if user picks otherwise") in `decisions.md`. Surface that
-  log to the user — they may push back.
-- Teammate engineering a reversible workaround is still useful —
-  the *workaround* is fine, the *silent removal of the unknown* is
-  not. Keep the entry in `## Unknowns` marked `pending user pick,
-  default <X> applied with risk` until the user weighs in.
-- If user explicitly says "쓸어버려 / 알아서" → that IS consent;
-  log it that way in `decisions.md`.
+**Lead never accepts "made it non-blocking" as a resolution.** Either the
+user answers, or the lead explicitly downgrades and logs it. The
+workaround itself is fine; the silent removal of the unknown is not —
+keep the `## Unknowns` entry until the user weighs in. Full pattern,
+why-it-matters, and the exact lead-side wording are in
+`references/downgrade-protocol.md`.
 
 ## Files in this skill
 

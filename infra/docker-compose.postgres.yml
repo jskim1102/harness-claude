@@ -1,0 +1,46 @@
+# Harness 공유 PostgreSQL — 전 프로젝트 공용 단일 인스턴스 (db-per-project).
+# RULES §4 / docs/PORT.md "시스템 예약" 의 공유 pg 가 이 파일 1개로 뜬다.
+#
+# 의도적 격리: 이 파일은 PORT_SCAN_BASES(claude-project/·modules/) 와
+# delete-cto 의 _down_compose_stack 안전핀($REPO/claude-project/*·modules/*) 밖에
+# 있다 → 어떤 add-cto/delete-cto/스캐너(schema_scan·parity_scan 의 builds())도
+# 이 인스턴스를 끄거나 프로젝트 행으로 오인하지 않는다.
+#
+# 기동(사용자 명시 시 1회, RULES §13):
+#   HARNESS_USER_OK=docker docker compose -f infra/docker-compose.postgres.yml up -d
+# 비밀번호는 infra/.env 의 POSTGRES_PASSWORD (gitignore — RULES §4.1; 이 파일은 committed).
+# 프로젝트 db 생성: harness db provision <project> (idempotent CREATE DATABASE).
+
+name: harness-infra            # compose 프로젝트명 고정 → 컨테이너 prefix 결정적
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: harness-shared-postgres   # 컨테이너망 호스트명 = 이 이름
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?infra/.env 에 POSTGRES_PASSWORD 설정 필요}
+      # 부트스트랩 db 만; 프로젝트별 db 는 `harness db provision <project>` 로 생성
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+    ports:
+      # 네이티브 dev(호스트 pytest/uvicorn)용으로만 노출 — 127.0.0.1 한정
+      # (시스템 pg 5432 와 동일한 localhost-only 자세; 컨테이너→pg 는
+      #  아래 harness-shared-pg 네트워크로 직접, 호스트 라운드트립 X).
+      - "127.0.0.1:5435:5432"
+    volumes:
+      - harness_shared_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - harness-shared-pg
+
+volumes:
+  harness_shared_pg_data:        # 영속 — 모든 프로젝트 db 가 여기에 산다
+
+networks:
+  harness-shared-pg:
+    name: harness-shared-pg      # 고정 이름 → 프로젝트 compose 가 external: true 로 참조

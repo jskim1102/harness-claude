@@ -13,6 +13,7 @@ import sys
 from report_writer import (
     ProtocolReviewContext,
     build_failure_report,
+    embed_launch_id,
     ensure_report_shape,
     summarize_report,
 )
@@ -56,11 +57,11 @@ def main(argv: list[str] | None = None) -> int:
             stdout=result.stdout,
             stderr=result.stderr,
         )
-        context.report_path.write_text(report, encoding="utf-8")
+        write_report(context, report)
     else:
         raw_report = read_report(context.report_path)
         report = ensure_report_shape(raw_report, context)
-        context.report_path.write_text(report, encoding="utf-8")
+        write_report(context, report)
 
     summary = summarize_report(report, context, exit_code=result.returncode)
     print(summary)
@@ -84,6 +85,7 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     )
     parser.add_argument("--repo", required=True, help="harness-claude repo root")
     parser.add_argument("--report", required=True, help="Harness-side report output path")
+    parser.add_argument("--launch-id", help="Unguessable id bound to this launch; embedded into the report so --consume can verify report<->launch")
     parser.add_argument("--model", default=DEFAULT_MODEL, help="Codex model to use; defaults to CODEX_PROTOCOL_REVIEW_MODEL or gpt-5.5")
     parser.add_argument("--codex-bin", default="codex", help="Codex CLI binary")
     parser.add_argument("--harness-bin", default="harness", help="Harness CLI binary")
@@ -96,6 +98,7 @@ def build_context(args: argparse.Namespace) -> ProtocolReviewContext:
         repo_path=Path(args.repo).expanduser().resolve(),
         report_path=Path(args.report).expanduser().resolve(),
         model=args.model,
+        launch_id=args.launch_id,
     )
 
 
@@ -189,7 +192,7 @@ def send_to_ceo(harness_bin: str, summary: str) -> subprocess.CompletedProcess[s
 def fail_before_codex(context: ProtocolReviewContext, message: str, args: argparse.Namespace) -> int:
     context.report_path.parent.mkdir(parents=True, exist_ok=True)
     report = build_failure_report(context, exit_code=127, stdout="", stderr=message)
-    context.report_path.write_text(report, encoding="utf-8")
+    write_report(context, report)
     summary = summarize_report(report, context, exit_code=127)
     print(summary)
     if args.no_send:
@@ -209,6 +212,13 @@ def require_binary(binary: str, label: str) -> str | None:
     if not found:
         print(f"codex-protocol-review: missing required `{label}` binary: {binary}", file=sys.stderr)
     return found
+
+
+def write_report(context: ProtocolReviewContext, report: str) -> None:
+    """Write the final report, embedding the launch_id marker for --consume."""
+    context.report_path.write_text(
+        embed_launch_id(report, context.launch_id), encoding="utf-8"
+    )
 
 
 def read_report(report_path: Path) -> str:

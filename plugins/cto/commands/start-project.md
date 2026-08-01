@@ -1,58 +1,60 @@
 ---
-description: Spawn the standard 4-teammate Agent Team (planner, designer, developer, reviewer) and start the 2단계 decomposition from plan.md.
-argument-hint: [one-line note — plan.md 가 정본]
+description: Spawn the 2-Claude team (planner, reviewer) only.
+argument-hint: [optional note]
 ---
 
 # /start-project
 
-표준 4-teammate Agent Team 을 spawn 하고, **plan.md(CEO 작성)로부터
-2단계 분해**를 시작한다. 모드 분기 없음 — 빌드타입은 디렉토리가 이미
-확정했다 (claude-project/=프로젝트, modules/=모듈. PROCESS §0).
-
-전제: 프로젝트 루트에 `plan.md` 가 있어야 한다 (add-cto 가 보장).
-없으면 중단하고 사용자에게 1단계(CEO `/build-project`|`/build-module`)
-선행을 안내한다.
+이 명령의 유일한 목적은 Claude Agent Team 2명(`planner`, `reviewer`)을
+spawn하는 것이다. plan.md, specs, tasks, segment, phase를 읽거나 검증하거나
+진행하지 않는다. 별도 Codex 세션은 `add-cto`가 이미 준비한 것을 그대로 둔다.
+외부 `codex-cto-<name>` 세션은 production developer로 유지하지만 이 명령에서
+시작·재시작·작업 지시는 하지 않는다.
 
 ```
 $ARGUMENTS
 ```
 
-## How To Spawn
+## Step 0 — Codex 상태 확인
 
-Invoke the `harness-team-spawn` skill. It owns the full spawn workflow:
+`HARNESS_ROLE=cto:<name>`에서 name을 구하고 다음을 **조회만** 한다.
 
-- **Team name derivation** from `HARNESS_ROLE` + slug, with the
-  `<slug>-<8char-hash>` fallback when the env is missing (via
-  `scripts/derive_team_name.sh` — do not hand-roll the hash length).
-- **Standard spawn prompt** for the 4-teammate Opus team (planner,
-  designer, developer, reviewer) with plan-approval mode default-on.
-- **Existing-team handling** — resume vs. delete vs. cross-CTO
-  collision rename.
-
-Do not paraphrase, do not shorten the spawn prompt, do not skip
-teammates.
-
-## After Spawn — 분해 위임
-
-planner 에게 첫 SendMessage:
-
-```
-SendMessage to planner: plan.md (프로젝트 루트) 를 읽고 PROCESS §2 분해를
-실행하라. writing-plans 로 specs/spec.md + specs/tasks.md (phase→ckpt 트리)
-작성. 분해 공식 고정(레이어 기준): phase1=환경설정(포트·백엔드 venv·프론트 scaffold+npm·Docker·dev.sh, 실행 X) / phase2=프론트엔드 UI/디자인(scaffold·deps 는 phase1; extract 전부 — extract 면 프론트 UI 추출도 phase2, 게이트2 에 실 UI 보여야) / phase3+=백엔드·로직·glue
-(축2=extend 면 기존 트리 append). 장치: 모든 ckpt 가 spec 라벨(← F<n>) 역참조,
-재료 기반 기능은 [supplied:<출처>] 태그. 완료 시 알려라.
+```bash
+harness roles
 ```
 
-planner 완료 → **커버리지 기계검증** (spec 의 모든 Feature ≥1 ckpt —
-fail-closed) → 트리를 진행률과 함께 사용자에게 surface.
+세션이 없으면 사용자에게 `./run.sh add-cto <name>`을 안내한다. 자동 실행·재시작은
+하지 않는다.
 
-## Report to the user
+## Step 1 — Spawn Exactly 3 Claude Teammates
 
-1. Team name + spec 위치 (`specs/spec.md`, `specs/tasks.md`)
-2. phase→ckpt 트리 (분해 완료 후)
-3. 다음 행동 안내: "segment 를 지정해주세요 — 예: `phase1.ckpt1 ~
-   phase2.ckpt2 진행해` (autopilot 은 phase3+ 범위에 `... autopilot`)"
+Spawn은 fresh/유지보수 판단보다 먼저다. `planner → reviewer`
+순서로 세 명 전원을 upfront spawn 한다. `developer`는 외부 Codex 세션이므로
+`Agent(subagent_type=developer)`를 절대 호출하지 않는다.
 
-**사용자의 segment 지정 = 분해 승인.** 그 전에 빌드 작업을 시작하지
-않는다.
+Invoke the `harness-team-spawn` skill. It owns:
+
+- the exact 3-Claude spawn prompt
+- plan-approval mode for all three Claude teammates
+
+Codex 세션은 Step 0에서 확인한 별도 세션을 그대로 사용한다.
+
+완성 모듈이어도 세 Claude teammate는 모두 spawn 한다. 이 명령에서는 유지보수
+여부를 판단하거나 planner에게 재분해 메시지를 보내지 않는다.
+
+### Spawn Self-check
+
+Claude Project tab에는 CTO lead와 skill activity pane이 있어야 한다.
+
+```text
+lead CTO + skill activity (planner/reviewer는 in-process 목록; designer 는 독립 탭)
+```
+
+Codex developer는 별도 `harness:cto:<name>:codex` Orca tab이다. Claude tab에
+`developer` teammate가 있으면 잘못된 구성이다.
+
+## Report
+
+Claude team name과 세 teammate의 spawn 상태만 보고하고 종료한다. plan/tasks/spec
+내용, phase/segment, 다음 빌드 행동은 이 명령에서 다루지 않는다.
+spawn 직후 teammate가 자발적으로 작업을 시작하면 중단하고 대기하도록 지시한다.

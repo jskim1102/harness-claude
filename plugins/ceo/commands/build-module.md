@@ -47,6 +47,12 @@ phase/ckpt 분해는 하지 않는다 (CTO 몫). codex 호출 없음.
    ## 6. Open Questions  # CTO가 분해 때 풀 것
    ```
 
+   `## 5 Constraints`: **postgres 는 공유 인스턴스**(127.0.0.1:5435 db-per-project,
+   RULES §4.1/§5.2) — 모듈 전용 postgres 를 spec 하지 마라(배선은 CTO 가 한다).
+   **mediamtx 는 반대로 모듈 self-host**(카메라 모듈만; 2026-07-18 공유 인스턴스 폐지,
+   RULES §4/§4.1) — 자기 `mediamtx` 서비스/볼륨을 compose 에 두고 포트는 offset
+   파생(포트 배선은 add-cto 자동).
+
 5. **plan-ceo-review (고정 게이트)** — plan.md 점검 후 사용자 🤚 최종 확인.
 
 6. **사용자 안내**:

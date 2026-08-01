@@ -2,12 +2,14 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 
+from harness import orca_runtime
 from harness.db import connect
 
 # Directories under the repo root that may contain CTO project directories.
@@ -70,19 +72,69 @@ def _fence_untrusted(body: str) -> str:
 
 
 # Allowlist of valid sender/role syntaxes. A role is the literal 'ceo' or
-# 'harnessd', or a 'cto:'/'codex-review:'/'codex-protocol-review:' prefix
+# 'harnessd', or a 'cto:'/'codex-cto:'/'codex-review:'/
+# 'codex-protocol-review:' prefix
 # followed by a kebab name
 # (same kebab pattern run.sh enforces for CTO names). Anything else — newlines,
 # control chars, prompt-injection markers — is rejected before it can be stored
 # as from_role and later surfaced into CEO context.
 _ROLE_RE = re.compile(
-    r"^(ceo|cto:[a-z0-9]+(-[a-z0-9]+)*|codex-review:[a-z0-9]+(-[a-z0-9]+)*|codex-protocol-review:[a-z0-9]+(-[a-z0-9]+)*|harnessd)\Z"
+    r"^(ceo|cto:[a-z0-9]+(-[a-z0-9]+)*|codex-cto:[a-z0-9]+(-[a-z0-9]+)*|designer-cto:[a-z0-9]+(-[a-z0-9]+)*|codex-review:[a-z0-9]+(-[a-z0-9]+)*|codex-protocol-review:[a-z0-9]+(-[a-z0-9]+)*|harnessd)\Z"
 )
-# Mirror of daemon.py's _CTO_SESSION_RE — a live tmux session name must be a
-# kebab cto-<name> before we trust it as a CTO. Without this the discover-roles
-# fallback would surface a hostile session name (the daemon-group's injection
-# defect class) into any consumer that interpolates it.
+# Logical session labels retained in the public roles/status shape. Their
+# Liveness comes from exact Orca terminal titles.
 _CTO_SESSION_RE = re.compile(r"^cto-[a-z0-9]+(-[a-z0-9]+)*\Z")
+_DESIGNER_CTO_SESSION_RE = re.compile(
+    r"^designer-cto-[a-z0-9]+(-[a-z0-9]+)*\Z"
+)
+_CODEX_CTO_SESSION_RE = re.compile(
+    r"^codex-cto-[a-z0-9]+(-[a-z0-9]+)*\Z"
+)
+_ORCA_CTO_TITLE_RE = re.compile(
+    r"^harness:cto:([a-z0-9]+(?:-[a-z0-9]+)*):(lead|planner|designer|reviewer|codex)\Z"
+)
+
+
+def _role_hint() -> str:
+    return (
+        "ceo, harnessd, cto:<name>, codex-cto:<name>, designer-cto:<name>, "
+        "codex-review:<name>, or codex-protocol-review:<name> (kebab name)"
+    )
+
+
+def _assert_send_route(from_role: str, to_role: str) -> None:
+    """Enforce the dedicated Claude CTO <-> Codex CTO bridge.
+
+    Existing non-Codex routes retain their current behavior. Once either side
+    is a production Codex CTO, however, only the same project's paired Claude
+    CTO is routable. In particular, --to-unknown must never bypass this check.
+    """
+    # designer-cto 도 codex-cto 와 동일한 same-name pair 브릿지다
+    # (2026-07-29 designer 독립 직군화, specs/2026-07-29-designer-cto-split).
+    for prefix in ("codex-cto:", "designer-cto:"):
+        if not (from_role.startswith(prefix) or to_role.startswith(prefix)):
+            continue
+        if from_role.startswith(prefix):
+            name = from_role[len(prefix):]
+            allowed = to_role == f"cto:{name}"
+        else:
+            name = to_role[len(prefix):]
+            allowed = from_role == f"cto:{name}"
+        if not allowed:
+            kind = prefix[:-1]
+            _die(
+                f"error: {kind} inbox is pair-only; allowed route is "
+                f"cto:<name> <-> {kind}:<same-name>"
+            )
+
+
+def _record_role(record: dict) -> str:
+    kind = record["kind"]
+    if kind == "ceo":
+        return "ceo"
+    if kind in ("cto", "codex-cto", "designer-cto"):
+        return f"{kind}:{record['name']}"
+    return record["name"]
 
 
 def _role(explicit: str | None = None) -> str:
@@ -95,11 +147,7 @@ def _role(explicit: str | None = None) -> str:
     if not role:
         _die("error: HARNESS_ROLE env not set — call from a configured shell")
     if not _ROLE_RE.match(role):
-        _die(
-            f"error: invalid role {role!r}; expected ceo, harnessd, "
-            f"cto:<name>, codex-review:<name>, or "
-            f"codex-protocol-review:<name> (kebab name)"
-        )
+        _die(f"error: invalid role {role!r}; expected {_role_hint()}")
     return role
 
 
@@ -111,11 +159,8 @@ def cmd_send(args: argparse.Namespace) -> int:
     # --to-unknown. --to-unknown skips only the discovery/aliveness check
     # below, not this syntax gate.
     if not _ROLE_RE.match(to_role):
-        _die(
-            f"error: invalid target role {to_role!r}; expected ceo, harnessd, "
-            f"cto:<name>, codex-review:<name>, or "
-            f"codex-protocol-review:<name> (kebab name)"
-        )
+        _die(f"error: invalid target role {to_role!r}; expected {_role_hint()}")
+    _assert_send_route(from_role, to_role)
     if args.body_stdin and args.body is not None:
         _die("error: --body and --body-stdin are mutually exclusive")
     if not args.body_stdin and args.body is None:
@@ -127,17 +172,15 @@ def cmd_send(args: argparse.Namespace) -> int:
     # 'ceo' is always a valid target (CEO-less mode has no on-disk registration).
     if not args.to_unknown and to_role != "ceo":
         roles = _discover_roles()
-        known_names = {
-            (f"cto:{r['name']}" if r["kind"] == "cto" else r["name"]) for r in roles
-        }
+        known_names = {_record_role(r) for r in roles}
         known_names.add("ceo")  # CEO-less mode tolerance
         if to_role not in known_names:
             _die(
                 f"error: unknown target: {to_role}. known: {sorted(known_names)}"
             )
-        # Dead-target warning: registered on disk but tmux session gone.
+        # Dead-target warning: registered on disk but Orca terminal gone.
         for r in roles:
-            r_name = f"cto:{r['name']}" if r["kind"] == "cto" else r["name"]
+            r_name = _record_role(r)
             if r_name == to_role and not r["alive"]:
                 print(
                     f"warning: target {to_role} not alive; "
@@ -153,6 +196,19 @@ def cmd_send(args: argparse.Namespace) -> int:
         msg_id = cur.lastrowid
     print(f"sent id={msg_id} {from_role} -> {to_role}")
     return 0
+
+
+def _set_inbox_isolation_marker(role: str) -> None:
+    """인박스 UNTRUSTED body 를 읽었음을 표시 — hooks/inbox_isolation_guard.py 가
+    같은 턴 mutating/외부 tool 차단에 쓴다. 다음 user prompt 에
+    hooks/inbox_isolation_clear.py 가 삭제. RULES §6. 실패해도 인박스 읽기는 진행."""
+    try:
+        slug = role.replace(":", "-").replace("/", "-")
+        mp = Path.home() / ".harness-claude" / "inbox-isolation" / f"{slug}.turn"
+        mp.parent.mkdir(parents=True, exist_ok=True)
+        mp.touch()
+    except Exception:
+        pass
 
 
 def cmd_inbox(args: argparse.Namespace) -> int:
@@ -197,6 +253,7 @@ def cmd_inbox(args: argparse.Namespace) -> int:
         print(_fence_untrusted(r["body"]))
         print("⎯⎯ END UNTRUSTED BODY ⎯⎯")
         print("---")
+    _set_inbox_isolation_marker(me)
     return 0
 
 
@@ -211,22 +268,34 @@ def _is_harness_dir(dir_path: Path) -> bool:
 
 
 def _alive_sessions() -> set[str]:
-    r = subprocess.run(
-        ["tmux", "list-sessions", "-F", "#{session_name}"],
-        capture_output=True, text=True,
-    )
-    if r.returncode != 0:
-        return set()
-    # One session per line: split on newlines (NOT whitespace) so a session
-    # name bearing internal whitespace can't tokenize into multiple fake
-    # names. Then keep only names we trust — 'ceo' or a kebab cto-<name>
-    # (tmux allows quotes/semicolons/spaces in session names, and these are
-    # later interpolated downstream; reject anything else at the source).
-    return {
-        name
-        for line in r.stdout.splitlines()
-        if (name := line.strip()) and (name == "ceo" or _CTO_SESSION_RE.match(name))
-    }
+    """Return logical harness session labels from one Orca terminal snapshot.
+
+    스냅샷 소스는 `orca_runtime.terminals()` — RPC(소켓) 우선, 실패 시 CLI 폴백.
+    예전에는 여기서 직접 `orca terminal list` 를 띄웠는데, 그 한 줄이 호출마다
+    Electron 을 새로 마운트해 706ms 를 먹었다. harnessd 가 1초 폴링이라 하루
+    7만 회였다 (2026-07-28).
+    """
+    terminals = orca_runtime.terminals()
+    alive: set[str] = set()
+    for terminal in terminals:
+        if not isinstance(terminal, dict):
+            continue
+        if terminal.get("connected") is not True or terminal.get("writable") is not True:
+            continue
+        title = terminal.get("title")
+        if title == "harness:ceo":
+            alive.add("ceo")
+            continue
+        if not isinstance(title, str) or not (match := _ORCA_CTO_TITLE_RE.match(title)):
+            continue
+        name, member = match.groups()
+        if member == "lead":
+            alive.add(f"cto-{name}")
+        elif member == "codex":
+            alive.add(f"codex-cto-{name}")
+        elif member == "designer":
+            alive.add(f"designer-cto-{name}")
+    return alive
 
 
 def _discover_roles() -> list[dict]:
@@ -258,8 +327,8 @@ def _discover_roles() -> list[dict]:
                 session = f"cto-{role_name}"
                 # Defense-in-depth: reject a non-kebab disk dir name at the
                 # source so `harness roles` never emits a CTO name that could
-                # break tmux send-keys quoting downstream (role.md/cto-pick
-                # validate too, but the source should not emit it at all).
+                # break downstream role routing (role.md/cto-pick validate
+                # too, but the source should not emit it at all).
                 if not _CTO_SESSION_RE.match(session):
                     continue
             found.append({
@@ -269,23 +338,45 @@ def _discover_roles() -> list[dict]:
                 "session": session,
                 "alive": session in alive,
             })
-    # Fallback: live cto-* tmux sessions whose on-disk marker is missing.
-    # The daemon routes wakes by live cto-* sessions, so a CTO can be alive
-    # and reachable even after its .claude/settings.json (the disk marker)
-    # is removed. Without this, `harness send` rejects such a live CTO as an
-    # "unknown target" even though messages would still reach it. Add any
-    # cto-<name> session not already discovered via disk.
+            if kind == "cto":
+                codex_session = f"codex-cto-{role_name}"
+                found.append({
+                    "kind": "codex-cto",
+                    "name": role_name,
+                    "dir": str(child),
+                    "session": codex_session,
+                    "alive": codex_session in alive,
+                })
+                designer_session = f"designer-cto-{role_name}"
+                found.append({
+                    "kind": "designer-cto",
+                    "name": role_name,
+                    "dir": str(child),
+                    "session": designer_session,
+                    "alive": designer_session in alive,
+                })
+    # Fallback: live Orca lead/codex terminals whose disk marker is missing.
     discovered_sessions = {r["session"] for r in found}
     for session in sorted(alive):
-        if not _CTO_SESSION_RE.match(session) or session in discovered_sessions:
+        if session in discovered_sessions:
             continue
-        role_name = session[4:]  # strip 'cto-'
+        if _CTO_SESSION_RE.match(session):
+            kind = "cto"
+            role_name = session[4:]  # strip 'cto-'
+        elif _CODEX_CTO_SESSION_RE.match(session):
+            kind = "codex-cto"
+            role_name = session[len("codex-cto-"):]
+        elif _DESIGNER_CTO_SESSION_RE.match(session):
+            kind = "designer-cto"
+            role_name = session[len("designer-cto-"):]
+        else:
+            continue
         if not role_name:
             continue
         found.append({
-            "kind": "cto",
+            "kind": kind,
             "name": role_name,
-            "dir": "(tmux session; .claude marker missing)",
+            "dir": "(Orca terminal; .claude marker missing)",
             "session": session,
             "alive": True,
         })
@@ -301,11 +392,11 @@ def cmd_roles(args: argparse.Namespace) -> int:
     if not roles:
         print("(no registered roles found)")
         return 0
-    print(f"{'kind':5} {'name':16} {'session':24} {'alive':5} dir")
+    print(f"{'kind':9} {'name':16} {'session':24} {'alive':5} dir")
     print("-" * 80)
     for r in roles:
         alive = "yes" if r["alive"] else "no"
-        print(f"{r['kind']:5} {r['name']:16} {r['session']:24} {alive:5} {r['dir']}")
+        print(f"{r['kind']:9} {r['name']:16} {r['session']:24} {alive:5} {r['dir']}")
     return 0
 
 
@@ -377,27 +468,60 @@ def _recent_events(conn, cto_name: str, limit: int) -> list[dict]:
     """Last `limit` msgs touching this CTO (as sender or recipient), newest first.
     cto_name is the bare kebab name; the stored role is `cto:<name>`."""
     role = f"cto:{cto_name}"
+    codex_role = f"codex-cto:{cto_name}"
     rows = conn.execute(
         "SELECT id, from_role, to_role, body, created FROM msg "
-        "WHERE from_role=? OR to_role=? ORDER BY id DESC LIMIT ?",
-        (role, role, limit),
+        "WHERE from_role IN (?, ?) OR to_role IN (?, ?) "
+        "ORDER BY id DESC LIMIT ?",
+        (role, codex_role, role, codex_role, limit),
     ).fetchall()
+    # body/from/to are sender-controlled/UNTRUSTED — fence them HERE, where the
+    # rollup is built, not at each printer. The rollup egresses both as a table
+    # and as `--format json`, and json.dumps is NOT a defence: it escapes control
+    # chars only, so `system:` / ``` / <tag> injection markers pass through intact
+    # and model-readable. _fence_untrusted's marker redaction is the actual
+    # defence. Sole consumer is _collect_status → cmd_status; nothing needs raw
+    # bodies (the dashboard reads the msg table directly, not this function).
     return [
         {
             "id": r["id"],
-            "from": r["from_role"],
-            "to": r["to_role"],
-            "body": r["body"],
+            "from": _fence_untrusted(r["from_role"]),
+            "to": _fence_untrusted(r["to_role"]),
+            "body": _fence_untrusted(r["body"]),
             "created": r["created"],
         }
         for r in rows
     ]
 
 
-def _collect_status(limit: int) -> list[dict]:
+def _status_scope() -> str | None:
+    """Bare CTO name the CALLING role may see, or None for the full board.
+    `ceo`/`harnessd`/no-role (human CLI) get every CTO — that is the status
+    board's purpose. A `cto:<name>`/`codex-cto:<name>` shell sees only its own:
+    the rollup is a WIDER read surface than that role's own inbox (it carries
+    every CTO's message bodies), so an injected instruction must not be able to
+    harvest a sibling's traffic through it.
+    Defence-in-depth, not a hard boundary — a caller who can set env could claim
+    another role. It holds where it matters: during same-turn inbox quarantine
+    inbox_isolation_guard.py's anchored regex rejects `HARNESS_ROLE=ceo harness
+    status` (it is not `^\\s*harness`), and outside quarantine a CTO can read the
+    DB directly anyway."""
+    role = os.environ.get("HARNESS_ROLE", "")
+    if not _ROLE_RE.match(role):
+        return None
+    for prefix in ("cto:", "codex-cto:"):
+        if role.startswith(prefix):
+            return role[len(prefix):]
+    return None
+
+
+def _collect_status(limit: int, scope: str | None) -> list[dict]:
     """One rollup record per (CTO, slug). CTOs with no spec dirs still appear
-    (with an empty missions list) so the operator sees every registered CTO."""
+    (with an empty missions list) so the operator sees every registered CTO.
+    `scope` (see _status_scope) limits the rollup to one CTO; None = all."""
     roles = [r for r in _discover_roles() if r["kind"] == "cto"]
+    if scope is not None:
+        roles = [r for r in roles if r["name"] == scope]
     out: list[dict] = []
     with connect() as conn:
         for r in roles:
@@ -409,10 +533,19 @@ def _collect_status(limit: int) -> list[dict]:
                 specs_dir = cto_dir / "specs"
                 if specs_dir.is_dir():
                     cur = _current_ckpt(specs_dir / "tasks.md")
+                    # `title` is the free-text tail of a `### phase1.ckpt1 …`
+                    # heading in the CTO's OWN tasks.md — model-written, so it is
+                    # untrusted on exactly the egress the bodies above are fenced
+                    # for: a CTO acting under injection plants markers in its own
+                    # heading and they reach the CEO through `--format json`.
+                    # Provenance differs from the msg DB, reachability does not.
+                    # `ckpt`/`slug` are NOT fenced: ckpt is regex-constrained to
+                    # `phase\d+.ckpt\d+`, and slug is the registered dir name (not
+                    # model-controlled at runtime) and feeds the human table.
                     missions.append({
                         "slug": cto_dir.name,
                         "ckpt": cur["ckpt"] or ("DONE" if cur["all_done"] else "분해 전"),
-                        "title": cur["title"],
+                        "title": _fence_untrusted(cur["title"]) if cur["title"] else cur["title"],
                         "tasks": _task_counts(specs_dir),
                     })
             out.append({
@@ -426,7 +559,7 @@ def _collect_status(limit: int) -> list[dict]:
 
 
 def cmd_status(args: argparse.Namespace) -> int:
-    rollup = _collect_status(args.limit)
+    rollup = _collect_status(args.limit, _status_scope())
     if args.format == "json":
         print(json.dumps(rollup, indent=2, ensure_ascii=False))
         return 0
@@ -445,8 +578,13 @@ def cmd_status(args: argparse.Namespace) -> int:
         if r["events"]:
             print("   recent:")
             for e in r["events"]:
-                body = e["body"].replace("\n", " ")[:60]
-                print(f"     {e['created']}  {e['from']}→{e['to']}: {body}")
+                # body/from/to are sender-controlled/UNTRUSTED — sanitize before
+                # printing so they can't inject control/ANSI sequences or fake markers.
+                body = _sanitize_preview(e["body"], 60)
+                print(
+                    f"     {e['created']}  "
+                    f"{_sanitize_preview(e['from'])}→{_sanitize_preview(e['to'])}: {body}"
+                )
         print()
     return 0
 
@@ -476,11 +614,18 @@ PORT_SCAN_BASES = ("claude-project", "modules")  # all under $REPO
 PORT_COLS = [
     ("Backend", "BACKEND_PORT"),
     ("Frontend", "FRONTEND_PORT"),
+    # MEDIAMTX_*_PORT: self-host 모델 — 각 카메라 프로젝트가 자기 mediamtx 를 base+offset
+    # (API 9997+off / RTSP 8554+off / WebRTC 8889+off / ICE 8189+off = backend/frontend 와
+    # 동일 offset 규칙, run.sh add-cto 가 .env 에 기록)로 띄운다. 아래 rows 가 그 .env 값을
+    # 그대로 렌더(한 서버 다중 self-host 포트충돌 0). 공유 mediamtx 폐지(2026-07-18) — 공유
+    # 시그널 MEDIAMTX_PATH_PREFIX·_shared_mtx_* 렌더 브랜치 전량 제거됨.
     ("MTX API", "MEDIAMTX_API_PORT"),
-    ("MTX HLS", "MEDIAMTX_HLS_PORT"),
     ("MTX RTSP", "MEDIAMTX_RTSP_PORT"),
-    ("MTX WebRTC", "MEDIAMTX_WEBRTC_PORT"),
-    ("MTX ICE", "MEDIAMTX_ICE_UDP_PORT"),
+    ("MTX TCP", "MEDIAMTX_WEBRTC_PORT"),
+    ("MTX UDP", "MEDIAMTX_ICE_UDP_PORT"),
+    # POSTGRES_PORT 는 공유 모델에선 offset 파생 per-project 값이 아니다(폐지) —
+    # 신규 프로젝트 .env 엔 없고, 공유 pg(127.0.0.1:5435)에 db-per-project 로 붙는다.
+    # 값이 없고 DATABASE_URL=postgres 면 _shared_pg_db 로 '공유→<db>' 표기.
     ("PostgreSQL", "POSTGRES_PORT"),
     ("Redis", "REDIS_PORT"),
     ("MinIO API", "MINIO_API_PORT"),
@@ -556,6 +701,29 @@ def _detect_db_engine(proj: Path, env: dict[str, str]) -> str:
     return "—"
 
 
+def _shared_pg_port() -> str:
+    """공유 PostgreSQL 호스트 게시포트 — infra/docker-compose.postgres.yml 의 publish
+    매핑(예: 127.0.0.1:5435:5432)에서 파싱. 하드코딩 회피(진실원천=compose).
+    공유 pg 미구성(파일 없음)이면 빈 문자열."""
+    f = REPO_ROOT / "infra" / "docker-compose.postgres.yml"
+    if not f.exists():
+        return ""
+    m = re.search(r"(\d+):5432", f.read_text())
+    return m.group(1) if m else ""
+
+
+def _shared_pg_db(env: dict[str, str]) -> str:
+    """공유 pg 모델용: 프로젝트 .env 에 자기 POSTGRES_PORT 가 없고 DATABASE_URL 이
+    postgres 면 그 URL 경로의 db 이름을 돌려준다(공유 인스턴스의 db-per-project
+    표기용). postgres 가 아니거나 db 를 못 찾으면 ''."""
+    url = env.get("DATABASE_URL", "").strip()
+    if not url.lower().startswith("postgres"):
+        return ""
+    # postgresql+asyncpg://user:pw@host:port/<db>[?query] → <db>
+    m = re.search(r"://[^/]+/([^/?#]+)", url)
+    return m.group(1) if m else ""
+
+
 def _docker_published_ports() -> set[str]:
     """Host ports published by running containers (best-effort; empty if docker absent)."""
     try:
@@ -566,6 +734,21 @@ def _docker_published_ports() -> set[str]:
     except (OSError, subprocess.TimeoutExpired):
         return set()
     return set(re.findall(r":(\d+)->", r.stdout)) if r.returncode == 0 else set()
+
+
+def _docker_container_names() -> set[str]:
+    """Running container names (best-effort; empty if docker absent). Used to判정
+    dev/docker per PROJECT by container ownership (name prefix `<slug>-`) instead of
+    by published-port matching — a project can inherit a SHARED infra port (mediamtx
+    8889 등) in its .env and get mis-flagged as running its own docker container."""
+    try:
+        r = subprocess.run(
+            ["docker", "ps", "--format", "{{.Names}}"],
+            capture_output=True, text=True, timeout=4,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return set()
+    return set(r.stdout.split()) if r.returncode == 0 else set()
 
 
 def _host_listening_ports() -> set[str]:
@@ -591,23 +774,30 @@ def _host_listening_ports() -> set[str]:
     return out
 
 
+def _live_cto_halves() -> dict[str, dict[str, bool]]:
+    """Live hybrid CTO halves keyed by project name, from one Orca snapshot.
+
+    Values are ``{"claude": bool, "codex": bool, "designer": bool}``. Only validated kebab-case
+    role titles are accepted. Best-effort; empty if Orca is unavailable.
+    """
+    out: dict[str, dict[str, bool]] = {}
+    blank = {"claude": False, "codex": False, "designer": False}
+    for s in _alive_sessions():
+        if _DESIGNER_CTO_SESSION_RE.match(s):
+            name = s[len("designer-cto-"):]
+            out.setdefault(name, dict(blank))["designer"] = True
+        elif _CODEX_CTO_SESSION_RE.match(s):
+            name = s[len("codex-cto-"):]
+            out.setdefault(name, dict(blank))["codex"] = True
+        elif _CTO_SESSION_RE.match(s):
+            name = s[len("cto-"):]
+            out.setdefault(name, dict(blank))["claude"] = True
+    return out
+
+
 def _live_cto_sessions() -> set[str]:
-    """Project names with a live tmux 'cto-<name>' session (best-effort; empty if
-    tmux absent). Lets PORT.md show whether a CTO is currently attached."""
-    try:
-        r = subprocess.run(
-            ["tmux", "list-sessions", "-F", "#{session_name}"],
-            capture_output=True, text=True, timeout=4,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return set()
-    if r.returncode != 0:
-        return set()
-    return {
-        line.strip()[len("cto-"):]
-        for line in r.stdout.splitlines()
-        if line.strip().startswith("cto-")
-    }
+    """Project names where either validated hybrid CTO half is live."""
+    return set(_live_cto_halves())
 
 
 def _scan_port_projects() -> list[dict]:
@@ -671,6 +861,18 @@ def _md_table(header: list[str], rows: list[list[str]]) -> list[str]:
     ]
 
 
+def _last_commit_date() -> str:
+    """가장 최근 커밋(업로드) 날짜 YY.MM.DD — PORT.md 상단 스탬프. 실패 시 ''."""
+    try:
+        r = subprocess.run(
+            ["git", "log", "-1", "--format=%cd", "--date=format:%y.%m.%d"],
+            cwd=REPO_ROOT, capture_output=True, text=True, timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
 def _render_ports_md(projects: list[dict]) -> str:
     pub = _docker_published_ports()
     host = _host_listening_ports()
@@ -680,54 +882,50 @@ def _render_ports_md(projects: list[dict]) -> str:
         header.append(_label)
         if var == DB_ENGINE_AFTER:
             header.append(DB_ENGINE_HEADER)
-    header.append("상태")
     rows = []
     for pj in projects:
         ports = pj["ports"]
-        declared = up = 0
         cto = "✅ 활성" if pj["name"] in live_ctos else "✋ 비활성"
         cells = [pj["name"], str(pj["offset"]), cto]
         for _label, var in PORT_COLS:
             v = ports.get(var, "")
             if not v:
-                cells.append("—")
+                # 공유 pg: 자기 POSTGRES_PORT 가 없어도 DATABASE_URL=postgres 면
+                # 공유 인스턴스의 db 이름을 표기한다(자기 포트가 아니라 상태집계
+                # declared/up 에는 불포함 — 공유 인프라지 프로젝트 포트 아님).
+                sp = _shared_pg_port()
+                if var == "POSTGRES_PORT" and sp and _shared_pg_db(ports):
+                    # 공유 pg 사용 → 호스트 게시포트(infra compose 파싱) + 공유 인스턴스
+                    # 실제 up/down 반영(🔗=가동중, ○=중지). 공유 인프라라 declared/up 불포함.
+                    cells.append(f"{sp} 🔗" if sp in pub or sp in host else f"{sp} ○")
+                else:
+                    cells.append("—")
             else:
-                declared += 1
                 if v in pub:
-                    up += 1
                     cells.append(f"{v} 🐳")
                 elif var in ("BACKEND_PORT", "FRONTEND_PORT") and v in host:
                     # host - pub = dev.sh (호스트 프로세스); app 컬럼만 dev 개념 존재
-                    up += 1
                     cells.append(f"{v} 💻")
                 else:
                     cells.append(f"{v} ✋")
             if var == DB_ENGINE_AFTER:
                 cells.append(pj.get("db") or "—")
-        if declared == 0:
-            cells.append(".env만")
-        elif up == declared:
-            cells.append(f"✅ {up}/{declared} Up")
-        elif up == 0:
-            cells.append(f"✋ 0/{declared} (전부 down)")
-        else:
-            down = [
-                ports[var] for _l, var in PORT_COLS
-                if ports.get(var) and ports[var] not in pub
-                and not (var in ("BACKEND_PORT", "FRONTEND_PORT")
-                         and ports[var] in host)
-            ]
-            cells.append(f"⚠ {up}/{declared} (down: {', '.join(down)})")
         rows.append(cells)
     out = [
         "# PORT.md — 포트 레지스트리 (하드룰 4 source of truth)",
+        "",
+        _last_commit_date(),
         "",
         "> **자동 생성** — `./run.sh ports` 또는 add-cto / delete-cto 가 각 프로젝트",
         "> 의 `.env` 를 스캔해 재생성한다. **직접 편집 금지** (재생성 시 덮어씀).",
         "> 진실원천 = 각 프로젝트 `.env`. offset = `BACKEND_PORT − 8000`.",
         "> MinIO 등 `.env` 에 없는 포트(docker-compose 하드코딩)는 `—` 로 나온다.",
         "> `DB` = DB 엔진 탐지 (.env DATABASE_URL/POSTGRES → docker-compose 이미지/sqlite → sqlite 파일).",
-        "> 🐳 docker · 💻 dev.sh(backend/frontend) · ✋ down",
+        "> 공유 pg = 단일 인스턴스(127.0.0.1:5435), 프로젝트 구분은 database 이름(db-per-project). "
+        "PostgreSQL 열은 공유 프로젝트면 자기 컨테이너 포트가 없어 `공유→db명` 으로 표기.",
+        "> MTX API/RTSP/TCP/UDP = 각 카메라 프로젝트가 자기 mediamtx 를 base+offset 로 self-host "
+        "(9997/8554/8889/8189 + offset, .env MEDIAMTX_*_PORT). 공유 mediamtx 는 폐지됨(2026-07-18).",
+        "> 🐳 docker · 💻 dev.sh(backend/frontend) · 🔗 공유 인프라 · ✋ down",
         "",
         "## 현황",
         "",
@@ -739,6 +937,7 @@ def _render_ports_md(projects: list[dict]) -> str:
             ["항목", "포트", "비고"],
             [
                 ["시스템 PostgreSQL", "5432", "localhost only"],
+                ["공유 PostgreSQL (harness)", "5435", "전 프로젝트 공용 단일 인스턴스 · db-per-project · 127.0.0.1 전용 · infra/docker-compose.postgres.yml (컨테이너망 harness-shared-postgres:5432)"],
                 ["SSH", "8164", "—"],
                 ["회사망 forward (회피)", "5175, 8005", "라우터 포트포워딩 예약 — add-cto 가 파생 offset 자동 회피"],
                 ["harness-dashboard", "8165, 8166", "웹 관리 콘솔(읽기전용 v1, dashboard/) — 외부노출은 frontend 8166 만"],
@@ -760,6 +959,195 @@ def cmd_ports(args: argparse.Namespace) -> int:
     (REPO_ROOT / "docs" / "PORT.md").write_text(md + "\n", encoding="utf-8")
     if not args.quiet:
         print(md)
+    return 0
+
+
+# ── db: 공유 pg db-per-project 관리 (provision / drop) ────────────────────────
+# 공유 pg 실체 = infra/docker-compose.postgres.yml 의 단일 컨테이너
+# `harness-shared-postgres`. 프로젝트마다 그 안에 DATABASE 1개(db-per-project).
+# db명 = 프로젝트 slug 의 하이픈→`_`(또는 --db override). 전역 유일해야 한다 —
+# 스캐너는 db명 유일성을 검사하지 않으므로 provision-time 존재검사가 유일한 방어.
+SHARED_PG_CONTAINER = "harness-shared-postgres"
+INFRA_ENV = REPO_ROOT / "infra" / ".env"
+# unquoted postgres 식별자로 항상 안전한 형태(quote 불필요). drop/createdb 대상이
+# 반드시 통과해야 하는 정규식 — f-string 으로 psql 에 박기 전 SQL injection 차단.
+_DB_IDENT_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+# provision/drop 이 절대 건드리면 안 되는 보호 db.
+_PG_PROTECTED_DBS = {"postgres", "template0", "template1"}
+
+
+def _slug_to_db(slug: str) -> str:
+    """프로젝트 slug → db 이름: 하이픈→언더스코어, 소문자."""
+    return slug.replace("-", "_").lower()
+
+
+def _resolve_db_name(project: str, override: str | None) -> str:
+    name = (override or _slug_to_db(project)).strip()
+    if not _DB_IDENT_RE.match(name):
+        _die(
+            f"error: invalid db name {name!r}; must match ^[a-z][a-z0-9_]*$ "
+            f"(slug 하이픈은 자동으로 '_' 정규화 — 그 외 문자는 --db 로 명시)"
+        )
+    return name
+
+
+def _shared_pg_running() -> bool:
+    try:
+        r = subprocess.run(
+            ["docker", "inspect", "-f", "{{.State.Running}}", SHARED_PG_CONTAINER],
+            capture_output=True, text=True, timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return r.returncode == 0 and r.stdout.strip() == "true"
+
+
+def _require_shared_pg() -> None:
+    if _shared_pg_running():
+        return
+    _die(
+        f"error: 공유 pg ({SHARED_PG_CONTAINER}) 미기동 — 먼저 띄워라:\n"
+        "  HARNESS_USER_OK=docker docker compose "
+        "-f infra/docker-compose.postgres.yml up -d"
+    )
+
+
+def _psql(db: str | None, sql: str) -> subprocess.CompletedProcess:
+    cmd = ["docker", "exec", SHARED_PG_CONTAINER, "psql", "-U", "postgres"]
+    if db is not None:
+        cmd += ["-d", db]
+    cmd += ["-tAc", sql]
+    return subprocess.run(cmd, capture_output=True, text=True)
+
+
+def _pg_db_exists(db: str) -> bool:
+    # db 는 _resolve_db_name 으로 식별자 검증 완료 → f-string 안전.
+    r = _psql(None, f"SELECT 1 FROM pg_database WHERE datname='{db}'")
+    return r.returncode == 0 and r.stdout.strip() == "1"
+
+
+def _createdb(db: str) -> None:
+    r = subprocess.run(
+        ["docker", "exec", SHARED_PG_CONTAINER, "createdb", "-U", "postgres", db],
+        capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        _die(f"error: createdb {db!r} failed: {r.stderr.strip()}")
+
+
+def _dropdb(db: str) -> None:
+    # --force: 연결 종료 후 DROP (postgres 13+, 이미지는 16-alpine).
+    r = subprocess.run(
+        ["docker", "exec", SHARED_PG_CONTAINER, "dropdb", "--force", "-U", "postgres", db],
+        capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        _die(f"error: dropdb {db!r} failed: {r.stderr.strip()}")
+
+
+def _pg_db_summary(db: str) -> str:
+    """drop 전 고지용: 용량 + 대략 행수 요약(best-effort)."""
+    r = _psql(
+        db,
+        "SELECT pg_size_pretty(pg_database_size(current_database())), "
+        "coalesce((SELECT sum(n_live_tup) FROM pg_stat_user_tables),0)",
+    )
+    if r.returncode != 0:
+        return "요약 불가"
+    parts = r.stdout.strip().split("|")
+    if len(parts) == 2:
+        return f"용량 {parts[0]}, 약 {parts[1]} 행"
+    return r.stdout.strip() or "요약 불가"
+
+
+def _infra_pg_password() -> str:
+    """공유 pg 비밀번호를 infra/.env(gitignore)에서 읽는다. 없으면 ''."""
+    if not INFRA_ENV.is_file():
+        return ""
+    return _read_env_ports(INFRA_ENV).get("POSTGRES_PASSWORD", "")
+
+
+def _db_url_lines(db: str, pw: str) -> tuple[str, str]:
+    """공유 pg 연결 URL 2줄 — 포맷 단일 출처 (emit/print 공용).
+    docker: 컨테이너망 harness-shared-postgres:5432 ·
+    native(test): 게시포트 localhost:5435."""
+    return (
+        f"DATABASE_URL=postgresql+asyncpg://postgres:{pw}@{SHARED_PG_CONTAINER}:5432/{db}",
+        f"TEST_DATABASE_URL=postgresql+asyncpg://postgres:{pw}@localhost:5435/{db}_test",
+    )
+
+
+def _print_db_urls(db: str) -> None:
+    # 사람용 표시. add-cto 가 스폰 시 .env 에 자동 주입한다(공유 pg 표준 배선) —
+    # 이 출력은 수동/CEO 경로·검증용 참고로 남긴다. infra/.env 비밀번호 없으면 placeholder.
+    pw = _infra_pg_password() or "<POSTGRES_PASSWORD>"  # infra/.env 값(없으면 placeholder)
+    docker, native = _db_url_lines(db, pw)
+    print()
+    print("# .env (add-cto 가 스폰 시 자동 주입 — 이 출력은 참고/수동 경로용):")
+    print(docker)
+    print(native)
+
+
+def cmd_db_provision(args: argparse.Namespace) -> int:
+    db = _resolve_db_name(args.project, args.db)
+    if db in _PG_PROTECTED_DBS:
+        _die(f"error: refusing to provision protected db {db!r}")
+    _require_shared_pg()
+    test_db = f"{db}_test"
+    if _pg_db_exists(db):
+        # idempotent: 이미 있으면 CREATE 건너뜀. 단 신규 프로젝트라면 db명 전역
+        # 유일성 충돌 가능 → surface (스캐너가 못 잡는 공유 클러스터 새 위험).
+        print(f"db {db!r} 이미 존재 — CREATE 건너뜀(idempotent).")
+        print("  → 이미 provisioned 됐거나 타 프로젝트와 db명 충돌(전역 유일성).")
+        print("  신규 프로젝트인데 처음 보는 충돌이면 --db 로 다른 이름을 쓰거나 RULES §4 확인.")
+    else:
+        _createdb(db)
+        print(f"created db {db!r}")
+    if _pg_db_exists(test_db):
+        print(f"db {test_db!r} 이미 존재 — 건너뜀.")
+    else:
+        _createdb(test_db)
+        print(f"created db {test_db!r}")
+    _print_db_urls(db)
+    return 0
+
+
+def cmd_db_drop(args: argparse.Namespace) -> int:
+    db = _resolve_db_name(args.project, args.db)
+    if db in _PG_PROTECTED_DBS:
+        _die(f"error: refusing to DROP protected db {db!r}")
+    if not args.yes:
+        print("DROP DATABASE 는 파괴적 — 공유 클러스터의 타 프로젝트 데이터까지 위험.")
+        print(f"  대상: {SHARED_PG_CONTAINER} 의 db {db!r} (+ {db}_test)")
+        print("  실행하려면 --yes 를 붙여라.")
+        return 2
+    _require_shared_pg()
+    for target in (db, f"{db}_test"):
+        if not _pg_db_exists(target):
+            print(f"db {target!r} 없음 — 건너뜀.")
+            continue
+        # drop 직전 고지: 어느 클러스터의 어느 db + 행/용량 요약.
+        print(f"DROP 대상: {SHARED_PG_CONTAINER} / db {target!r} — {_pg_db_summary(target)}")
+        _dropdb(target)
+        print(f"dropped {target!r}")
+    return 0
+
+
+def cmd_db_env(args: argparse.Namespace) -> int:
+    """머신리더블 emit: DATABASE_URL/TEST_DATABASE_URL 2줄만 (add-cto 자동 .env
+    주입용 seam). provision 과 달리 공유 pg 기동 불요 — URL 문자열 계산만 한다.
+    infra/.env 의 POSTGRES_PASSWORD 부재면 깨진 URL 을 굽지 않도록 아무것도 출력
+    안 하고 비0 종료 → 호출자(add-cto)가 skip+warn 한다."""
+    db = _resolve_db_name(args.project, args.db)
+    pw = _infra_pg_password()
+    if not pw:
+        print(
+            "error: infra/.env 의 POSTGRES_PASSWORD 부재 — DATABASE_URL emit skip",
+            file=sys.stderr,
+        )
+        return 1
+    for line in _db_url_lines(db, pw):
+        print(line)
     return 0
 
 
@@ -812,6 +1200,32 @@ def main() -> None:
     s.add_argument("--next", action="store_true", help="print only the next free offset")
     s.add_argument("--quiet", action="store_true", help="regenerate PORT.md without printing")
     s.set_defaults(func=cmd_ports)
+
+    s = sub.add_parser("db", help="공유 pg db-per-project 관리 (provision/drop)")
+    db_sub = s.add_subparsers(dest="db_cmd", required=True)
+
+    sp = db_sub.add_parser(
+        "provision", help="공유 pg 에 프로젝트 db(+_test) idempotent 생성"
+    )
+    sp.add_argument("project", help="프로젝트 slug (db명 = slug 하이픈→'_')")
+    sp.add_argument("--db", default=None, help="db 이름 명시 override (예: auth)")
+    sp.set_defaults(func=cmd_db_provision)
+
+    sp = db_sub.add_parser(
+        "drop", help="공유 pg 에서 프로젝트 db(+_test) 회수 (파괴적 — --yes 필요)"
+    )
+    sp.add_argument("project", help="프로젝트 slug")
+    sp.add_argument("--db", default=None, help="db 이름 명시 override")
+    sp.add_argument("--yes", action="store_true", help="파괴 확인 (없으면 거부, exit 2)")
+    sp.set_defaults(func=cmd_db_drop)
+
+    sp = db_sub.add_parser(
+        "env",
+        help="DATABASE_URL/TEST_DATABASE_URL 2줄만 emit (add-cto 자동 .env 주입용; pg 기동 불요)",
+    )
+    sp.add_argument("project", help="프로젝트 slug")
+    sp.add_argument("--db", default=None, help="db 이름 명시 override")
+    sp.set_defaults(func=cmd_db_env)
 
     args = p.parse_args()
     sys.exit(args.func(args))

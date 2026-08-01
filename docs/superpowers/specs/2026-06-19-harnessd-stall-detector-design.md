@@ -1,5 +1,9 @@
 # harnessd autopilot stall 감지기 — 설계
 
+> **Historical design record.** 이 문서는 2026-06-19 당시의 tmux 기반 설계를
+> 기록한다. 현재 세션/화면 lifecycle은 `run.sh`와 `harness/orca_runtime.py`의
+> Orca Project/terminal 모델이 정본이며, 아래 tmux 명령·가정은 운영 지침이 아니다.
+
 ## 배경 / 문제
 
 CTO rtsp-streaming v2 빌드 중 사고(inbox #33): autopilot(`/goal`) dispatch 후
@@ -97,8 +101,26 @@ INSERT → 기존 wake 로직이 CEO 깨움(/inbox) = 의도한 surface 경로.
 STALL_SEC = 300.0              # 무진행 임계
 STALL_SCAN_THROTTLE_SEC = 30.0 # find 진행스캔 스로틀
 STALL_BACKOFF_MAX_SEC = 1200.0 # 재알림 backoff 상한 (20분)
+PAIR_DEGRADED_GRACE_SEC = 30.0 # hybrid half 유실 확정 유예
 STALL_EXCLUDE_DIRS = (".venv", "node_modules", ".git", "dist", "__pycache__")
 ```
+
+## Hybrid CTO pair-liveness 확장
+
+Claude CTO(`cto-<name>`)와 Codex developer(`codex-cto-<name>`)가 한 프로젝트를
+이루므로, 일반 project stall과 별도로 pair 상태를 감시한다.
+
+- 상태: `healthy`, `claude-only`, `codex-only`, `both-down`.
+- `claude-only`/`codex-only` + `tasks.md` 미완이 30초 지속되면 CEO에 누락 half를
+  특정해 한 번 알린다. 미읽음 DB 행으로 daemon 재시작 후에도 dedup한다.
+- recovery, `both-down`, tasks 완료 시 미읽음 pair 경고를 읽음 처리한다.
+- partial 상태에서는 같은 프로젝트의 일반 Claude-anchor stall을 억제해 이중 경고를
+  막는다.
+- `_list_cto_sessions()`는 기존 `cto-<name>` 계약을 유지한다. Codex 세션을 여기에
+  섞으면 이름 파싱과 동일 프로젝트 이중 판정이 깨지므로 `_discover_roles()` 결과를
+  조합하는 별도 pair detector를 사용한다.
+- 이 확장은 **half 유실/종료** 감지다. tmux 세션은 살아 있지만 Codex 프로세스가
+  내부적으로 멎은 경우까지 판정하지 않는다.
 
 ## 테스트 (결정론)
 
@@ -113,10 +135,13 @@ STALL_EXCLUDE_DIRS = (".venv", "node_modules", ".git", "dist", "__pycache__")
   - idle+미완+미surface+무진행+5분초과 → True
   - 완료 → False
   - surface 있음 → False
+- `_pair_status(claude_alive, codex_alive) -> str` — 4상태 전이.
+- pair lifecycle — grace 전 무알림, grace 후 1회, restart dedup, recovery 정리,
+  반대 half 유실, 완료 시 정리, 일반 stall 억제.
 
 ## 영향 파일
 
-- `harness/daemon.py` — `detect_stalls()` + 순수함수 2개 + main 루프 1줄 + 상수.
-- `tests/smoke.sh` — 순수함수 결정론 케이스.
+- `harness/daemon.py` — project stall + hybrid pair-liveness detector.
+- `tests/smoke.sh` — 순수함수 및 pair lifecycle 결정론 케이스.
 - 문서: `PROCESS.md`/`role.md` 의 advisory 규칙은 이미 추가됨 (이 감지기가 그
   결정론 백업).

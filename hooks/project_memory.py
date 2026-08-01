@@ -2,7 +2,7 @@
 """PostToolUse hook — silently accumulates DURABLE project facts.
 
 Concept ported from oh-my-claudecode's project-memory learner
-(references/oh-my-claudecode/src/hooks/project-memory/learner.ts), re-implemented
+(.references/oh-my-claudecode/src/hooks/project-memory/learner.ts), re-implemented
 in harness idioms: stdlib-only, fail-open, a flat per-project markdown file
 (matching the one-flat-file MEMORY.md convention) instead of a JSON store.
 

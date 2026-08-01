@@ -44,6 +44,11 @@ phase/ckpt 분해는 여기서 하지 않는다 (CTO 2단계 몫). codex 호출 
    ```
 
    `## 4` 는 **요점 bullet 수준** — 기능 풀스펙을 쓰지 않는다.
+   `## 5 Constraints`: **postgres 는 공유 인스턴스**(127.0.0.1:5435 db-per-project,
+   RULES §4.1/§5.2) — 프로젝트 전용 postgres 를 spec 하지 마라(배선은 CTO 가 한다).
+   **mediamtx 는 반대로 프로젝트 self-host**(카메라 프로젝트만; 2026-07-18 공유 인스턴스
+   폐지, RULES §4/§4.1) — 자기 `mediamtx` 서비스/볼륨을 compose 에 두고 포트는 offset
+   파생(포트 배선은 add-cto 자동).
 
 5. **plan-ceo-review (고정 게이트)** — 작성된 plan.md 의 내용/scope/전제를
    점검한다. 통과 후 사용자에게 🤚 최종 확인.

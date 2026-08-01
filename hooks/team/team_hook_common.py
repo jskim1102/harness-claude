@@ -16,6 +16,7 @@ Role tags adapted to our team: plan, design, dev, review.
 """
 import json
 import os
+import re
 import sys
 from datetime import datetime, timezone
 
@@ -26,7 +27,7 @@ TASKS_DIR = os.path.join(HOME, ".claude", "tasks")     # ~/.claude/tasks/<team>/
 VERIFIED_DIR = os.path.join(LOG_DIR, "verified")        # completion sentinels
 NUDGE_DIR = os.path.join(LOG_DIR, "idle-nudges")        # idle loop-guard state
 
-# Role tags used by our 4 sub-agents (planner/designer/developer/reviewer).
+# Workflow role tags: three Claude teammates plus external Codex-owned [dev].
 # A task subject/description must contain [role] where role is one of these.
 ROLES = ("plan", "design", "dev", "review")
 
@@ -55,8 +56,17 @@ def audit(event, payload, decision, reason=None, extra=None):
         os.makedirs(LOG_DIR, exist_ok=True)
         with open(LOG_PATH, "a") as fh:
             fh.write(json.dumps(rec) + "\n")
-    except Exception:
-        pass  # logging must never break a hook
+    except Exception as exc:
+        # logging must never break a hook — but it must not vanish either.
+        # The gates' fail-open handlers log ONLY through here, so an unwritable
+        # LOG_DIR used to erase every gate decision with zero trace. stderr is a
+        # separate stream from the hooks' stdout protocol and does not affect
+        # exit codes. Wrapped again so a closed stderr still cannot break us.
+        try:
+            print(f"[team-hook] audit write failed ({type(exc).__name__}: {exc}) "
+                  f"— {event}/{decision} not recorded in {LOG_PATH}", file=sys.stderr)
+        except Exception:
+            pass
 
 
 def allow(event=None, payload=None, reason=None, extra=None):
@@ -73,9 +83,123 @@ def block(event, payload, reason, extra=None):
     sys.exit(2)
 
 
+def repo_root():
+    """이 훅 파일($REPO/hooks/team/*.py) 위치로 REPO 를 결정론 산출 (3단계 상위)."""
+    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+def safe_key(s):
+    """파일명으로 안전한 키. 경로 구분자·NUL·제어문자를 '_' 로 접는다."""
+    return re.sub(r"[^A-Za-z0-9._-]", "_", str(s))
+
+
+def project_of(payload):
+    """빌드 프로젝트 이름을 결정론 산출한다 — 증거 파일의 **정본 키**.
+
+    왜 팀 이름이 아니라 프로젝트인가 (2026-07-27):
+      증거 파일(완료 sentinel, code-review 마커)이 `team_name` 으로 키잉돼 있었는데
+      그 값은 세션 파생(`session-<8hex>`)이라 **세션을 재시작할 때마다 바뀐다**.
+      결과: `~/.claude/logs/verified/` 에 소비되지 않은 고아 sentinel 330개
+      (전체의 52%), 그중 205개가 이름 없는 `_noteam` 통. 프로젝트 dir 이름은
+      세션 수명과 무관하게 안정적이므로 이걸 키로 쓴다.
+
+    해석 순서 (앞이 이길수록 신뢰도 높음):
+      1. payload cwd 가 <repo>/{claude-project,modules}/<name> 아래
+      2. transcript_path 의 인코딩된 프로젝트 경로를 실 빌드 dir 목록과 매칭
+         (lead·teammate 모두 같은 프로젝트 dir 아래 transcript 를 두므로
+          env/cwd 전파에 의존하지 않고 식별된다)
+      3. HARNESS_ROLE=cto:<name>
+      4. payload team_name (레거시 호환)
+      5. "_noteam"
+    """
+    repo = repo_root()
+    bases = ("claude-project", "modules")
+    payload = payload if isinstance(payload, dict) else {}
+
+    # 1) cwd
+    cwd = str(payload.get("cwd", "") or "")
+    if cwd:
+        for base in bases:
+            root = os.path.join(repo, base) + os.sep
+            if cwd == os.path.join(repo, base):
+                break
+            if cwd.startswith(root):
+                name = cwd[len(root):].split(os.sep)[0]
+                if name:
+                    return safe_key(name)
+
+    # 2) transcript_path 역산 (인코딩 = 절대경로의 '/'·'_' → '-')
+    m = re.search(r"/projects/([^/]+)/", str(payload.get("transcript_path", "") or ""))
+    if m:
+        encoded = m.group(1)
+        for base in bases:
+            d = os.path.join(repo, base)
+            try:
+                names = os.listdir(d)
+            except OSError:
+                continue
+            for name in names:
+                full = os.path.join(d, name)
+                if os.path.isdir(full) and full.replace("/", "-").replace("_", "-") == encoded:
+                    return safe_key(name)
+
+    # 3) HARNESS_ROLE
+    role = os.environ.get("HARNESS_ROLE", "")
+    if ":" in role:
+        return safe_key(role.split(":", 1)[1])
+
+    # 4) legacy team_name → 5) fallback
+    team = payload.get("team_name")
+    return safe_key(team) if team else "_noteam"
+
+
+REGRESSION_DIR = os.path.join(HOME, ".harness-claude", "regression")
+
+
+def regression_missing(proj):
+    """`[review]` 를 닫기 전 회귀 검사가 실제로 통과했는지 (PROCESS §3 5.4).
+
+    `./run.sh regress <proj> --baseline` (리뷰 착수) → `--check` (수정 반영 후).
+    훅은 **결과 파일만 읽는다** — 모델이 쓴 `Run:` 텍스트를 훅이 셸에 넘기지
+    않는다(RULES §6 취지 유지).
+
+    반환: 차단 사유 리스트 (빈 리스트 = 통과).
+    FAIL OPEN 예외 하나: `regressions > 0` 은 오류가 아니라 **결과**이므로 차단한다.
+
+    두 소비처가 공유한다 — TaskCompleted 게이트(작업목록을 쓰는 빌드)와
+    tasks.md 편집 게이트(작업목록을 안 쓰는 빌드). 구현이 갈리면 한쪽만 조여진다.
+    """
+    proj = safe_key(proj)
+    base_p = os.path.join(REGRESSION_DIR, proj, "baseline.json")
+    chk_p = os.path.join(REGRESSION_DIR, proj, "last-check.json")
+    how = ("회귀 검사를 돌려라: `./run.sh regress {0} --baseline` (리뷰 착수) → "
+           "수정 반영 후 `./run.sh regress {0} --check`".format(proj))
+
+    if not os.path.exists(base_p):
+        return ["회귀 기준선 없음 ({}) — {}".format(base_p, how)]
+    if not os.path.exists(chk_p):
+        return ["회귀 재검사 결과 없음 ({}) — {}".format(chk_p, how)]
+    if os.path.getmtime(chk_p) <= os.path.getmtime(base_p):
+        return ["회귀 재검사가 기준선보다 오래됨 — 수정 반영 후 `--check` 를 다시 돌려라"]
+    try:
+        with open(chk_p) as fh:
+            n = int(json.load(fh).get("regressions", -1))
+    except Exception:
+        return ["회귀 결과 파일을 읽을 수 없음 ({}) — {}".format(chk_p, how)]
+    if n < 0:
+        return ["회귀 결과에 regressions 필드 없음 — {}".format(how)]
+    if n > 0:
+        return ["회귀 {}건 — 이전에 통과하던 `Run:` 이 지금 실패한다. "
+                "다른 어떤 finding 보다 우선하는 BLOCKER (PROCESS §3 5.4). "
+                "`./run.sh regress {} --check` 출력 참조".format(n, proj)]
+    return []
+
+
 def role_of_teammate(name):
-    """Map a teammate name (e.g. 'developer') to its task role tag.
-    Our 4 teammates: planner -> plan, designer -> design, developer -> dev, reviewer -> review.
+    """Map an actor name to its task role tag.
+
+    Claude uses planner/designer/reviewer. The developer mapping remains for
+    external Codex task ownership and compatibility with existing task data.
     """
     if not name:
         return None

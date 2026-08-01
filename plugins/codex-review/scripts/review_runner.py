@@ -14,6 +14,7 @@ import sys
 from report_writer import (
     ReviewContext,
     build_failure_report,
+    embed_launch_id,
     ensure_report_shape,
     summarize_report,
 )
@@ -56,6 +57,7 @@ def main(argv: list[str] | None = None) -> int:
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        env=review_env(),
         check=False,
     )
 
@@ -66,11 +68,11 @@ def main(argv: list[str] | None = None) -> int:
             stdout=result.stdout,
             stderr=result.stderr,
         )
-        context.report_path.write_text(report, encoding="utf-8")
+        write_report(context, report)
     else:
         raw_report = read_report(context.report_path)
         report = ensure_report_shape(raw_report, context)
-        context.report_path.write_text(report, encoding="utf-8")
+        write_report(context, report)
 
     summary = summarize_report(report, context, exit_code=result.returncode)
     print(summary)
@@ -98,6 +100,8 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--readme", help="README path")
     parser.add_argument("--report", help="Harness-side report output path")
     parser.add_argument("--project-name", help="Sender/report project name; defaults to project directory name")
+    parser.add_argument("--target-type", choices=["module", "project"], default="project", help="Whether the target is a reusable module or a standalone project (modules: host-responsibility security is informational, RULES §7)")
+    parser.add_argument("--launch-id", help="Unguessable id bound to this launch; embedded into the report so --consume can verify report<->launch")
     parser.add_argument("--model", default=DEFAULT_MODEL, help="Codex model to use; defaults to CODEX_REVIEW_MODEL or gpt-5.5")
     parser.add_argument("--codex-bin", default="codex", help="Codex CLI binary")
     parser.add_argument("--harness-bin", default="harness", help="Harness CLI binary")
@@ -138,6 +142,8 @@ def build_context(args: argparse.Namespace) -> ReviewContext:
         readme_path=readme_path,
         report_path=report_path,
         model=args.model,
+        target_type=args.target_type,
+        launch_id=args.launch_id,
     )
 
 
@@ -152,6 +158,36 @@ def validate_context(context: ReviewContext) -> None:
         raise ValueError("report path must be outside the target project")
     if not AGENT_PATH.is_file():
         raise ValueError(f"missing agent definition: {AGENT_PATH}")
+
+
+REVIEW_CODEX_HOME = Path.home() / ".harness-claude" / "codex-review-home"
+
+
+def review_env() -> dict:
+    """독립 리뷰어 전용 CODEX_HOME 을 세운 환경을 돌려준다.
+
+    왜 (2026-07-27): `--ignore-user-config` 는 config.toml 만 무시한다 —
+    `$CODEX_HOME/skills/` 는 그대로 로드된다. 실측 결과 사용자 홈에 스킬이 46개
+    있어, "독립" 교차모델 리뷰어가 매 리뷰마다 그 카탈로그를 컨텍스트에 싣고
+    있었다(스킬 예산 경고 + 토큰 낭비 + 리뷰와 무관한 지침 오염).
+
+    auth.json 만 심볼릭으로 빌려오고 나머지는 비운다. 리뷰어는
+    `--sandbox read-only` 라 쓰기가 없으므로 hooks.json(git_guard) 이 없어도
+    안전 계약이 약해지지 않는다. 실패하면 조용히 기존 환경으로 폴백한다 —
+    격리 실패가 리뷰 자체를 막지는 않게.
+    """
+    env = os.environ.copy()
+    try:
+        REVIEW_CODEX_HOME.mkdir(parents=True, exist_ok=True)
+        src = Path.home() / ".codex" / "auth.json"
+        dst = REVIEW_CODEX_HOME / "auth.json"
+        if src.exists() and not dst.exists():
+            dst.symlink_to(src)
+        if dst.exists():
+            env["CODEX_HOME"] = str(REVIEW_CODEX_HOME)
+    except Exception:
+        pass
+    return env
 
 
 def build_codex_command(codex_bin: str, context: ReviewContext) -> list[str]:
@@ -205,6 +241,20 @@ def build_prompt(context: ReviewContext) -> str:
             "USAGE.md, docs/, design notes) and use them if present; otherwise "
             "review the first-party project source directly on its own merits."
         )
+    if context.target_type == "module":
+        target_note = (
+            "\n## Target Type: MODULE (host-attached functional unit)\n\n"
+            "This target lives under `modules/` — a reusable functional unit assembled "
+            "into a HOST application, not a standalone deployed service. Authentication, "
+            "network-exposure/bind, access-control, and input hardening are the HOST's "
+            "responsibility: do NOT raise them as blocker/major security findings (note "
+            "them as informational at most). Apply your security lens ONLY to issues the "
+            "module itself owns — real secrets/credentials/private keys committed into "
+            "the tree, which leak into every derivative and git history. Judge "
+            "correctness and spec-divergence exactly as normal.\n"
+        )
+    else:
+        target_note = ""
     return f"""\
 {agent_definition}
 
@@ -214,7 +264,8 @@ def build_prompt(context: ReviewContext) -> str:
 - project_path: {context.project_path}
 - spec_path: {context.spec_path}
 {readme_line}- report_path: {context.report_path}
-
+- target_type: {context.target_type}
+{target_note}
 You are running non-interactively from `project_path` with a read-only sandbox.
 {doc_instruction} Your final response must be the complete Markdown
 report and nothing else. The runner will save that final response to
@@ -248,7 +299,7 @@ def send_to_ceo(harness_bin: str, context: ReviewContext, summary: str) -> subpr
 def fail_before_codex(context: ReviewContext, message: str, args: argparse.Namespace) -> int:
     context.report_path.parent.mkdir(parents=True, exist_ok=True)
     report = build_failure_report(context, exit_code=127, stdout="", stderr=message)
-    context.report_path.write_text(report, encoding="utf-8")
+    write_report(context, report)
     summary = summarize_report(report, context, exit_code=127)
     print(summary)
     if args.no_send:
@@ -268,6 +319,13 @@ def require_binary(binary: str, label: str) -> str | None:
     if not found:
         print(f"codex-review: missing required `{label}` binary: {binary}", file=sys.stderr)
     return found
+
+
+def write_report(context: ReviewContext, report: str) -> None:
+    """Write the final report, embedding the launch_id marker for --consume."""
+    context.report_path.write_text(
+        embed_launch_id(report, context.launch_id), encoding="utf-8"
+    )
 
 
 def read_report(report_path: Path) -> str:

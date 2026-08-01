@@ -7,6 +7,9 @@ claude-project/*
 # Local permission overrides (machine-specific allow-lists, absolute paths).
 .claude/settings.local.json
 **/settings.local.json
+# 루트 .claude/ — 런타임 산출물 (harness-memory.md 자동 누적, hooks/project_memory.py 가
+# 필요 시 mkdir). 루트 한정(/) — 중첩 .claude 트리를 실수로 숨기지 않게.
+/.claude/
 # Runtime locks + editor swap files.
 **/scheduled_tasks.lock
 *.swp
@@ -16,7 +19,10 @@ claude-project/*
 # Large, machine-specific, not part of the harness itself.
 .sources/
 # Vendored external reference repos (aws-sample, oh-my-claudecode) — large, not part of the harness.
-references/
+# 루트 한정(/). 이름 앞 `.` 은 plugins/**/skills/*/references/ — SKILL.md 가 verbatim
+# 인용하는 하네스 자체 문서 — 와 이름이 겹치지 않게 하려는 것 (겹쳤을 때 bare `references/`
+# 패턴이 그것들까지 숨겨 git diff 리뷰에서 사라진 사고가 있었다).
+/.references/
 
 # ── Module library (curated by the librarian at runtime) ───────────────────
 # Vendored reusable feature modules — contents local, folder kept via .gitkeep.
@@ -26,6 +32,10 @@ modules/*
 # ── Generated output ───────────────────────────────────────────────────────
 # Extraction plans written by /feature-extract.
 feature-extract/
+
+# ── Secrets ────────────────────────────────────────────────────────────────
+# DASH_TOKEN 등 로컬 비밀. 커밋 금지.
+.env
 
 # ── Python ─────────────────────────────────────────────────────────────────
 __pycache__/

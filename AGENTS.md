@@ -11,9 +11,12 @@
 
 ## 무엇인가
 
-다중 에이전트 하네스. CEO 1명 + N명의 CTO 가 SQLite 메시지큐로 협업한다. CEO 는
-사용자 셸에 직결, 각 CTO 는 백그라운드 tmux 세션에서 4-teammate Agent Team
-(planner / designer / developer / reviewer)을 지휘해 프로젝트를 빌드한다.
+다중 에이전트 하네스. CEO 1명 + N명의 CTO 가 SQLite 메시지큐로 협업한다. CEO와
+각 CTO의 Claude/Codex 프로세스는 역할 title이 고정된 Orca terminal에 상주한다
+(창을 닫아도 대화 유지 — `./run.sh ceo`/`attach-cto`로 focus,
+`stop-ceo`/`stop-cto`로만 종료). 각 빌드 dir는 Orca Project이고, Claude teammate는
+`orca claude-teams`가 lead tab의 native split으로 표시한다. 메시지 큐는 SQLite가
+정본이며 wake/입력 라우팅은 exact Orca terminal을 사용한다.
 
 - 스택: Python 3.10+ (`harness` CLI/daemon) + Bash (`run.sh`) + Markdown (에이전트
   정의·스킬·프로세스 스펙).
@@ -32,16 +35,21 @@
 | `plugins/_shared/` | `RULES.md`(런타임 주입 하드룰) · `PROCESS.md`(빌드 프로세스 스펙) |
 | `docs/instruction-authority.md` | **규칙 정본 색인** — concern별 정본 파일·enforcer·강제수준 map. "어떤 규칙이 어디에 정본인가"는 먼저 여기서 확인 |
 | `plugins/codex-review/` | cross-model Codex 리뷰 — `AGENT.md`(리뷰어 정의) + `scripts/review_runner.py` |
+| `plugins/codex-protocol-review/` | cross-model Codex 프로토콜(하네스 지시문·훅) 리뷰 — 구조 동형, 대상만 다름 |
+| `dashboard/` | 웹 관리 콘솔 — `backend/`(FastAPI, `main.py`) + `frontend/`(React+Vite). 현황 조회 GET + 제어 POST. 읽기·쓰기 모두 `X-Dash-Token` 게이트 |
+| `tests/smoke.sh` | 결정론 스모크 스위트 (검증 2층) |
+| `infra/` | 공유 인프라 compose — postgres(`harness-shared-postgres`) |
+| `docs/PORT.md` | 포트 레지스트리 (하드룰 §4 정본, **자동생성** — 직접 편집 X. `./run.sh ports` 로 재생성) |
+| `docs/RUNSH-COMMANDS.txt` | `run.sh` 서브커맨드 정본. 스모크가 실제 dispatch 와 대조한다 (RULES §15 — 사용자 지시 없이 명령어 신설 금지) |
 | `docs/` | 설계 스펙·문서 |
 | `claude-project/`, `modules/`, `.sources/` | 빌드 dir (프로젝트/모듈) · extract 소스 (`.gitignore` 참조) |
 
 ## 실행 / 테스트
 
 ```bash
-./run.sh ceo                                  # CEO 시작 (현재 셸을 claude 로 교체)
-./run.sh add-cto <name>                       # CTO 추가 (<name> 스캔 → claude-project/·modules/; 세션만 — attach 후 /start-project 수동 시작)
-./run.sh attach cto-<name>                    # CTO 화면 접속 (observe 폐기 — 터미널 독립)
-./run.sh split-cto <name>                     # teammate 별 tmux pane 분리 (auto, 재기동; 되돌리기=add-cto)
+./run.sh ceo                                  # CEO 시작/재접속 (Orca terminal focus, stop-ceo로만 종료)
+./run.sh add-cto <name>                       # CTO 추가 (<name> 스캔 → claude-project/·modules/; Claude+Codex Orca terminal 준비)
+./run.sh attach-cto <name>                    # CTO Orca terminal focus. `observe`는 폐기 — 명령은 남아있으나 안내 후 exit 1
 ./run.sh test-cto <name> "<prompt>"           # CTO 비대화형 스모크
 ./run.sh down                                 # 전체 종료 (+dev서버/워커 프로세스 +docker compose 컨테이너 정리)
 ./run.sh stop-cto <name>                      # 한 CTO 정지 (작업 보존 — 비파괴, resume = add-cto)
@@ -49,7 +57,7 @@
 
 - **검증 3계층**:
   1. `./run.sh doctor` — 정합 검사 (금지토큰/참조무결성/문법/버전). **하네스 수정 후 무조건.**
-  2. `./run.sh smoke` — 결정론 스모크 30+ (`tests/smoke.sh`)
+  2. `./run.sh smoke` — 결정론 스모크 (`tests/smoke.sh`, 2026-07-28 기준 386 케이스)
   3. `/harness-audit` — 의미 감사 (6 perspective + adversarial verify, 큰 개편 후)
   - cross-model: codex consult/review — 사용자 판단 시
 - 새 코드는 doctor+smoke 로 검증하고, 큰 변경은 3·cross-model 로 교차검증하라.
@@ -59,6 +67,13 @@
 
 - **포트**: 하드코딩 금지. `.env` 의 `PORT_OFFSET` / `BACKEND_PORT` / `FRONTEND_PORT`
   참조. `.env` 는 커밋하지 않고 `.env.example` 만 올린다. (RULES.md §4)
+  카메라 프로젝트는 self-host mediamtx 4포트(`MEDIAMTX_API_PORT` / `_RTSP_PORT` /
+  `_WEBRTC_PORT` / `_ICE_UDP_PORT`, 전부 base+offset 파생)를 추가로 갖는다. 공유
+  mediamtx 는 2026-07-18 폐지. **비카메라 프로젝트엔 이 4줄을 넣지 마라** — PORT.md 가
+  쓰지도 않을 포트를 '할당됨' 으로 표시해 레지스트리가 거짓이 된다.
+  단, 컨테이너 **내부** 포트는 고정(backend 8000)이고 호스트 포트만 `.env` 파생이다:
+  compose 는 `"${BACKEND_PORT}:8000"` 형태. Dockerfile 의 exec-form `CMD` 는 `${VAR}` 를
+  확장하지 않으므로 내부 포트는 리터럴로 적어야 한다.
 - **태스크 라인 형식**: `tasks.md` 의 task 는 `[role] verb | files | acceptance.
   Run: cmd` — `TaskCreated` 훅이 강제한다. 위반 시 자동 rollback.
   (`plugins/cto/skills/harness-task-format/`)

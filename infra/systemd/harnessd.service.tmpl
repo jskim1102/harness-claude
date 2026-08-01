@@ -1,0 +1,23 @@
+# harnessd.service — SQLite inbox/stall 데몬. Orca 런타임 뒤에 기동한다.
+# 설치/갱신: ./run.sh install-services  (@…@ 플레이스홀더는 설치 시 치환)
+[Unit]
+Description=Harness SQLite inbox and stall daemon
+After=orca-harness.service
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=@HARNESS_ROOT@
+Environment=HOME=@HOME@
+Environment=PYENV_ROOT=@HOME@/.pyenv
+Environment=HARNESS_ROOT=@HARNESS_ROOT@
+Environment=PATH=@SERVICE_PATH@
+ExecStart=@PYTHON3@ -m harness.daemon
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+UMask=0077
+
+[Install]
+WantedBy=default.target

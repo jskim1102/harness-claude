@@ -1,0 +1,37 @@
+# orca-harness.service — Orca 원격 런타임을 systemd user 서비스로 상시 구동.
+# 하네스 전체(CEO/CTO 터미널·라우팅)가 Orca 위에서 돌므로 이 유닛이 부팅 앵커다.
+# 설치/갱신: ./run.sh install-services  (@…@ 플레이스홀더는 설치 시 치환)
+# 포트/pairing 주소·추가 serve 플래그는 ~/.config/harness-claude/orca-server.env 가
+# 유일 소스. ORCA_SERVE_EXTRA_ARGS 는 선택 — 예: --mobile-pairing (모바일 QR 발급).
+[Unit]
+Description=Harness Orca remote runtime
+Documentation=https://www.onorca.dev/docs/remote-servers
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=@HARNESS_ROOT@
+Environment=HOME=@HOME@
+Environment=HARNESS_ROOT=@HARNESS_ROOT@
+Environment=PATH=@SERVICE_PATH@
+EnvironmentFile=@HOME@/.config/harness-claude/orca-server.env
+ExecStartPre=/usr/bin/test -x @HOME@/.local/bin/orca
+# 기동 전에 유닛 밖에서 살아남은 Orca 프로세스를 거둔다. 유닛이 죽으면
+# (core-dump/exit-code 실측) AppImage 자식들이 systemd 직속으로 재부모화돼
+# 살아남고, 그러면 유닛은 failed 인데 프로세스는 떠 있어 stop 이 닿지 않고
+# start 는 자원을 문 고아와 충돌한다 = '종료·실행이 맘대로 안 되는' 증상.
+# `-` 접두사: 수거 실패가 기동을 막지 않는다.
+ExecStartPre=-@HARNESS_ROOT@/scripts/orca-reap-orphans.sh
+# $ORCA_SERVE_EXTRA_ARGS 는 의도적으로 ${} 가 아니다 — systemd 는 $VAR 만 공백으로
+# 쪼개 0개 이상의 인자로 넘긴다(${VAR} 는 통짜 1개 인자라 미설정 시 빈 인자가 생긴다).
+ExecStart=@HOME@/.local/bin/orca serve --port ${ORCA_PORT} --pairing-address ${ORCA_PAIRING_ADDRESS} $ORCA_SERVE_EXTRA_ARGS
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+UMask=0077
+
+[Install]
+WantedBy=default.target

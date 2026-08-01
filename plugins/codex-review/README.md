@@ -26,7 +26,8 @@ plugins/codex-review/run-review.sh \
   --project /path/to/project \
   --spec /path/to/project/specs/spec.md \
   --readme /path/to/project/README.md \
-  --report ~/.harness-claude/reviews/<project>/review-<timestamp>.md
+  --report ~/.harness-claude/reviews/<project>/review-<timestamp>.md \
+  --launch-id <unguessable-id>   # embedded into the report; --consume verifies report<->launch
 ```
 
 Equivalent positional form:
@@ -39,6 +40,11 @@ Optional flags:
 
 - `--project-name <name>`: sender/report project name. Defaults to the project
   directory name.
+- `--target-type module|project`: defaults to `project`. `module` tells the reviewer
+  that host-responsibility security (auth, network exposure, access control, input
+  hardening) is the host app's concern — reported as informational, not blocker/major.
+  Real secrets/keys committed into the tree stay blocking. Set automatically by
+  `codex_review_launch.py` from the target's parent dir (`modules/` vs `claude-project/`).
 - `--model <model>`: Codex model. Defaults to `CODEX_REVIEW_MODEL` or `gpt-5.5` (reasoning effort `xhigh`).
 - `--no-send`: write the report but skip `harness send`.
 

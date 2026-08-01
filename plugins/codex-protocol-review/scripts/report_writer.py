@@ -20,11 +20,32 @@ CATEGORIES = (
 )
 
 
+# Machine-checkable line binding a report to the launch that requested it.
+# Keep this format identical to the check in
+# plugins/ceo/scripts/codex_protocol_review_launch.py.
+LAUNCH_ID_MARKER = "codex-protocol-review-launch-id"
+
+
+def launch_id_line(launch_id: str) -> str:
+    return f"<!-- {LAUNCH_ID_MARKER}: {launch_id} -->"
+
+
+def embed_launch_id(report_text: str, launch_id: str | None) -> str:
+    """Prepend the launch_id marker line to a report (idempotent)."""
+    if not launch_id:
+        return report_text
+    line = launch_id_line(launch_id)
+    if line in report_text:
+        return report_text
+    return f"{line}\n{report_text}"
+
+
 @dataclass(frozen=True)
 class ProtocolReviewContext:
     repo_path: Path
     report_path: Path
     model: str
+    launch_id: str | None = None
 
 
 def ensure_report_shape(report_text: str, context: ProtocolReviewContext) -> str:

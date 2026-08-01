@@ -8,5 +8,7 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 8166,
     proxy: { '/api': 'http://127.0.0.1:8165' },
+    // 회사망/브라우저 프록시가 옛 번들 캐시해서 변경이 안 보이던 문제 → 캐시 금지.
+    headers: { 'Cache-Control': 'no-store' },
   },
 })

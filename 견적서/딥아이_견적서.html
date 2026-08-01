@@ -1,0 +1,535 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>딥아이 견적서</title>
+<style>
+  :root{
+    --paper:#fff;
+    --ink:#111;
+    --line:#202020;
+    --head:#d9dada;
+    --section:#d8d9d9;
+    --subhead:#f2f3f3;
+    --accent:#c9def5;
+    --workspace:#e9eaec;
+    --red:#ef2b2d;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:var(--workspace);
+    color:var(--ink);
+    font-family:'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .num{font-variant-numeric:tabular-nums}
+
+  .toolbar{
+    position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+    padding:10px 16px;background:#262626;color:#fff;border-bottom:1px solid #000;
+  }
+  .toolbar .title{font-weight:800;margin-right:6px}
+  .btn{
+    border:1px solid #5b5b5b;border-radius:5px;background:#383838;color:#f5f5f5;
+    padding:7px 12px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;
+  }
+  .btn:hover{background:#4a4a4a;border-color:#aaa}
+  .btn.primary{background:#c9def5;color:#111;border-color:#c9def5}
+  .btn:focus-visible,.ed:focus-visible{outline:2px solid #3b82f6;outline-offset:2px}
+  .save{margin-left:auto;font-size:12px;color:#a8a8a8}
+  .save.on{color:#9ae6a8}
+  .hint{padding:8px 16px;background:#f4f4f4;border-bottom:1px solid #d6d6d6;color:#666;font-size:12px}
+
+  .paper{
+    width:794px;min-height:1123px;margin:22px auto 60px;padding:24px 42px 56px;
+    background:var(--paper);box-shadow:0 10px 36px rgba(0,0,0,.16);overflow:hidden;
+  }
+  .quote-frame{border:2px solid var(--line)}
+  .company-head{
+    height:66px;padding:7px 12px;display:flex;align-items:center;background:var(--head);
+    border-bottom:2px solid var(--line);
+  }
+  .company-head img{display:block;width:176px;height:auto}
+
+  .info-area{position:relative;display:grid;grid-template-columns:1fr 1.12fr;gap:54px;padding:10px 12px 12px}
+  .info-col{min-width:0}
+  .info-row{
+    min-height:29px;display:grid;grid-template-columns:76px 1fr;align-items:center;
+    border-bottom:1.5px solid var(--line);font-size:13px;
+  }
+  .info-row .label{text-align:center;font-weight:600;white-space:nowrap}
+  .info-row .value{padding:3px 5px;font-weight:500;line-height:1.28;min-width:0}
+  .thanks{margin:25px 0 4px;text-align:center;font-size:14px;font-weight:800}
+  .web-value{color:#4f859a;text-decoration:underline;text-underline-offset:2px}
+
+  .quote-amount{
+    min-height:29px;display:grid;grid-template-columns:105px 1fr;align-items:center;
+    background:var(--accent);border-top:2px solid var(--line);border-bottom:2px solid var(--line);
+    font-size:13px;
+  }
+  .quote-amount .label{text-align:center;font-weight:600}
+  .quote-amount .value{text-align:center;font-weight:600;padding:4px 8px}
+
+  .table-wrap{width:100%;overflow:visible}
+  table{border-collapse:collapse;width:100%;table-layout:fixed}
+  .items{font-size:11px}
+  .items col.c-name{width:51%}
+  .items col.c-days{width:7.5%}
+  .items col.c-rate{width:7.5%}
+  .items col.c-people{width:9.5%}
+  .items col.c-unit{width:12%}
+  .items col.c-amount{width:12.5%}
+  .items td,.items th{border-right:1.5px solid var(--line)}
+  .items td:last-child,.items th:last-child{border-right:0}
+  .section-row td{
+    height:24px;padding:3px 13px;background:var(--section);border-top:2px solid var(--line);
+    border-bottom:1.5px solid var(--line);font-size:12px;font-weight:600;position:relative;
+  }
+  .column-row th{
+    height:22px;padding:2px 4px;background:var(--subhead);border-bottom:1.5px solid var(--line);
+    text-align:center;font-size:11px;font-weight:600;
+  }
+  .sub-row td,.item-row td{
+    height:19px;padding:2px 7px;border-right:1.5px dashed #333;vertical-align:middle;
+  }
+  .sub-row td{height:22px;border-bottom:1.5px solid var(--line)}
+  .sub-row .name{font-weight:600}
+  .item-row:last-child td{border-bottom:0}
+  .item-name{display:block;padding-left:13px;line-height:1.2}
+  td.center{text-align:center}
+  td.right{text-align:right}
+  .dash{color:#444}
+  .amount{padding-right:8px!important}
+
+  .totals{font-size:13px;border-top:1.5px solid var(--line)}
+  .totals col:first-child{width:87%}
+  .totals col:last-child{width:13%}
+  .totals td{height:25px;border-bottom:1.5px solid var(--line)}
+  .totals .total-label{text-align:center;font-weight:500}
+  .totals .total-value{text-align:right;padding:3px 7px;border-left:1.5px solid var(--line)}
+  .totals .cut-value{color:var(--red)}
+  .totals .final-row td{background:var(--accent);font-weight:600}
+
+  .notes-title{
+    height:27px;display:flex;align-items:center;justify-content:center;background:#ececec;
+    border-bottom:1.5px solid var(--line);font-size:17px;font-weight:800;letter-spacing:.42em;padding-left:.42em;
+  }
+  .notes{min-height:102px;padding:3px 0 5px}
+  .note{min-height:23px;padding:4px 0;font-size:11.5px;line-height:1.3;position:relative}
+
+  .ed{outline:0;border-radius:2px;padding:0 2px;cursor:text}
+  .ed:hover{background:rgba(55,120,180,.08)}
+  .ed:focus{background:rgba(55,120,180,.13);box-shadow:inset 0 0 0 1px rgba(30,100,160,.42)}
+  .ed:empty::before{content:attr(data-ph);color:#aaa}
+  .cell-num{display:block;min-height:1em;text-align:inherit}
+
+  .ctrls{position:absolute;right:4px;top:50%;transform:translateY(-50%);display:flex;gap:2px;opacity:0;z-index:4}
+  tr:hover .ctrls,.note:hover .ctrls{opacity:1}
+  .ic{
+    height:20px;min-width:20px;padding:0 4px;border:1px solid #999;border-radius:3px;
+    background:#fff;color:#222;font-family:inherit;font-size:10px;font-weight:600;cursor:pointer;
+  }
+  .ic:hover{background:#eee}.ic.del:hover{color:#c00;border-color:#c00}
+  .add-section,.add-note{padding:7px 0}
+  .add-section button,.add-note button{
+    width:100%;border:1px dashed #aaa;background:#fafafa;padding:7px;color:#555;
+    font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;
+  }
+
+  html.print-prep .no-print{display:none!important}
+
+  @media(max-width:840px){
+    .paper{width:100%;margin:0;padding:16px;box-shadow:none}
+    .toolbar{position:static}.info-area{grid-template-columns:1fr;gap:14px}
+    .thanks{margin:14px 0 2px}.table-wrap{overflow-x:auto}.items,.totals{min-width:700px}
+  }
+  @media(prefers-reduced-motion:reduce){*{transition:none!important}}
+
+  @media print{
+    @page{size:A4;margin:0}
+    html,body,.paper,.paper *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
+    body{background:#fff}
+    .toolbar,.hint,.no-print{display:none!important}
+    .paper{width:auto;min-height:0;margin:0;padding:24px 42px 56px;box-shadow:none;overflow:visible}
+    .info-area{grid-template-columns:1fr 1.12fr;gap:54px}
+    .thanks{margin:25px 0 4px}
+    .items,.totals{min-width:0}
+    .ed:hover,.ed:focus{background:none!important;box-shadow:none!important}
+    .ctrls{display:none!important}
+    .section-row,.column-row,.sub-row,.totals tr,.note{break-inside:avoid}
+  }
+</style>
+</head>
+<body>
+<div class="toolbar no-print">
+  <span class="title">딥아이 견적서</span>
+  <button class="btn primary" id="btn-print">인쇄 · PDF 저장</button>
+  <button class="btn" id="btn-export">내보내기(JSON)</button>
+  <button class="btn" id="btn-import">가져오기</button>
+  <button class="btn" id="btn-reset">새로 만들기</button>
+  <span class="save" id="save">저장됨 ✓</span>
+  <input type="file" id="file" accept="application/json" hidden>
+</div>
+<div class="hint no-print">빈 칸을 클릭해 수정하세요. 구분·행·특이사항을 추가하거나 삭제할 수 있고 합계는 자동 계산됩니다.
+</div>
+
+<main class="paper" id="paper">
+  <section class="quote-frame" aria-label="딥아이 견적서">
+    <header class="company-head">
+      <img alt="DEEP.I Intelligent Technology Solutions" src="data:image/png;base64,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">
+    </header>
+
+    <section class="info-area">
+      <div class="info-col">
+        <div class="info-row"><span class="label">고객사</span><span class="value ed" data-path="client.company"></span></div>
+        <div class="info-row"><span class="label">담당자</span><span class="value ed" data-path="client.manager"></span></div>
+        <div class="info-row"><span class="label">프로젝트명</span><span class="value ed" data-path="client.project"></span></div>
+        <div class="info-row"><span class="label">견적일</span><span class="value ed num" data-path="meta.date"></span></div>
+        <div class="info-row"><span class="label">유효일</span><span class="value ed" data-path="meta.valid"></span></div>
+        <div class="thanks">* 제안의 기회를 주셔서 깊이 감사드립니다.</div>
+      </div>
+      <div class="info-col">
+        <div class="info-row"><span class="label">상호</span><span class="value ed" data-path="supplier.name"></span></div>
+        <div class="info-row"><span class="label">종목</span><span class="value ed" data-path="supplier.biz"></span></div>
+        <div class="info-row"><span class="label">주소</span><span class="value ed" data-path="supplier.addr"></span></div>
+        <div class="info-row"><span class="label">담당자</span><span class="value ed" data-path="supplier.ceo"></span></div>
+        <div class="info-row"><span class="label">연락처</span><span class="value ed num" data-path="supplier.tel"></span></div>
+        <div class="info-row"><span class="label">E-mail</span><span class="value ed" data-path="supplier.email"></span></div>
+        <div class="info-row"><span class="label">홈페이지</span><span class="value ed web-value" data-path="supplier.web"></span></div>
+      </div>
+    </section>
+
+    <div class="quote-amount">
+      <span class="label">견적금액</span>
+      <span class="value num" data-out="quote-amount"></span>
+    </div>
+
+    <div class="table-wrap">
+      <table class="items" aria-label="견적 내역">
+        <colgroup>
+          <col class="c-name"><col class="c-days"><col class="c-rate"><col class="c-people"><col class="c-unit"><col class="c-amount">
+        </colgroup>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <div class="add-section no-print"><button data-act="add-section">+ 구분 추가</button></div>
+
+    <table class="totals" aria-label="견적 합계">
+      <colgroup><col><col></colgroup>
+      <tbody>
+        <tr><td class="total-label">공급금액</td><td class="total-value num" data-out="supply"></td></tr>
+        <tr><td class="total-label">일반관리비 (공급가액의 <span class="ed" data-path="rates.admin"></span>%)</td><td class="total-value num" data-out="admin"></td></tr>
+        <tr><td class="total-label">이윤 (공급금액 + 일반관리비의 <span class="ed" data-path="rates.profit"></span>%)</td><td class="total-value num" data-out="profit"></td></tr>
+        <tr><td class="total-label">부가세 (공급금액 + 일반관리비 + 이윤의 <span class="ed" data-path="rates.vat"></span>%)</td><td class="total-value num" data-out="vat"></td></tr>
+        <tr><td class="total-label">절삭</td><td class="total-value cut-value num ed" data-path="cut" data-out="cut" data-num="1"></td></tr>
+        <tr class="final-row"><td class="total-label">최종견적금액</td><td class="total-value num ed" data-path="final" data-out="final"></td></tr>
+      </tbody>
+    </table>
+
+    <section aria-label="특이사항">
+      <div class="notes-title">특이사항</div>
+      <div class="notes" id="notes"></div>
+      <div class="add-note no-print"><button data-act="add-note">+ 특이사항 추가</button></div>
+    </section>
+  </section>
+</main>
+
+<script>
+"use strict";
+const LS_KEY="deepi-quote-rgb-ir-v2";
+let uidCounter=1;
+const uid=()=>"r"+(uidCounter++);
+
+function seed(){
+  return {
+    meta:{docName:"딥아이_견적서",date:"2026-07-22",valid:"견적일로부터 30일이내"},
+    client:{
+      company:"㈜ 케어원",manager:"김진수",
+      project:"RGB·IR 영상 기반 딥러닝 자세 추정을 활용한 저조도·터널 환경 응급(쓰러짐) 감지 SW 제작 용역"
+    },
+    supplier:{
+      name:"주식회사 딥아이",biz:"응용 소프트웨어 개발 및 공급",
+      addr:"충남 아산시 신창면 순천향로 22, 앙뜨레프레너관 E404호",
+      ceo:"김진수",tel:"010-9692-1236",email:"contact@deep-i.ai",web:"https://deep-i.ai"
+    },
+    rates:{admin:10,profit:10,vat:10},
+    final:39600000,
+    sections:[
+      {id:uid(),title:"요구사항 분석 및 시스템 설계",rows:[
+        {id:uid(),kind:"sub",text:"1-1) 응급 감지 서비스 기획 및 설계"},
+        {id:uid(),kind:"item",name:"요구사항 분석 및 저조도·터널 응급 상황 시나리오 정의",days:10,rate:100,people:1,unit:200000},
+        {id:uid(),kind:"item",name:"RGB·IR 센서 연동 구조 및 실시간 감지 SW 아키텍처 설계",days:10,rate:100,people:1,unit:250000}
+      ]},
+      {id:uid(),title:"RGB·IR 딥러닝 모델 개발",rows:[
+        {id:uid(),kind:"sub",text:"2-1) RGB·IR 데이터 처리"},
+        {id:uid(),kind:"item",name:"RGB·IR 영상 정합·동기화 및 전처리 파이프라인 구축",days:15,rate:100,people:1,unit:240000},
+        {id:uid(),kind:"item",name:"저조도·터널 영상 증강 및 학습 데이터셋 구성",days:15,rate:80,people:1,unit:200000},
+        {id:uid(),kind:"sub",text:"2-2) 자세 추정 및 응급 감지 모델"},
+        {id:uid(),kind:"item",name:"RGB·IR 융합 딥러닝 자세 추정 모델 개발",days:20,rate:100,people:1,unit:300000},
+        {id:uid(),kind:"item",name:"쓰러짐·응급 상황 판별 로직 및 오탐 억제",days:15,rate:100,people:1,unit:260000},
+        {id:uid(),kind:"item",name:"저조도·터널 환경 도메인 최적화 및 성능 검증",days:12,rate:100,people:1,unit:250000}
+      ]},
+      {id:uid(),title:"응급 감지 SW 개발",rows:[
+        {id:uid(),kind:"sub",text:"3-1) 실시간 관제 화면"},
+        {id:uid(),kind:"item",name:"실시간 RGB·IR 영상 관제 및 자세·이벤트 시각화 화면",days:10,rate:100,people:1,unit:180000},
+        {id:uid(),kind:"sub",text:"3-2) 추론 서버 및 연동 기능"},
+        {id:uid(),kind:"item",name:"RGB·IR 스트림 수집 및 실시간 추론 API 개발",days:10,rate:100,people:1,unit:220000},
+        {id:uid(),kind:"item",name:"응급 경보·이벤트 저장 및 외부 시스템 연동 기능",days:8,rate:100,people:1,unit:170000}
+      ]},
+      {id:uid(),title:"통합시험 및 납품",rows:[
+        {id:uid(),kind:"sub",text:"4-1) 현장 적용 및 검수 지원"},
+        {id:uid(),kind:"item",name:"현장 시나리오 통합시험·성능 검증 및 배포 패키징",days:5,rate:100,people:1,unit:200000}
+      ]}
+    ],
+    notes:[
+      "구축기간 : 4개월 (데이터 수급 및 현장 검증 일정 별도 협의)",
+      "RGB·IR 원본 영상·연동 환경은 발주처 제공 기준이며, 성능 검증은 협의된 시나리오와 평가 지표로 수행",
+      "추가 데이터 수집·라벨링·장비 구매 및 기능 변경은 별도 견적이며, 검수 완료 후 1개월 무상 하자보수"
+    ]
+  };
+}
+
+function load(){
+  try{
+    const raw=localStorage.getItem(LS_KEY);
+    if(!raw)return null;
+    const value=JSON.parse(raw);
+    (value.sections||[]).forEach(section=>{section.id=uid();(section.rows||[]).forEach(row=>row.id=uid());});
+    return value;
+  }catch(_){return null;}
+}
+
+let state=load()||seed();
+let saveTimer=null;
+function save(){
+  clearTimeout(saveTimer);
+  saveTimer=setTimeout(()=>{
+    localStorage.setItem(LS_KEY,JSON.stringify(state));
+    const status=document.getElementById("save");
+    status.classList.add("on");status.textContent="저장됨 ✓";
+    setTimeout(()=>status.classList.remove("on"),900);
+  },250);
+}
+
+const num=value=>{const n=Number(value);return Number.isFinite(n)?n:0;};
+const parseNum=value=>{const n=parseInt(String(value).replace(/[^0-9-]/g,""),10);return Number.isNaN(n)?0:n;};
+const fmt=value=>Number(value||0).toLocaleString("ko-KR");
+const esc=value=>String(value==null?"":value).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+function getPath(path){return path.split(".").reduce((object,key)=>object==null?undefined:object[key],state);}
+function setPath(path,value){const keys=path.split(".");let object=state;for(let i=0;i<keys.length-1;i++)object=object[keys[i]];object[keys.at(-1)]=value;}
+
+function koreanAmount(value){
+  let n=Math.floor(Math.abs(value||0));
+  if(n===0)return "영원";
+  const digit=["","일","이","삼","사","오","육","칠","팔","구"];
+  const small=["","십","백","천"],large=["","만","억","조","경"];
+  const groups=[];while(n>0){groups.push(n%10000);n=Math.floor(n/10000);}
+  let result="";
+  for(let g=groups.length-1;g>=0;g--){
+    if(!groups[g])continue;
+    const chars=String(groups[g]).padStart(4,"0");let part="";
+    for(let i=0;i<4;i++){
+      const d=+chars[i];if(!d)continue;
+      const unit=3-i;part+=(d===1&&unit>0?"":digit[d])+small[unit];
+    }
+    result+=part+large[g];
+  }
+  return result+"원";
+}
+
+function amountOf(row){
+  if(row.kind!=="item")return 0;
+  if(row.amt!=null&&row.amt!=="")return num(row.amt);
+  return Math.max(0,Math.round(num(row.days)*(num(row.rate)/100)*num(row.people)*num(row.unit)));
+}
+
+function totals(){
+  let supply=0;
+  state.sections.forEach(section=>section.rows.forEach(row=>supply+=amountOf(row)));
+  const admin=Math.round(supply*num(state.rates.admin)/100);
+  const profit=Math.round((supply+admin)*num(state.rates.profit)/100);
+  const vat=Math.round((supply+admin+profit)*num(state.rates.vat)/100);
+  const subtotal=supply+admin+profit+vat;
+  const final=state.final==null?Math.floor(subtotal/10000)*10000:num(state.final);
+  const cut=subtotal-final;
+  return {supply,admin,profit,vat,subtotal,cut,final};
+}
+
+const paper=document.getElementById("paper");
+function render(){
+  document.querySelectorAll("[data-path]").forEach(element=>{
+    const path=element.dataset.path;
+    if(path==="final"||path==="cut"||document.activeElement===element)return;
+    const value=getPath(path);element.textContent=value==null?"":String(value);
+  });
+  renderRows();renderNotes();refresh();
+  paper.querySelectorAll(".ed").forEach(element=>element.setAttribute("contenteditable","true"));
+}
+
+function controls(sectionId,rowId){
+  return '<span class="ctrls no-print">'+
+    '<button class="ic" data-act="row-up" data-sid="'+sectionId+'" data-rid="'+rowId+'">▲</button>'+
+    '<button class="ic" data-act="row-down" data-sid="'+sectionId+'" data-rid="'+rowId+'">▼</button>'+
+    '<button class="ic del" data-act="del-row" data-sid="'+sectionId+'" data-rid="'+rowId+'">삭제</button></span>';
+}
+
+function numericCell(sectionId,rowId,field,value,className=""){
+  const empty=field==="rate"?"":"-";
+  return '<td class="center '+className+'"><span class="ed cell-num num" data-num="1" data-sid="'+sectionId+'" data-rid="'+rowId+'" data-f="'+field+'">'+(value?fmt(value):empty)+'</span></td>';
+}
+
+function renderRows(){
+  const body=document.getElementById("rows");body.innerHTML="";
+  state.sections.forEach((section,index)=>{
+    const sectionRow=document.createElement("tr");sectionRow.className="section-row";
+    sectionRow.innerHTML='<td colspan="6">'+(index+1)+'. <span class="ed" data-sid="'+section.id+'" data-f="title">'+esc(section.title)+'</span>'+
+      '<span class="ctrls no-print"><button class="ic" data-act="add-item" data-sid="'+section.id+'">+행</button><button class="ic" data-act="add-sub" data-sid="'+section.id+'">+소제목</button><button class="ic" data-act="sec-up" data-sid="'+section.id+'">▲</button><button class="ic" data-act="sec-down" data-sid="'+section.id+'">▼</button><button class="ic del" data-act="del-section" data-sid="'+section.id+'">삭제</button></span></td>';
+    body.appendChild(sectionRow);
+
+    const columns=document.createElement("tr");columns.className="column-row";
+    columns.innerHTML='<th>내용</th><th>일수</th><th>'+(index===3?"":"참여율")+'</th><th>인력 (개수)</th><th>단가</th><th>금액</th>';
+    body.appendChild(columns);
+
+    section.rows.forEach(row=>{
+      const tr=document.createElement("tr");tr.dataset.sid=section.id;tr.dataset.rid=row.id;
+      if(row.kind==="sub"){
+        tr.className="sub-row";
+        tr.innerHTML='<td class="name"><span class="ed" data-sid="'+section.id+'" data-rid="'+row.id+'" data-f="text">'+esc(row.text)+'</span>'+controls(section.id,row.id)+'</td>'+
+          '<td class="center dash">-</td><td></td><td class="center dash">-</td><td class="center dash">-</td><td class="center dash">-</td>';
+      }else{
+        tr.className="item-row";
+        tr.innerHTML='<td><span class="item-name ed" data-sid="'+section.id+'" data-rid="'+row.id+'" data-f="name" data-ph="내용">'+esc(row.name)+'</span>'+controls(section.id,row.id)+'</td>'+
+          numericCell(section.id,row.id,"days",row.days)+numericCell(section.id,row.id,"rate",row.rate,"pct")+
+          numericCell(section.id,row.id,"people",row.people)+numericCell(section.id,row.id,"unit",row.unit)+
+          '<td class="right amount"><span class="ed cell-num num" data-num="1" data-sid="'+section.id+'" data-rid="'+row.id+'" data-f="amt" data-out="amt-'+row.id+'"></span></td>';
+      }
+      body.appendChild(tr);
+    });
+  });
+}
+
+function renderNotes(){
+  const notes=document.getElementById("notes");notes.innerHTML="";
+  state.notes.forEach((text,index)=>{
+    const note=document.createElement("div");note.className="note";
+    note.innerHTML='<span class="ed" data-path="notes.'+index+'" data-ph="특이사항">'+esc(text)+'</span>'+
+      '<span class="ctrls no-print"><button class="ic del" data-act="del-note" data-idx="'+index+'">삭제</button></span>';
+    notes.appendChild(note);
+  });
+}
+
+function setOut(key,value){const element=document.querySelector('[data-out="'+key+'"]');if(element)element.textContent=value;}
+function refresh(){
+  const result=totals();
+  state.sections.forEach(section=>section.rows.forEach(row=>{
+    if(row.kind!=="item")return;
+    const element=document.querySelector('[data-out="amt-'+row.id+'"]');
+    if(element&&document.activeElement!==element){const amount=amountOf(row);element.textContent=amount?fmt(amount):"-";}
+  }));
+  setOut("quote-amount","일금 "+koreanAmount(result.final).replace(/원$/,"")+"원 정(₩"+fmt(result.final)+") VAT 포함가");
+  setOut("supply",fmt(result.supply));setOut("admin",fmt(result.admin));setOut("profit",fmt(result.profit));setOut("vat",fmt(result.vat));
+  const cut=document.querySelector('[data-out="cut"]');if(cut&&document.activeElement!==cut)cut.textContent=fmt(result.cut);
+  const final=document.querySelector('[data-out="final"]');if(final&&document.activeElement!==final)final.textContent=fmt(result.final);
+}
+
+paper.addEventListener("input",event=>{
+  const element=event.target.closest(".ed");if(!element)return;
+  if(element.dataset.path!=null){
+    const path=element.dataset.path;
+    if(path==="final"){const text=element.textContent.trim();state.final=text===""?null:parseNum(text);refresh();save();return;}
+    if(path==="cut"){const text=element.textContent.trim();state.final=text===""?null:totals().subtotal-parseNum(text);refresh();save();return;}
+    if(path.startsWith("rates.")){setPath(path,parseNum(element.textContent));refresh();save();return;}
+    if(path.startsWith("notes.")){state.notes[+path.split(".")[1]]=element.textContent;save();return;}
+    setPath(path,element.textContent);save();return;
+  }
+  const section=state.sections.find(item=>item.id===element.dataset.sid);if(!section)return;
+  if(element.dataset.rid==null){if(element.dataset.f==="title"){section.title=element.textContent;save();}return;}
+  const row=section.rows.find(item=>item.id===element.dataset.rid);if(!row)return;
+  if(element.dataset.num){
+    if(element.dataset.f==="amt"){const text=element.textContent.trim();row.amt=text===""||text==="-"?null:parseNum(text);}
+    else row[element.dataset.f]=parseNum(element.textContent);
+    refresh();
+  }else row[element.dataset.f]=element.textContent;
+  save();
+});
+
+paper.addEventListener("focusin",event=>{
+  const element=event.target.closest(".ed");if(!element||!element.dataset.num)return;
+  const raw=parseNum(element.textContent);element.textContent=raw?String(raw):"";
+});
+paper.addEventListener("focusout",event=>{
+  const element=event.target.closest(".ed");if(!element)return;
+  if(element.dataset.num){const value=parseNum(element.textContent);element.textContent=value?fmt(value):"-";}
+  refresh();
+});
+
+paper.addEventListener("click",event=>{
+  const button=event.target.closest("[data-act]");if(!button)return;
+  const action=button.dataset.act,sectionId=button.dataset.sid,rowId=button.dataset.rid;
+  const sectionIndex=sectionId?state.sections.findIndex(section=>section.id===sectionId):-1;
+  const section=sectionIndex>=0?state.sections[sectionIndex]:null;
+  if(action==="add-section")state.sections.push({id:uid(),title:"새 구분",rows:[{id:uid(),kind:"item",name:"",days:0,rate:0,people:0,unit:0}]});
+  else if(action==="del-section"){if(!confirm("이 구분 전체를 삭제할까요?"))return;state.sections.splice(sectionIndex,1);}
+  else if(action==="sec-up"&&sectionIndex>0){const [item]=state.sections.splice(sectionIndex,1);state.sections.splice(sectionIndex-1,0,item);}
+  else if(action==="sec-down"&&sectionIndex<state.sections.length-1){const [item]=state.sections.splice(sectionIndex,1);state.sections.splice(sectionIndex+1,0,item);}
+  else if(action==="add-item")section.rows.push({id:uid(),kind:"item",name:"",days:0,rate:0,people:0,unit:0});
+  else if(action==="add-sub")section.rows.push({id:uid(),kind:"sub",text:"소제목"});
+  else if(action==="del-row")section.rows.splice(section.rows.findIndex(row=>row.id===rowId),1);
+  else if(action==="row-up"){const index=section.rows.findIndex(row=>row.id===rowId);if(index>0){const [row]=section.rows.splice(index,1);section.rows.splice(index-1,0,row);}}
+  else if(action==="row-down"){const index=section.rows.findIndex(row=>row.id===rowId);if(index<section.rows.length-1){const [row]=section.rows.splice(index,1);section.rows.splice(index+1,0,row);}}
+  else if(action==="add-note")state.notes.push("");
+  else if(action==="del-note")state.notes.splice(+button.dataset.idx,1);
+  else return;
+  render();save();
+});
+
+document.getElementById("btn-print").onclick=()=>window.print();
+document.getElementById("btn-reset").onclick=()=>{
+  if(confirm("모든 내용을 초기화할까요?")){state=seed();render();save();}
+};
+document.getElementById("btn-export").onclick=()=>{
+  const blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"});
+  const anchor=document.createElement("a");anchor.href=URL.createObjectURL(blob);anchor.download=(state.meta.docName||"딥아이_견적서")+".json";anchor.click();URL.revokeObjectURL(anchor.href);
+};
+document.getElementById("btn-import").onclick=()=>document.getElementById("file").click();
+document.getElementById("file").onchange=event=>{
+  const file=event.target.files[0];if(!file)return;
+  const reader=new FileReader();
+  reader.onload=()=>{
+    try{
+      const value=JSON.parse(reader.result);
+      (value.sections||[]).forEach(section=>{section.id=uid();(section.rows||[]).forEach(row=>row.id=uid());});
+      state=value;render();save();
+    }catch(_){alert("불러오기 실패: 올바른 JSON 파일이 아닙니다.");}
+  };
+  reader.readAsText(file);event.target.value="";
+};
+
+function fitPrint(){
+  const root=document.documentElement;
+  root.classList.add("print-prep");
+  paper.style.zoom="";void paper.offsetHeight;
+  const pageHeight=297/25.4*96;
+  const target=pageHeight*1.1-8;
+  const natural=paper.getBoundingClientRect().height;
+  if(natural>target&&target/natural>=0.6){
+    let low=0.6,high=1;
+    for(let i=0;i<10;i++){
+      const mid=(low+high)/2;
+      paper.style.zoom=String(mid);
+      if(paper.getBoundingClientRect().height<=target)low=mid;else high=mid;
+    }
+    const scale=Math.max(0.6,low-0.008);
+    paper.style.zoom=String(scale);
+  }
+}
+function unfitPrint(){paper.style.zoom="";document.documentElement.classList.remove("print-prep");}
+window.addEventListener("beforeprint",fitPrint);
+window.addEventListener("afterprint",unfitPrint);
+
+render();
+</script>
+</body>
+</html>

@@ -97,3 +97,41 @@ try:
 except Exception:
     # Repo-wide hook fail-open contract: never break the turn on a preview error.
     sys.exit(0)
+
+
+# Lineage parity: when a derivation-group member CTO has pinged the CEO
+# (completion reports arrive through this inbox), check that the group's
+# inherited code is still in sync and surface drift candidates. Advisory +
+# fail-open — never break the turn; silent in the common (in-sync) case since
+# the scanner only flags high-similarity-but-not-identical inherited files.
+# The CEO then judges real drift vs intentional divergence and dispatches a
+# re-sync. member/parent/file come from the filesystem (not the untrusted
+# message body) but get the same sanitizer as belt-and-suspenders.
+try:
+    REPO = Path(__file__).resolve().parents[1]
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    from harness import lineage_parity_scan as _lp
+
+    senders = sorted({
+        fr.split(":", 1)[1]
+        for (_i, fr, _b) in rows
+        if isinstance(fr, str) and fr.startswith("cto:")
+    })
+    seen: set = set()
+    drift: list = []
+    for s in senders:
+        for d in _lp.scan(s):
+            key = (d["member"], d["parent"], d["file"])
+            if key not in seen:
+                seen.add(key)
+                drift.append(d)
+    if drift:
+        print("[lineage-parity] ⚠ 계보 그룹 동기화 drift 후보 "
+              "(CEO 판단 — 진짜 drift vs 의도된 분기; 재정렬 필요시 CTO 지시):")
+        for d in sorted(drift, key=lambda x: -x["ratio"]):
+            print(f"  {_sanitize(d['member'])} ↔ {_sanitize(d['parent'])} "
+                  f"{_sanitize(d['file'])} (유사도 {d['ratio']})")
+except Exception:
+    # Same fail-open contract — parity is a nicety, never a turn-breaker.
+    pass

@@ -3,7 +3,7 @@ export const meta = {
   description: 'Read-only SEMANTIC audit of the harness-claude project. 결정론 검사는 ./run.sh doctor + smoke 가 선행 담당 — 이 워크플로우는 의미 수준만. Six parallel perspective agents (canon-consistency 포함) inspect plugins/, hooks/, harness/, run.sh, docs/. Findings classified KEEP/SHRINK/MOVE/SPLIT/CONVERT/DELETE; adversarial reviewer challenges destructive recommendations (감사 false-positive 62% 교훈 — 검증 필수).',
   phases: [
     { title: 'Inventory', detail: 'list every harness-owned file + size' },
-    { title: 'Analyze',   detail: '5 parallel perspective agents' },
+    { title: 'Analyze',   detail: '6 parallel perspective agents' },
     { title: 'Plan',      detail: 'classify each finding KEEP/SHRINK/MOVE/SPLIT/CONVERT/DELETE' },
     { title: 'Adversarial', detail: 'challenge every DELETE/SHRINK to prevent regressions' },
     { title: 'Report',    detail: 'write markdown report to ~/.harness-claude/audits/' },
@@ -145,7 +145,7 @@ Target: plugins/ 전체 + hooks/ + harness/*.py + run.sh.
 Find SEMANTIC drift the deterministic doctor grep cannot catch:
 (a) 정본과 모순되는 활성 지시 (예: 잘못된 phase 의미의 예시, 폐기 흐름을 가르치는 field manual),
 (b) 문서 간 상호참조 불일치 (§번호, 파일 경로, 스킬 이름),
-(c) 에이전트 4종(planner/designer/developer/reviewer)·spawn-prompt·PROCESS 간 핸드오프 가정 어긋남,
+(c) Claude 3역할(planner/designer/reviewer)+외부 Codex developer·spawn-prompt·PROCESS 간 핸드오프 가정 어긋남,
 (d) 형식 규약 불일치 ([F<n>]/← F<n>/[supplied:]/specs/ 경로).
 2026-06-12 리뷰에서 버그 17건 중 11건이 이 계급이었다 — 참조망 2~3차 문서까지 파라.
 Use Read + Grep.`,
@@ -157,7 +157,7 @@ const allFindings = analyses.filter(Boolean).flatMap(r => r.findings || [])
 
 phase('Plan')
 const plan = await agent(
-  `Refactor Planner. Below is a JSON array of findings from 5 perspective agents.
+  `Refactor Planner. Below is a JSON array of findings from 6 perspective agents.
 Classify each finding into exactly ONE: KEEP, SHRINK, MOVE, SPLIT, CONVERT, DELETE.
 Definitions:
 - KEEP   = leave as-is. Explain why the finding is wrong or low-impact.

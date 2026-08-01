@@ -17,21 +17,33 @@
 ```
 사용자
   ↕  (자연어 대화)
-CEO (현재 셸, claude 직결)
+CEO (harness Project의 `harness:ceo` Orca tab, focus `./run.sh ceo`)
   ↕  (harness 메시지 채널 — sqlite + harnessd)
-CTO (tmux 세션, claude --dangerously-skip-permissions, Agent Teams team-lead)
+CTO lead (build directory Orca Project의 `harness:cto:<name>:lead` tab)
   ↕  (Agent Teams: SendMessage, TaskCreate, mailbox)
   ├── planner    (.claude/agents/planner.md)
-  ├── designer   (.claude/agents/designer.md)
-  ├── developer  (.claude/agents/developer.md)
   └── reviewer   (.claude/agents/reviewer.md)
+  ↕  (same-name harness inbox — SQLite + harnessd)
+Codex developer (같은 Orca Project의 `harness:cto:<name>:codex` tab, production code 전담)
 ```
 
-- **CEO ↔ CTO** = 우리 자체 harness (SQLite + 데몬 + tmux send-keys).
-- **CTO ↔ sub-agents** = Claude Code 의 native Agent Teams 기능.
+`claude-project/<name>`과 `modules/<name>` 각각이 Orca Project다. Orca Project
+신원은 git repo 경계라 자체 `.git`이 없으면 부모 harness-claude 신원에 묶여
+워크트리가 없고 terminal create가 selector_not_found로 죽는다. 그래서 `add-cto`가
+빌드 dir에 `.git`이 없을 때 한해 빈 저장소를 자동 init한다(커밋 0으로도 kind=git
+등록 성립). `.git` 유무 가드라 최초 add-cto 1회만 돌고 재스폰은 건너뛴다. 자동 생성은
+빈 저장소까지이며 commit·push는 여전히 사용자 명시가 있을 때만 한다(RULES §1).
+
+- **CEO ↔ CTO** = 우리 자체 harness (SQLite + 데몬 + Orca terminal input).
+- **CTO ↔ Claude sub-agents** = Claude Code 의 native Agent Teams 기능.
+- **CTO ↔ Codex developer** = same-name pair 전용 harness inbox + 공유 specs/tasks.md.
+  inbox를 읽은 턴은 요약만 하고 사용자 다음 턴 승인 뒤 실행한다.
 - CEO 는 Agent Teams 를 쓰지 않는다. CEO 는 사용자 ↔ CTO 의 메타관리만.
-- 사용자는 **CTO 와만 직접 대화**. sub-agent 들은 invisible
-  (`teammateMode: in-process`).
+- 사용자는 Claude CTO와 Codex TUI tab을 각각 focus한다. lead 는 순수 `claude`
+  세션이고(`orca claude-teams` 래퍼는 native split 을 강제 생성해 2026-07-29
+  제거), lead tab 은 콕핏 rail(lead 좌 + skill activity/planner/reviewer
+  읽기전용 뷰어 3단)로 고정된다. designer 는 독립 `harness:cto:<name>:designer`
+  tab (2026-07-29 분리 — specs/2026-07-29-designer-cto-split-design.md). Codex는 별도 tab이다.
 
 ## 잠금된 의사결정
 
@@ -43,8 +55,8 @@ CTO (tmux 세션, claude --dangerously-skip-permissions, Agent Teams team-lead)
 | Q4. devil's advocate | 별도 sub-agent 분리 X. reviewer 의 한 단계 ("Devil's Advocate Pass") 로 통합 | AWS sample review-agent + 우리 토큰절약 |
 | 메모리 (각 sub-agent) | 비활성화 (memory field 생략). LATER.md 에 기록 | 디버깅 단순화 우선 |
 | 도구 권한 | 엄격 allowlist (P1 시작). 필요시 확장 | AWS sample + 우리 결정 |
-| 모델 + effort | opus 4.8. **CTO=high**(오케스트레이션) / teammate 4종=xhigh(실작업) | 2026-06-24 — CTO 조율은 xhigh 불필요(지연만), teammate 깊이 유지 |
-| teammateMode | in-process (사용자가 CTO 만 봄) | Q1 = "사용자 CTO 와만 대화" |
+| 모델 + effort | Claude CTO=high, Claude teammate 3종=xhigh. Codex 모델은 사용자 Codex config 사용 | hybrid CTO 결정 |
+| teammateMode | `in-process` (순수 `claude` lead + 콕핏 rail 3단: skill/planner/reviewer 읽기전용 뷰어. designer 는 독립 세션. `orca claude-teams` 래퍼는 native split 강제라 제거) | 2026-07-23 spawn-only 전환 → 2026-07-29 콕핏 rail (specs/2026-07-29-cto-cockpit-rail-design.md) |
 | 사용자 시각검증 게이트 | **게이트3 = 사용자 브라우저 실동작 PASS 필수** (RULE A). agent live-app/browse 는 기계적 자체검증일 뿐 게이트3 대체 X, CTO 자가 선언 불가 | 2026-06-24 RULE A 박음 (이전 "게이트 X 자율판단"은 폐기) |
 | 슬라이스 크기 | 시간상한 X. 원칙만 ("사용자가 화면에서 새 동작 1개 수행 최소단위") | 사용자 결정 |
 
@@ -53,12 +65,11 @@ CTO (tmux 세션, claude --dangerously-skip-permissions, Agent Teams team-lead)
 | 활동 | active teammate | trigger (entry) | trigger (exit) |
 |---|---|---|---|
 | **Plan** | planner | 사용자 새 요청 또는 plan 수정 요청 | spec.md / tasks.md 완성 + 사용자 컨펌 |
-| **Design** | designer (lead); planner 휴면(필요 시 CTO 가 깨워 revise) | Plan 완료 또는 UI 수정 요청 | design.md + DESIGN.md + HTML/CSS 완성 + 사용자 컨펌 |
-| **Build** | developer (lead) + reviewer (on-demand); planner 휴면(필요 시 CTO 가 깨워 revise) | Design 완료 또는 다음 ckpt 시작 | ckpt 완료 + reviewer PASS + 사용자 시각검증 |
+| **Design** | 독립 designer-cto 세션 (inbox 발주; planner 휴면) | Plan 완료 또는 UI 수정 요청 | DESIGN.md + 시안 + Claude Design 사용자 미세조정 + 구현 계약 |
+| **Build** | 외부 Codex developer + Claude reviewer(on-demand) | 승인 디자인/다음 ckpt 시작 | ckpt 완료 + reviewer PASS + 사용자 시각검증 |
 
-핵심: **하나의 Agent Team 이 전체 workflow 를 처리**. 활동마다 team 재
-생성 X. 활동전환 = phase, 같은 team 안에서 일부 teammate 가 메인 / 일부
-관찰. AWS sample 의 Plan → Build → Review 루프 패턴.
+핵심: Claude Agent Team은 plan/design/review를 유지하고, 별도 Codex가 모든
+production code를 쓴다. 둘은 같은 `specs/tasks.md`를 공유하며 활동마다 재생성하지 않는다.
 
 ## 갭 해결 출처
 
@@ -67,7 +78,7 @@ CTO (tmux 세션, claude --dangerously-skip-permissions, Agent Teams team-lead)
 | A. CTO 자동 spawn 트리거 | 사용자 자연어 입력 — 자동스폰 X | 영상 1/2/3 + 사용자 결정 |
 | B. one team + 활동전환 | 한 team 이 모든 활동 처리. role tag 로 분배 | AWS sample fullstack-agent.md |
 | C. CTO role.md + agent body 충돌 | 별개 컨텍스트. role.md = lead system prompt. agent body = teammate system prompt | 공식문서 sub-agents |
-| D. in-process UX | Shift+Down cycle. 사용자가 CTO 만 봐도 OK | 공식문서 |
+| D. teammate UX | `in-process` + 콕핏 rail 3단 = lead 좌측, 우측에 skill activity + planner/reviewer 읽기전용 전사 뷰어 (개입은 lead 에서; designer 는 독립 탭) | 2026-07-23 사용자 결정 → 2026-07-29 목업 확정·designer 분리 |
 | E. shared task list 형식 | `[role] verb what \| files \| acceptance. Run: cmd`. 3 hook 으로 강제 | AWS sample + 우리 적응 |
 | F. Claude 버전 | 사용자 v2.1.160 (>= 2.1.32) ✓ | 직접확인 |
 | G. minimal test | AWS sample 패턴 적용. 사용자가 CTO 에 자연어 요청 | 우리 결정 |
@@ -81,7 +92,7 @@ CTO (tmux 세션, claude --dangerously-skip-permissions, Agent Teams team-lead)
 - 공식 skills: <https://code.claude.com/docs/en/skills>
 - 공식 settings: <https://code.claude.com/docs/en/settings>
 - AWS Sample (reference): <https://github.com/aws-samples/sample-claude-code-agent-team>
-  - 클론 위치: `references/aws-sample/`
+  - 클론 위치: `.references/aws-sample/`
 - 영상 1: Nate Herk, "How to Build Claude Agent Teams Better Than 99% of People"
 - 영상 2: Eric Tech, "TMUX + Claude Agent Teams = Game Changer"
 - 영상 3: Hodu's AI Analysis Lab, "Claude Code Agent Teams 완벽 가이드"

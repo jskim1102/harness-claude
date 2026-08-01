@@ -1,13 +1,13 @@
 ---
 name: harness-relay-qa
-description: Use when an in-process teammate (planner / designer / developer / reviewer) needs to ask the user a question mid-task and has no direct user channel, or when the team lead (CTO) receives a SendMessage prefixed with `[user-q]` or is about to reply with `[user-a]`. Triggers any time the harness-claude relay protocol is in play — interactive skills like grill-me, office-hours, or brainstorming Q&A inside a sub-agent; user surfacing on the lead side; tag placement and batching decisions; "should I skip this question?" judgement calls. If you see `[user-q]` or `[user-a]` anywhere in a SendMessage payload, this skill applies.
+description: Use when a Claude teammate (planner / designer / reviewer) needs to ask the user a question mid-task and has no direct user channel, or when the CTO handles a `[user-q]` / `[user-a]` relay. The external Codex developer has its own attached TUI and is not a SendMessage teammate.
 ---
 
 # harness-relay-qa
 
 In our harness, only the team lead (CTO) talks to the user. Sub-agents
-run **in-process** with `teammateMode: in-process`, which means their
-output is invisible to the user — they have no channel of their own.
+run in-process inside the lead `claude` session (read-only viewers in the
+cockpit rail show their transcripts); the user channel remains the CTO.
 Any interactive skill that would normally ask the user something must
 relay the question through the lead instead. This skill captures the
 relay protocol, who does what at each step, and the gotchas that come
@@ -15,9 +15,10 @@ out of using it in practice.
 
 ## When you are sending
 
-You are a sub-agent. You hit a step in your skill (grill-me question 3,
-office-hours forcing-question set, a brainstorming clarification) that
-needs the user. You have two choices: relay, or self-answer.
+You are a sub-agent. You hit a step that needs the user — a `plan.md`
+`## 6 Open Questions` item, a `design-consultation` questionnaire, a
+`design-shotgun` variant pick, a `plan-eng-review` finding you cannot
+resolve. You have two choices: relay, or self-answer.
 
 ```
 SendMessage(<lead>, "[user-q] <your question, verbatim from the skill>")
@@ -50,12 +51,10 @@ answered — lives in `references/lead-surfacing.md`.
 
 ## Skill-specific batching rules
 
-Different interactive skills behave differently when relayed. The
-short version:
-
-- `grill-me` — one question per relay round (depth comes from rounds).
-- `office-hours` — batch all six forcing questions into one round.
-- `brainstorming` — relay Q&A turns; do not relay idea-generation steps.
+Different interactive skills behave differently when relayed. The rule
+that decides it: **does the next question depend on the previous answer?**
+Yes → one per round. No → batch the frame into one round. Visual choices
+(`design-shotgun`) surface as variants, not as text Q&A.
 
 Full table with rationale and round-by-round examples is in
 `references/skill-batching.md`.
@@ -85,18 +84,13 @@ If you need to add context, put it AFTER the question, on a new line:
 Context: spec.md does not say, and the goal is silent on durability.
 ```
 
-### 2. Do not batch `grill-me` questions
+### 2. Do not batch contingent questions
 
-`grill-me` is a depth tool: each user answer shapes the next question.
-Batching the questions defeats the skill — you end up with shallow
-parallel answers instead of one deep branch. Send one question per
-relay round even though it costs more rounds.
-
-`office-hours` is the opposite: the six forcing questions are designed
-to be answered together so the user sees the whole frame. Batch them.
-
-When in doubt: does the next question depend on the previous answer?
-Yes → one per round. No → batch.
+Where each answer shapes the next question, batching defeats the step —
+you get shallow parallel answers instead of one deep branch. Send one
+question per relay round even though it costs more rounds. Independent
+questions are the opposite: batch them so the user sees the whole frame
+at once. Per-skill calls are in `references/skill-batching.md`.
 
 ### 3. The lead must always reply to a `[user-q]`
 
@@ -104,7 +98,7 @@ A `[user-q]` without a corresponding `[user-a]` blocks the teammate
 indefinitely — they are sitting in the middle of a skill, waiting for
 the answer to resume. If the user does not engage, the lead still
 replies with `[user-a] (user did not respond — proceed with your best
-guess and flag the assumption in decisions.md)` so the teammate can
+guess and emit the assumption as a <decision> block)` so the teammate can
 move forward instead of stalling.
 
 The same applies to the lead going idle / being killed mid-relay: the
@@ -154,13 +148,13 @@ keeps the relay honest.
 
 ### 7. Five rounds is the soft cap before checking in
 
-`grill-me` can in principle grill forever. In practice, five rounds is
-where the user starts to feel the friction. At that point the lead
-should pause and offer a choice: continue grilling, or have the
-teammate proceed with reasonable assumptions and log them in
-`decisions.md`. The user almost always picks the second option around
-round 5–6, and the teammate produces a better spec than if you had
-ground through 10 rounds.
+A contingent question chain can in principle run forever. In practice,
+five rounds is where the user starts to feel the friction. At that point
+the lead should pause and offer a choice: keep going, or have the
+teammate proceed with reasonable assumptions and emit them as a
+`<decision>` block for the lead to file. The user almost always picks the
+second option around round 5–6, and the teammate produces a better spec
+than if you had ground through 10 rounds.
 
 This is a soft cap — if the user is engaged and the questions are
 landing, keep going.
@@ -175,7 +169,7 @@ landing, keep going.
 - `references/skill-batching.md` — per-skill batching table with
   rationale.
 - `references/lead-unavailable.md` — fallback when SendMessage to the
-  lead fails (write to `pending-user-questions.md`, `[!]` the task).
+  lead fails (write to `pending-user-questions.md`, `[❓]` the task).
 - `${CLAUDE_SKILL_DIR}/scripts/check_relay_prefix.sh` — quick validator: pass a candidate
   SendMessage body on stdin. Exit 0 = ok; non-zero codes 2–5 distinguish
   empty / position / body / multi-tag — see script header for the table.
