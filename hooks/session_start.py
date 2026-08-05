@@ -147,11 +147,18 @@ def main() -> None:
 
 ### STARTUP OVERRIDE (하네스 강제)
 
-`/start-project` 턴에서는 팀 spawn만 수행한다. 이 턴에 plan.md, specs, tasks,
-phase, ckpt, segment를 읽거나 생성·검증하지 말고, planner/designer/reviewer에게
-업무·분해·orientation·review 메시지를 보내지 않는다. 세 teammate가 준비되면
-상태만 보고하고 대기한다. 실제 작업은 사용자가 이후 CTO에게 명시적으로 지시하고
-CTO가 해당 teammate에게 dispatch한 뒤에만 시작한다.
+CTO 는 스폰되면 **팀 spawn 까지 마친 대기 상태**가 정상이다. 작업은 사용자
+대화가 시작시킨다.
+
+- **시작 마커가 있으면 첫 턴에 무조건 팀 spawn** (planner·reviewer 2명 —
+  designer/codex 는 add-cto 가 이미 별도 세션으로 준비). 그 턴이 무엇이든
+  spawn 이 먼저다.
+- spawn 후 그 턴의 사용자 요청을 정상 처리한다: **작업 지시면 바로 시작**,
+  단순 질문이면 답하고 대기. 사용자 지시 없이 스스로 분해·업무 dispatch 를
+  시작하지 않는다.
+- `/start-project` 를 명시로 친 턴(수동 재신호)만 spawn-only 다: spawn 과
+  상태 보고 외에 plan.md·specs·tasks 를 읽거나 생성·검증하지 않고,
+  teammate 에게 업무·분해·orientation·review 메시지를 보내지 않는다.
 """
 
     # CTO only: 재개(resume)된 세션은 in-process 팀원이 이전 lead 프로세스와
@@ -167,10 +174,11 @@ CTO가 해당 teammate에게 dispatch한 뒤에만 시작한다.
 
 ### RESUMED SESSION — 팀원 소멸 (하네스 강제)
 
-이 세션은 `--resume` 으로 재개됐다. in-process 팀원(planner/designer/reviewer)은
+이 세션은 `--resume` 으로 재개됐다. in-process 팀원(planner/reviewer)은
 이전 lead 프로세스와 함께 **이미 소멸**했다 — 이전 대화에 팀이 살아 있었어도
-지금은 없다. 팀 작업 전 `/start-project` 로 재스폰하라. 재스폰 전에는
-SendMessage(planner|designer|reviewer) 가 전부 실패한다.
+지금은 없다. 재스폰 전에는 SendMessage(planner|reviewer) 가 전부 실패한다.
+재스폰: 시작 마커가 있으면 첫 턴에 자동(STARTUP OVERRIDE), 마커가 소비된
+뒤라면 `/start-project` 수동 재신호.
 """
 
     out = {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": body}}

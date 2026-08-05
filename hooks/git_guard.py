@@ -26,6 +26,11 @@ RULES.md 는 advisory(모델 신뢰) — 모델이 "지금 커밋하는 게 좋�
           "docker화 해" 할 때만. 예외 ② — 이미지 전용 의존 서비스(mediamtx 등)
           만 띄우는 `up [-d] <service…>`(--build 없음)는 통과 (app 코드는 dev 서버).
           `compose down`·`docker rm` 은 통과.
+  port  — §4 할당 포트 바인딩 (2026-08-04 사고): 임시 서버(http.server)는 자기
+          FRONTEND_PORT(목업 게이트 정본)만 허용 — 자기 BACKEND_PORT 포함 그 외
+          할당 포트 차단. bind 서버(uvicorn/vite 등 `--port`·docker `-p N:`)가
+          타 프로젝트 할당 포트를 잡는 것도 차단. 자기 포트 정상 기동·접속
+          클라이언트(`psql --port` 등)·공유 인프라(5432/5435)는 통과.
 
 사용자 허가 통로 (override):
   사용자가 명시적으로 시킨 작업("커밋해")은 명령 앞에 마커를 붙여 실행:
@@ -475,6 +480,129 @@ def _docker_downv_blocked(cmd: str, _depth: int = 0) -> bool:
     return False
 
 
+# ── §4 포트 가드 (2026-08-04 사고: 8013 목업 점유 + 5185→5186 vite 드리프트) ──
+# 에이전트 Bash 명령이 §4 할당 포트(각 프로젝트 .env 진실원천)에 서버를 바인딩
+# 하려는 걸 결정론 차단한다:
+#   ① 임시 서버(`python -m http.server`)는 **자기 FRONTEND_PORT 만 허용**
+#      (시안/목업 게이트 정본 — 사용자 접속 경로가 최종 제품과 동일, RULES §4.1
+#      2026-08-04 사용자 결정). 자기 BACKEND_PORT 포함 그 외 할당 포트는 차단.
+#   ② bind 서버(uvicorn/vite/npm dev …)의 `--port N`·docker `-p N:` 이
+#      **타 프로젝트** 할당 포트 → 차단 (자기 포트는 통과 — 정상 dev 기동)
+# `--port` 는 psql 등 "접속" 클라이언트에도 쓰이므로 bind-서버 토큰이 같은
+# 세그먼트에 있을 때만 본다 (접속은 §4 위반이 아님 — 오탐 방지).
+# 공유 인프라 포트(5432/5435 등)는 전 프로젝트 공용이라 제외.
+_PORT_SHARED = {5432, 5435}
+_PORT_BIND_CMD_RE = re.compile(
+    r"\b(uvicorn|vite|gunicorn|flask|streamlit|http\.server|npm|pnpm|yarn|serve|next)\b")
+_PORT_TEMP_SERVER_RE = re.compile(r"\bhttp\.server\b")
+# 주의: `--port` 앞에 \b 를 쓰면 안 된다 — 공백→`-` 는 둘 다 non-word 라
+# \b 가 성립하지 않아 패턴이 영원히 안 맞는다 (2026-08-04 구현 중 실측).
+_PORT_ARG_RES = [
+    re.compile(r"\bhttp\.server\s+(?:--?[\w-]+(?:[=\s]\S+)?\s+)*(\d{2,5})\b"),
+    re.compile(r"(?:^|\s)--port[=\s]+(\d{2,5})\b"),
+    re.compile(r"(?:^|\s)-p\s+(\d{2,5}):"),
+    re.compile(r"(?:^|\s)--publish[=\s]+(\d{2,5}):"),
+]
+
+
+def _port_harness_root() -> str:
+    return os.environ.get("HARNESS_ROOT") or os.path.dirname(
+        os.path.dirname(os.path.abspath(__file__)))
+
+
+def _port_allocated() -> dict[int, str]:
+    """port → project slug, 각 프로젝트 .env 의 *_PORT=<n> 스캔 (진실원천)."""
+    out: dict[int, str] = {}
+    root = _port_harness_root()
+    for parent in ("modules", "claude-project"):
+        base = os.path.join(root, parent)
+        try:
+            names = os.listdir(base)
+        except OSError:
+            continue
+        for name in names:
+            env = os.path.join(base, name, ".env")
+            try:
+                with open(env, encoding="utf-8", errors="replace") as f:
+                    for line in f:
+                        m = re.match(r"([A-Z_]*PORT[A-Z_]*)=(\d{2,5})\s*$", line.strip())
+                        if m and m.group(1) != "PORT_OFFSET":
+                            p = int(m.group(2))
+                            if p not in _PORT_SHARED:
+                                out.setdefault(p, name)
+            except OSError:
+                continue
+    return out
+
+
+def _port_own_project() -> str | None:
+    d = os.environ.get("HARNESS_CTO_DIR")
+    if d:
+        return os.path.basename(d.rstrip("/"))
+    role = os.environ.get("HARNESS_ROLE", "")
+    if ":" in role:
+        return role.split(":", 1)[1]
+    return None
+
+
+def _port_own_frontend() -> int | None:
+    """자기 프로젝트 .env 의 FRONTEND_PORT — 목업 프리뷰가 허용되는 유일한 포트."""
+    d = os.environ.get("HARNESS_CTO_DIR")
+    if not d:
+        own = _port_own_project()
+        if not own:
+            return None
+        root = _port_harness_root()
+        for parent in ("modules", "claude-project"):
+            cand = os.path.join(root, parent, own)
+            if os.path.isdir(cand):
+                d = cand
+                break
+        else:
+            return None
+    try:
+        with open(os.path.join(d, ".env"), encoding="utf-8", errors="replace") as f:
+            for line in f:
+                m = re.match(r"FRONTEND_PORT=(\d{2,5})\s*$", line.strip())
+                if m:
+                    return int(m.group(1))
+    except OSError:
+        pass
+    return None
+
+
+def _port_hits(seg_texts: list[str]) -> list[str]:
+    try:
+        alloc = _port_allocated()
+    except Exception:
+        return []  # 스캔 실패 = fail-open (판정 불가 시 작업을 막지 않는다)
+    if not alloc:
+        return []
+    own = _port_own_project()
+    own_frontend = _port_own_frontend()
+    out: list[str] = []
+    for t in seg_texts:
+        is_temp = bool(_PORT_TEMP_SERVER_RE.search(t))
+        is_bind = bool(_PORT_BIND_CMD_RE.search(t)) or "-p " in t or "--publish" in t
+        if not (is_temp or is_bind):
+            continue
+        for pat in _PORT_ARG_RES:
+            for m in pat.finditer(t):
+                p = int(m.group(1))
+                owner = alloc.get(p)
+                if owner is None:
+                    continue
+                if is_temp and p != own_frontend:
+                    out.append(
+                        f"임시 서버가 §4 할당 포트 {p}({owner}) 바인딩 — 목업/프리뷰는 "
+                        f"자기 FRONTEND_PORT 로만 (RULES §4.1)")
+                elif not is_temp and owner != own:
+                    out.append(
+                        f"타 프로젝트({owner}) 할당 포트 {p} 바인딩 — 자기 .env 포트만 "
+                        f"사용 (RULES §4)")
+    return out
+
+
 def _note(msg: str) -> None:
     """가드가 판정을 못 하고 통과시킨 사실만 stderr 에 남긴다 (exit code 불변).
 
@@ -538,6 +666,9 @@ def main() -> int:
     if "docker" not in overrides:
         for reason in _docker_hits(cmd):
             hits.append(("docker", reason))
+    if "port" not in overrides:
+        for reason in _port_hits(seg_texts):
+            hits.append(("port", reason))
     if not hits:
         return 0
 

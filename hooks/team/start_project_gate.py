@@ -4,8 +4,9 @@
 설계 의도: `add-cto` 는 CTO 를 빈 세션으로 띄우고, 사용자가 `/model`·`/effort` 를
 고른 뒤 `/start-project` 로 **명시 시작**하게 돼 있다. 그러나 stray 턴 한 번이면
 (예: bypass-accept 키입력 누수 — run.sh start_session) Opus CTO 가 plan.md 를 보고
-`Agent` tool 로 Claude 팀원(planner/designer/reviewer)을 자동 스폰해 /effort 설정
-창을 놓친다. role.md "자동스폰 금지" 는 advisory 라 샌다. 이 훅이 결정론 게이트로 막는다
+`Agent` tool 로 Claude 팀원(planner/reviewer)을 자동 스폰해 /effort 설정
+창을 놓친다. (TEAM_ROLES 의 designer 는 폐기 역할 방어용으로 남긴다 — 2026-07-29
+독립 세션 분리 후에도 designer spawn 시도가 마커 없이 새는 것을 막는다.) role.md "자동스폰 금지" 는 advisory 라 샌다. 이 훅이 결정론 게이트로 막는다
 (RULES §5.3/netbind 와 같은 철학). 팀 spawn 은 이 환경에선 `TeamCreate` 가 아니라
 `Agent` tool(subagent_type=팀역할) 이다 — 게이트도 `Agent` 를 겨눈다.
 
@@ -16,7 +17,12 @@
     subagent_type ∈ {planner,designer,reviewer} 인데 /start-project 마커가
     **없으면** 차단(=premature team spawn — /start-project 가 명시 spawn 신호다).
     nested(`/subagents/`) 호출·비-팀역할 subagent_type·마커 존재 → 허용.
-  - 마커 리셋: `run.sh add-cto` 가 spawn 시 마커를 지운다(fresh 마다 재요구).
+  - 마커 시딩 (2026-08-04 반전, 사용자 결정): `run.sh add-cto` 가 spawn 시 마커를
+    **미리 쓴다** — attach 후 첫 지시 턴이 곧 시작 신호가 되어 /start-project
+    타이핑이 불필요하다. 게이트 자체는 불변(마커 부재 = 차단): 마커가 소비된 뒤
+    (로스터 완성 → nudge 훅이 청소) 재스폰하려면 여전히 /start-project 재신호가
+    필요하고, 마커를 수동 제거하면 옛 명시-신호 모드로 돌아간다.
+  - (구) 마커 리셋: 예전엔 add-cto 가 마커를 지웠다(fresh 마다 재요구).
     2026-07-23 까지 이건 **문서에만 있고 구현이 없었다** — run.sh 는
     `LOG_DIR/started/` 를 건드린 적이 없어서, 중도 실패한 이전 스폰의 stale
     마커가 살아남으면 다음 add-cto 가 `/start-project` 없이도 팀을 뽑을 수 있었다
@@ -129,7 +135,7 @@ def main() -> None:
             "attach 후 /model·/effort 설정 → /start-project 로 시작하세요 "
             "(CTO 자동스폰 금지 — role.md '무엇을 직접 하면 안 되는가'). "
             "/start-project 가 명시 spawn 신호이며 "
-            "fresh·maintenance 둘 다 그때 planner/designer/reviewer 3명을 upfront 로 스폰합니다.",
+            "fresh·maintenance 둘 다 그때 planner/reviewer 2명을 upfront 로 스폰합니다.",
         )
 
     allow()

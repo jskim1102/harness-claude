@@ -10,7 +10,16 @@ import textwrap
 
 
 SEVERITIES = ("blocker", "major", "minor", "nit")
-CATEGORIES = ("correctness", "security", "spec-divergence", "quality")
+CATEGORIES = ("security", "scale", "data-growth", "operations")
+
+# The synthetic finding emitted when the runner itself fails. Both values MUST
+# be members of the tuples above: count_terms() only counts known terms, so a
+# stale literal here would make a runner CRASH summarize to the CEO as a clean
+# zero-finding review.
+FAILURE_SEVERITY = "blocker"
+FAILURE_CATEGORY = "operations"
+assert FAILURE_SEVERITY in SEVERITIES
+assert FAILURE_CATEGORY in CATEGORIES
 
 # Machine-checkable line that binds a report to the specific launch that
 # requested it. The launcher writes an unguessable launch_id into .pending;
@@ -94,31 +103,23 @@ def build_failure_report(
     """Create a triageable report when the Codex invocation itself fails."""
     stdout_tail = tail_text(stdout)
     stderr_tail = tail_text(stderr)
-    return textwrap.dedent(
+    # Build the body first, then derive the header counts from it with the same
+    # counter the real path uses. Writing the count lines as frozen literals
+    # would silently go stale the next time SEVERITIES/CATEGORIES change, and a
+    # stale count line reads as "0 findings" — i.e. a crash reported as a PASS.
+    body = textwrap.dedent(
         f"""\
-        # Codex Review Report
-
-        - Project: {context.project_name}
-        - Project path: {context.project_path}
-        - Spec path: {context.spec_path}
-        - README path: {context.readme_path or "(없음 — 코드만 리뷰)"}
-        - Reviewer: Codex cross-model review agent
-        - Files reviewed: 0
-        - Counts by severity: blocker 1, major 0, minor 0, nit 0
-        - Counts by category: correctness 0, security 0, spec-divergence 0, quality 1
-        - Overall risk: critical - the review runner failed before producing findings.
-
         ## Findings
 
         ### 1. Codex review did not complete
 
-        - severity: blocker
-        - category: quality
+        - severity: {FAILURE_SEVERITY}
+        - category: {FAILURE_CATEGORY}
         - location: n/a
         - issue: The Codex CLI review process exited with status {exit_code}.
-        - why: The CEO did not receive an independent code-review result, so the project still lacks the requested cross-model review signal.
+        - why: The CEO did not receive an independent cross-model review, so the project's real-use risk (security, scale, data-growth, operations) is unassessed.
+        - trigger: n/a — the review never ran, so no real-use condition was evaluated.
         - suggested_fix: Check Codex CLI authentication/configuration, confirm the project/spec/README paths are readable, then rerun this agent.
-        - spec_ref: Codex review agent design section 9 requires a structured report and CEO summary.
 
         ## Runner Diagnostics
 
@@ -135,6 +136,23 @@ def build_failure_report(
         ```
         """
     )
+    header = textwrap.dedent(
+        f"""\
+        # Codex Review Report
+
+        - Project: {context.project_name}
+        - Project path: {context.project_path}
+        - Spec path: {context.spec_path}
+        - README path: {context.readme_path or "(없음 — 코드만 리뷰)"}
+        - Reviewer: Codex cross-model review agent
+        - Files reviewed: 0
+        - Counts by severity: {format_counts(count_terms(body, SEVERITIES), SEVERITIES)}
+        - Counts by category: {format_counts(count_terms(body, CATEGORIES), CATEGORIES)}
+        - Overall risk: critical - the review runner failed before producing findings.
+
+        """
+    )
+    return header + body
 
 
 def summarize_report(report_text: str, context: ReviewContext, *, exit_code: int) -> str:

@@ -14,9 +14,24 @@
 
 무엇을 막나:
   `<빌드>/specs/tasks.md` 안의 `[review]` task 줄이 미완(`[ ]`)에서
-  완료(`[✅]`/`[x]`)로 바뀌는 편집을, 회귀 검사가 통과하지 않았으면 차단한다.
-  판정 로직은 `team_hook_common.regression_missing()` 하나를 TaskCompleted
-  게이트와 공유한다 (구현이 갈리면 한쪽만 조여진다).
+  완료(`[✅]`/`[x]`)로 바뀌는 편집을, 다음 둘 중 하나라도 아니면 차단한다:
+    · 회귀 검사 통과 (`team_hook_common.regression_missing`)
+    · reviewer 의 code-review/qa 실호출 증거 (`team_hook_common.codereview_missing`)
+  판정 로직은 둘 다 `team_hook_common` 하나를 TaskCompleted 게이트와 공유한다
+  (구현이 갈리면 한쪽만 조여진다).
+
+  호출-증거 판정이 뒤늦게 합류한 이유 (2026-08-02): 회귀 판정만 공유하고 호출-증거
+  판정은 TaskCompleted 쪽에만 있어서, 작업목록을 안 쓰고 tasks.md 로만 흐르는
+  빌드는 **reviewer 를 한 번도 dispatch 하지 않고 `[review]` 를 닫을 수 있었다.**
+  실측: rtsp-keypoint phase4 — 체크박스가 코드 착지(v3.0.1) 후 사후에 찍혔고,
+  ckpt2 revert→FAIL 뮤테이션 검증과 ckpt4 실카메라 검증이 미수행으로 남았다.
+
+  ★ 이 훅은 PreToolUse(편집 **전**)라서 `.lastreview` 를 쓰지 않는다 — 판정 시점에
+  비가역 상태를 남기면 편집이 실제로 성사되지 않았을 때 증거가 오염된다(같은 실수를
+  TaskCompleted 게이트가 저질러 `[review]` 가 구조적으로 안 닫혔다, 2026-08-02).
+  잔여 한계: 그래서 이 경로에서는 한 번의 code-review 호출이 여러 `[review]` 줄을
+  닫는 것을 막지 못한다. 0회를 막는 것이 이 게이트의 몫이고, 재사용 방지는
+  TaskCompleted 경로가 담당한다.
 
 무엇을 막지 않나 (의도적):
   · `[dev]`/`[design]`/`[plan]` 체크박스 — 이 훅의 관심사가 아니다
@@ -33,7 +48,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from team_hook_common import (read_payload, allow, block, audit,  # noqa: E402
-                              project_of, regression_missing, safe_key)
+                              project_of, regression_missing, codereview_missing,
+                              safe_key)
 
 EVENT = "PreToolUse"
 WAIVER_DIR = os.path.join(os.path.expanduser("~"), ".harness-claude", "review-waivers")
@@ -112,15 +128,15 @@ def main():
     if _waived(proj):
         allow(EVENT, p, reason="review waived for this segment (waiver file)")
 
-    missing = regression_missing(proj)
+    missing = codereview_missing(proj) + regression_missing(proj)
     if missing:
         block(EVENT, p,
               "`[review]` 완료 차단 ({}): {}\n"
               "이 게이트는 작업목록(task store) 사용 여부와 무관하게 tasks.md 편집에서 "
-              "발동한다 (PROCESS §3 5.4). 회귀가 0 이 된 뒤 다시 체크하라.".format(
-                  proj, "; ".join(missing)))
+              "발동한다 (PROCESS §3 5.4). reviewer 를 실제로 dispatch 하고 회귀가 0 이 "
+              "된 뒤 다시 체크하라.".format(proj, "; ".join(missing)))
 
-    allow(EVENT, p, reason="tasks.md [review] 완료 — 회귀 0 확인")
+    allow(EVENT, p, reason="tasks.md [review] 완료 — reviewer 호출 + 회귀 0 확인")
 
 
 if __name__ == "__main__":

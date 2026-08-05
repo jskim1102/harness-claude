@@ -27,7 +27,9 @@ TASKS_DIR = os.path.join(HOME, ".claude", "tasks")     # ~/.claude/tasks/<team>/
 VERIFIED_DIR = os.path.join(LOG_DIR, "verified")        # completion sentinels
 NUDGE_DIR = os.path.join(LOG_DIR, "idle-nudges")        # idle loop-guard state
 
-# Workflow role tags: three Claude teammates plus external Codex-owned [dev].
+# Workflow role tags: Claude teammates 2명([plan]/[review]) + 독립 designer-cto
+# 세션([design]) + external Codex-owned [dev]. 태그 4종은 tasks.md 표기 규약이라
+# 팀 구성 변화(2026-07-29 designer 분리)와 무관하게 유지된다.
 # A task subject/description must contain [role] where role is one of these.
 ROLES = ("plan", "design", "dev", "review")
 
@@ -192,6 +194,56 @@ def regression_missing(proj):
         return ["회귀 {}건 — 이전에 통과하던 `Run:` 이 지금 실패한다. "
                 "다른 어떤 finding 보다 우선하는 BLOCKER (PROCESS §3 5.4). "
                 "`./run.sh regress {} --check` 출력 참조".format(n, proj)]
+    return []
+
+
+CODEREVIEW_DIR = os.path.join(LOG_DIR, "codereview")
+
+
+def codereview_paths(proj):
+    """code-review 호출 마커(.invoked)와 직전 [review] 완료 마커(.lastreview).
+
+    키는 **프로젝트 + reviewer** 다. 예전엔 프로젝트만이라 CTO·planner·designer 가
+    code-review 를 돌려도 reviewer 의 완료게이트가 열렸다.
+
+    안전 근거 (2026-07-27, `~/.harness-claude/skill-activity.log` 전수):
+    실 프로젝트의 code-review/qa 호출 47건 중 **42건이 `agent=reviewer` 로 정확히
+    식별**됐고(6개 프로젝트 전부), `agent=cto` 는 5건뿐이었다 — 그 5건이 바로 이
+    게이트가 막아야 할 구멍이다. 즉 `_extract_agent` 는 실제 팀원을 안정적으로
+    잡으며, 조여도 정상 리뷰가 막히지 않는다.
+
+    reviewer 가 가동 불가라 CTO 가 직접 검증하는 경우는 **차단이 맞다** — 그때의
+    합법 출구는 사용자 명시 waive 파일뿐이다 (PROCESS §3 step5).
+    """
+    return (os.path.join(CODEREVIEW_DIR, "{}.reviewer.invoked".format(safe_key(proj))),
+            os.path.join(CODEREVIEW_DIR, safe_key(proj) + ".lastreview"))
+
+
+def codereview_missing(proj):
+    """`[review]` 를 닫기 전 reviewer 가 code-review/qa 를 실제로 호출했는지.
+
+    반환: 차단 사유 리스트 (빈 리스트 = 통과) — `regression_missing` 과 같은 계약.
+
+    ★ 두 소비처가 공유한다 — TaskCompleted 게이트(작업목록을 쓰는 빌드)와 tasks.md
+    편집 게이트(작업목록을 안 쓰는 빌드). 회귀 판정은 처음부터 공유했지만 이
+    호출-증거 판정은 TaskCompleted 쪽에만 있었고, 그래서 tasks.md 경로로만 흐르는
+    빌드는 reviewer 를 한 번도 dispatch 하지 않고 `[review]` 를 닫을 수 있었다
+    (실측: rtsp-keypoint phase4 — 체크박스가 코드 착지 후 사후에 찍혔고 ckpt2
+    뮤테이션 검증·ckpt4 실카메라 검증이 미수행으로 남았다). 구현이 갈리면 한쪽만
+    조여진다는 원칙을 여기서도 적용한다.
+    """
+    inv_p, last_p = codereview_paths(proj)
+    inv_m = os.path.getmtime(inv_p) if os.path.exists(inv_p) else -1.0
+    last_m = os.path.getmtime(last_p) if os.path.exists(last_p) else 0.0
+    if inv_m <= last_m:
+        return [
+            "**reviewer 의** code-review/qa 스킬 호출 증거 없음 (직전 리뷰 이후). "
+            "합법 출구는 둘뿐: (a) reviewer teammate 가 직접 `code-review`(또는 "
+            "qa-only)를 실행한다 — CTO·planner·designer 가 대신 돌린 것은 이제 "
+            "인정되지 않는다; (b) 사용자가 이 segment 를 명시 waive 해 CTO 가 "
+            "waiver 파일을 만든다 (PROCESS §3 step5). 파일 읽기·diff 등 수동 "
+            "static 검증만으론 불가"
+        ]
     return []
 
 

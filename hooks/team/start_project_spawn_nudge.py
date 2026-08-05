@@ -135,6 +135,18 @@ def _log_giveup(session, count, codex_alive):
         pass
 
 
+def _inbox_isolated() -> bool:
+    """이번 턴이 인박스 격리(RULES §6) 중인가 — inbox_isolation_guard 와 같은 키."""
+    role = os.environ.get("HARNESS_ROLE", "")
+    if not role:
+        return False
+    slug = role.replace(":", "-").replace("/", "-")
+    return os.path.exists(
+        os.path.join(os.path.expanduser("~"), ".harness-claude",
+                     "inbox-isolation", f"{slug}.turn")
+    )
+
+
 def main():
     p = read_payload()
 
@@ -143,6 +155,16 @@ def main():
     marker = _marker_path(name)
     if not os.path.exists(marker):
         allow()
+
+    # 1.5) 인박스 격리 턴이면 압박하지 않는다 (2026-08-04 실사고 — 교착).
+    # add-cto 가 시작 마커를 시딩하게 된 뒤로, CTO 가 데몬 nudge 로 인박스를 읽은
+    # 턴에서도 이 훅이 "팀 spawn 하라" 며 Stop 을 block 한다. 그런데 같은 턴의
+    # Agent/Skill 호출은 inbox_isolation_guard 가 §6 으로 차단한다 — 즉 훅 둘이
+    # 서로 반대를 요구해 CTO 가 빠져나갈 수 없다 (실측: perf-eval-gen 이 spawn
+    # 2회 시도 → 2회 차단 → Stop 재발화 무한). §6(프롬프트 인젝션 방지)이 상위
+    # 안전 규칙이므로 여기서 물러난다. 격리는 한 턴짜리라 다음 턴에 다시 압박한다.
+    if _inbox_isolated():
+        allow("Stop", p, reason="인박스 격리 턴 — §6 우선, spawn 압박 보류")
 
     # 2) in-process team roster 확인 (없으면 legacy Orca leaf fallback/fail-open).
     session = _session_from_cwd(p.get("cwd") or p.get("workingDirectory") or os.getcwd())

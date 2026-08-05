@@ -42,15 +42,36 @@ CEO_INBOX_PAUSE_FLAG = HARNESS_HOME / "inbox-ceo.pause"
 # Autopilot stall detector (spec: docs/superpowers/specs/2026-06-19-harnessd-stall-detector-design.md).
 # A CTO session is "stalled" when its pane is idle AND no project file changed AND
 # the CTO sent no surface message AND tasks.md still has incomplete items — for
-# STALL_SEC. Busy pane / recent file change / recent outbound msg all reset it, so
-# slow-but-working builds and gate-waits are never flagged. Surface-only to CEO.
-STALL_SEC = 300.0                 # idle+무진행 임계 (5분)
+# STALL_SEC. Busy pane / recent file change / recent outbound msg all reset it.
+#
+# 한계 (2026-08-05 실측): **게이트 대기는 여전히 오탐한다.** CTO 가 자기 터미널에서
+# 사용자에게 게이트1/2/3 을 제시하고 기다리는 것은 inbox 메시지도 파일변경도 만들지
+# 않아 이 탐지기에 전혀 보이지 않는다 — 억제 신호 3개(_cto_recent_surface /
+# _cto_awaiting_ceo / _project_recent_change)가 전부 inbox·파일 기반이기 때문.
+# 7/03~8/04 로그에 stall 에피소드 약 33건이 쌓였고 대부분이 이 부류였다.
+# 근본 해결(사용자-대기 억제)은 미구현 — 우선 임계를 5분→20분으로 완화해 소음을
+# 줄인다(사용자 결정). Surface-only to CEO.
+STALL_SEC = 1200.0                # idle+무진행 임계 (20분)
 STALL_SCAN_THROTTLE_SEC = 30.0    # find 진행스캔 최소 간격
 STALL_SCAN_WINDOW_SEC = 60.0      # find -mmin 창 (≥ throttle 라 스캔 사이 변경 안 놓침)
-STALL_BACKOFF_MAX_SEC = 1200.0    # 재알림 backoff 상한 (20분)
+STALL_BACKOFF_MAX_SEC = 2400.0    # 재알림 backoff 상한 (40분) — 반드시 STALL_SEC 초과
 PAIR_DEGRADED_GRACE_SEC = 30.0    # co-spawn/stop transient 뒤 half 유실 확정 유예
 STALL_EXCLUDE_DIRS = (".venv", "node_modules", ".git", "dist", "__pycache__", ".pytest_cache")
 _TASK_INCOMPLETE_RE = re.compile(r"^\s*-\s*\[[ !]\]")
+
+# Directive-tracking watcher (2026-08-04, 8013 stale-snapshot incident).
+# CEO 가 이행 관찰 가능한 지시를 보낼 때 ~/.harness-claude/watch/<name>.json 을
+# 등록하면 daemon 이 probe 를 주기 실행, 조건 충족(exit 0) 시 CEO 인박스로
+# push 한다 — CEO 가 낡은 스냅샷으로 이행 여부를 단정하는 대신 시스템이
+# 상태 전이를 알린다. 만료(ttl) 시에도 "미충족" 을 알린다.
+# 파일 계약: {"desc": str, "probe": str(sh -c), "to": role(기본 ceo),
+#            "interval_sec": float(기본 30), "ttl_hours": float(기본 24)}
+# 처리 후 파일은 <name>.json.fired / <name>.json.expired 로 rename (재발화 방지,
+# 이력 보존). 잘못된 JSON 은 .bad 로 격리하고 1회 로그.
+WATCH_DIR = HARNESS_HOME / "watch"
+WATCH_PROBE_TIMEOUT_SEC = 10.0
+WATCH_DEFAULT_INTERVAL_SEC = 30.0
+WATCH_DEFAULT_TTL_HOURS = 24.0
 
 # Module-level state for CEO-less mode warning suppression.
 _ceo_warned = False
@@ -562,7 +583,7 @@ def _detect_one_stall(session, now, stall_state, log):
         f"tasks.md 미완 {incomplete}개.\n"
         f"  다음 미완: {_first_incomplete_line(tasks_text)}\n"
         f"  의도된 대기면 무시. 아니면 확인:\n"
-        f"    ./run.sh attach {session}"
+        f"    ./run.sh attach-cto {name}"
     )
     try:
         with connect() as c:
@@ -770,6 +791,80 @@ def detect_stalls(
             log.exception("stall check error session=%s", session)
 
 
+def _watch_notify(to_role: str, body: str, log: logging.Logger) -> bool:
+    """Insert a watcher notification into the msg table (same path as stall alerts)."""
+    try:
+        with connect() as c:
+            c.execute(
+                "INSERT INTO msg (from_role, to_role, body) VALUES ('harnessd', ?, ?)",
+                (to_role, body),
+            )
+        return True
+    except Exception:
+        log.exception("watch notify insert failed to=%s", to_role)
+        return False
+
+
+def check_watches(watch_state: dict[str, float], log: logging.Logger) -> None:
+    """Run registered directive-tracking probes; notify on success or expiry.
+
+    watch_state: name -> monotonic time of last probe run (in-memory throttle;
+    a daemon restart just re-probes early, which is harmless).
+    """
+    if not WATCH_DIR.is_dir():
+        return
+    now = time.monotonic()
+    for f in sorted(WATCH_DIR.glob("*.json")):
+        name = f.stem
+        try:
+            spec = json.loads(f.read_text())
+            desc = str(spec.get("desc", name))
+            probe = spec["probe"]
+            to_role = str(spec.get("to", "ceo"))
+            interval = float(spec.get("interval_sec", WATCH_DEFAULT_INTERVAL_SEC))
+            ttl_h = float(spec.get("ttl_hours", WATCH_DEFAULT_TTL_HOURS))
+            if not _ROLE_RE.match(to_role):
+                raise ValueError(f"invalid to_role: {to_role!r}")
+            if not isinstance(probe, str) or not probe.strip():
+                raise ValueError("probe must be a non-empty string")
+        except Exception:
+            log.exception("watch: bad spec %s, quarantining", f.name)
+            f.rename(f.with_suffix(".json.bad"))
+            continue
+        # Expiry first: age from file mtime (registration time).
+        age_h = (time.time() - f.stat().st_mtime) / 3600.0
+        if age_h >= ttl_h:
+            if _watch_notify(
+                to_role,
+                f"[watch] {name} 만료 — {ttl_h:.0f}h 내 조건 미충족: {desc}",
+                log,
+            ):
+                f.rename(f.with_suffix(".json.expired"))
+                watch_state.pop(name, None)
+                log.info("watch expired name=%s to=%s", name, to_role)
+            continue
+        if now - watch_state.get(name, 0.0) < interval:
+            continue
+        watch_state[name] = now
+        try:
+            rc = subprocess.run(
+                ["sh", "-c", probe],
+                capture_output=True,
+                timeout=WATCH_PROBE_TIMEOUT_SEC,
+            ).returncode
+        except subprocess.TimeoutExpired:
+            log.warning("watch: probe timeout name=%s", name)
+            continue
+        except Exception:
+            log.exception("watch: probe error name=%s", name)
+            continue
+        if rc == 0:
+            if _watch_notify(to_role, f"[watch] {name} 조건 충족: {desc}", log):
+                f.rename(f.with_suffix(".json.fired"))
+                watch_state.pop(name, None)
+                log.info("watch fired name=%s to=%s", name, to_role)
+
+
 def tick(
     log: logging.Logger,
     last_woken: dict[str, float],
@@ -878,11 +973,13 @@ def main() -> None:
     stall_state: dict[str, dict] = {}
     pair_state: dict[str, dict] = {}
     ceo_state: dict = {}
+    watch_state: dict[str, float] = {}
     try:
         while True:
             try:
                 watch_ceo(ceo_state, log)
                 detect_stalls(log, stall_state, pair_state)
+                check_watches(watch_state, log)
                 tick(log, last_woken, last_unread, backoff)
             except Exception:
                 log.exception("tick error")

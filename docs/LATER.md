@@ -353,3 +353,25 @@ CTO worktree 상실) · 실행 세션 cwd · 빌드dir `.claude/harness-memory.m
 
 **결정기준:** ① 중앙화-먼저 vs blind-sed(중앙화가 다음 rename 을 1줄로 만듦) ② 세션 stop 다운타임
 타이밍 ③ 산문 ~120 치환은 기능 무영향이나 일관성용 — 사용자가 "전부" 선택.
+
+## dev 서버 상시가동 감시 (D2, 2026-08-04 하네스 검토 — 보류)
+
+phase3+ 는 dev 서버 상시가동이 규칙(PROCESS §3)인데 harnessd 는 pane idle·
+파일변경·인박스만 보고 **포트는 안 본다** — dev 서버가 죽어도 무감지. 실사례:
+2026-08-04 quote-editor dev 서버가 백그라운드 태스크 회수에 딸려 소리없이 죽음,
+사용자가 브라우저 열고서야 발견.
+
+**보류 사유 (사용자 결정 2026-08-04):** dev.sh 표준 템플릿 통일(setsid detach +
+pidfile + 포트대기)로 주 사망원인(터미널 회수 연사)이 제거됨 + 데몬 비대화 경계.
+재발하면 착수.
+
+**하면 이렇게:** harnessd 에 phase3+ 프로젝트(판정=tasks.md phase 파싱) 대상
+주기 포트 probe → 다운 시 해당 CTO 인박스로 재기동 통보. A2 지시추적 watcher
+(`~/.harness-claude/watch/` probe→inbox push) 인프라 재사용하면 소형. 오탐 설계
+주의: phase1~2·의도적 down·docker 모드 프로젝트에 잔소리 금지 (dev/docker 판별은
+dashboard `_mock_listener_ports`/`docker ps` 로직 재사용).
+
+- **designer role.md 죽은 "Claude Design MCP push" 계약 정리** — role.md:43-56 의
+  미세조정 루프(DesignSync push→캔버스→export)는 2026-07-29 이후 실사용 0회 +
+  2026-08-05 실측으로 캔버스(Projects 탭)는 도구 접근 불가 확정. design-max 는
+  수동 왕복으로 대체 완료 — 일반 모드의 이 절을 실태에 맞게 재작성/폐기할지 판단.

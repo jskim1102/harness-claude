@@ -41,7 +41,8 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from team_hook_common import (read_payload, allow, block, audit,  # noqa: E402
-                              VERIFIED_DIR, LOG_DIR, project_of, regression_missing)
+                              VERIFIED_DIR, LOG_DIR, project_of, regression_missing,
+                              codereview_paths, codereview_missing)
 
 EVENT = "TaskCompleted"
 RUN_CMD = re.compile(r"\bRun:\s*\S")
@@ -60,26 +61,6 @@ def _safe(s):
     return re.sub(r"[^A-Za-z0-9._-]", "_", str(s))
 
 
-def _codereview_paths(proj):
-    """code-review 호출 마커(.invoked)와 직전 [review] 완료 마커(.lastreview).
-
-    키는 **프로젝트 + reviewer** 다. 예전엔 프로젝트만이라 CTO·planner·designer 가
-    code-review 를 돌려도 reviewer 의 완료게이트가 열렸다.
-
-    안전 근거 (2026-07-27, `~/.harness-claude/skill-activity.log` 전수):
-    실 프로젝트의 code-review/qa 호출 47건 중 **42건이 `agent=reviewer` 로 정확히
-    식별**됐고(6개 프로젝트 전부), `agent=cto` 는 5건뿐이었다 — 그 5건이 바로 이
-    게이트가 막아야 할 구멍이다. 즉 `_extract_agent` 는 실제 팀원을 안정적으로
-    잡으며, 조여도 정상 리뷰가 막히지 않는다. (그전 우려였던 "transcript 에
-    `/subagents/` 가 없어 전부 cto 로 폴백" 은 이 실측으로 반증됐다.)
-
-    reviewer 가 가동 불가라 CTO 가 직접 검증하는 경우는 **차단이 맞다** — 그때의
-    합법 출구는 사용자 명시 waive 파일뿐이다 (PROCESS §3 step5)."""
-    base = os.path.join(LOG_DIR, "codereview")
-    return (os.path.join(base, "{}.reviewer.invoked".format(_safe(proj))),
-            os.path.join(base, _safe(proj) + ".lastreview"))
-
-
 # 증거 파일 키는 **프로젝트**다 (team_hook_common.project_of). team_name 은
 # 세션 파생(`session-<8hex>`)이라 세션 재시작마다 회전해 고아 sentinel 330개를
 # 만들었다 (2026-07-27). 레거시 team 키 경로는 읽기 전용 폴백으로만 남긴다 —
@@ -96,6 +77,33 @@ def review_waiver_path(proj, task_id):
         WAIVER_DIR, _safe(proj or "_noteam"),
         "task-{}.waiver".format(_safe(task_id)),
     )
+
+
+# 하나의 TaskCompleted 이벤트가 훅에 **두 번 배달**된다 (실측 2026-08-02,
+# ~/.claude/logs/team-hooks.jsonl): 1차는 teammate 컨텍스트가 실린 payload
+# (team_name/teammate_name/permission_mode 있음), 2차는 그것들이 벗겨진 payload —
+# session_id·prompt_id·task_id 는 동일하다. 예: cam-distance task#1
+#   12:28:42 allow (team=session-a0e3749a, teammate=reviewer, prompt_id=ea4be0c5…)
+#   12:28:46 block (team=None,             teammate=None,     prompt_id=ea4be0c5…)
+# 1차 allow 가 sentinel 을 소각하므로 2차는 "증거 없음" 으로 판정해 완료를 되돌린다
+# → `[review]` 가 구조적으로 닫히지 않는다. 전 이력 실측: 실 빌드 3건 + smoke 픽스처.
+#
+# 판정은 **논리 이벤트당 한 번**만 내리고, 같은 prompt_id 의 재배달은 1차 판정을
+# 재생한다. prompt_id 가 다르면(= 진짜 새 완료 시도) 새 증거를 요구하는 기존 계약은
+# 그대로다. prompt_id 가 없는 payload(구 shape)는 종전 동작으로 폴백한다.
+def decision_marker_path(proj, task_id):
+    return os.path.join(
+        VERIFIED_DIR, _safe(proj or "_noteam"),
+        "task-{}.consumed".format(_safe(task_id)),
+    )
+
+
+def _read_marker(path):
+    try:
+        with open(path) as fh:
+            return fh.read().strip()
+    except Exception:
+        return None
 
 
 def _existing(primary, legacy):
@@ -120,6 +128,14 @@ def main():
 
     lower = text.lower()
     is_review = "[review]" in lower
+
+    # 재배달 멱등 — 같은 논리 이벤트를 두 번 판정하지 않는다 (decision_marker_path 참조).
+    prompt_id = _safe(p.get("prompt_id") or "")
+    marker_p = decision_marker_path(proj, task_id)
+    if prompt_id and _read_marker(marker_p) == prompt_id:
+        allow(EVENT, p, reason=(
+            "same completion event re-delivered (prompt_id {}) — replaying the "
+            "prior allow instead of re-consuming evidence".format(prompt_id)))
 
     # [skip-verify] is the completion-gate bypass. [skip-format-check] declares a
     # no-build / coordination task at creation (it has no `Run:` by design), so it
@@ -157,18 +173,7 @@ def main():
     # 이후 새 호출이 있었는지 mtime 으로 검사 — 한 번의 code-review 로 여러 세그먼트
     # 리뷰를 때우는 재사용도 막는다.
     if is_review:
-        inv_p, last_p = _codereview_paths(proj)
-        inv_m = os.path.getmtime(inv_p) if os.path.exists(inv_p) else -1.0
-        last_m = os.path.getmtime(last_p) if os.path.exists(last_p) else 0.0
-        if inv_m <= last_m:
-            missing.append(
-                "**reviewer 의** code-review/qa 스킬 호출 증거 없음 (직전 리뷰 이후). "
-                "합법 출구는 둘뿐: (a) reviewer teammate 가 직접 `code-review`(또는 "
-                "qa-only)를 실행한다 — CTO·planner·designer 가 대신 돌린 것은 이제 "
-                "인정되지 않는다; (b) 사용자가 이 segment 를 명시 waive 해 CTO 가 "
-                "waiver 파일을 만든다 (PROCESS §3 step5). 파일 읽기·diff 등 수동 "
-                "static 검증만으론 불가"
-            )
+        missing.extend(codereview_missing(proj))
         missing.extend(regression_missing(proj))
 
     if missing:
@@ -185,6 +190,15 @@ def main():
         block(EVENT, p, reason)
 
     # Passed: consume the sentinel so it can't be reused (legacy 경로였으면 그것을).
+    # 소각 **전에** 이 논리 이벤트의 판정을 기록한다 — 기록이 소각보다 늦으면 그
+    # 사이의 재배달이 다시 증거 없음으로 판정한다.
+    if prompt_id:
+        try:
+            os.makedirs(os.path.dirname(marker_p), exist_ok=True)
+            with open(marker_p, "w") as _fh:
+                _fh.write(prompt_id)
+        except Exception:
+            pass
     try:
         os.remove(found_sp or sp)
     except Exception:
@@ -192,7 +206,7 @@ def main():
     # [review] 통과 → .lastreview 갱신: 다음 [review] 는 새 code-review 호출을 요구.
     if is_review:
         try:
-            _, last_p = _codereview_paths(proj)
+            _, last_p = codereview_paths(proj)
             os.makedirs(os.path.dirname(last_p), exist_ok=True)
             with open(last_p, "w") as _fh:
                 _fh.write(str(time.time()))

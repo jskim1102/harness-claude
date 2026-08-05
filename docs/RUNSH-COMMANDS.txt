@@ -9,7 +9,6 @@
 --help
 -h
 add-cto
-attach
 attach-codex-cto
 attach-designer-cto
 attach-cto
@@ -19,13 +18,11 @@ delete-cto
 doctor
 down
 fetch
-fetch-source
 git-listup
 help
 install-services
 ls
 netbind
-observe
 ports
 prune-ghosts
 regress

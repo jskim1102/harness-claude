@@ -415,17 +415,70 @@ _orca_close_cto() {
     # 필터에 탈락해 탭 close 를 건너뛰고, UI 에 "Remote runtime disconnected"
     # 카드 잔해만 남는다 (실측 재현). keeper 안의 agent 는 탭을 닫아도
     # 살아남으므로 close 뒤 keeper kill 은 여전히 필수다.
+    # ★ 탭 close 실패로 **중단하지 않는다** (2026-08-02 실사고). 예전엔 첫 실패에서
+    # `|| return 1` 로 빠져나가 아래 `_keeper_kill` 3개가 통째로 안 돌았다 — 즉
+    # Orca 가 딸꾹질 한 번 하면 stop-cto 가 **아무것도 안 하고** 에이전트는 계속
+    # 살아있었다(대시보드엔 사유 없는 "실패" 만). 실측 사인: 런타임 재시작 뒤
+    # rtsp-streaming 3탭이 `terminal switch` 는 ok 인데 `terminal close` 만
+    # `tab_not_found` 를 냈다 — 핸들은 유효한데 close 경로만 죽은 상태.
+    # 정지의 본질은 **에이전트 프로세스 종료**지 탭 정리가 아니다. 탭이 안 닫히면
+    # 사유를 찍고 계속 진행해 keeper 를 반드시 죽인 뒤, 마지막에 실패를 보고한다.
+    local resp failed=0
     records=$(_orca_harness_terminals) || return 1
     while IFS=$'\t' read -r role handle; do
         [[ "$role" == "cto:$name:"* ]] || continue
-        _orca_cli terminal close --terminal "$handle" --tab --json >/dev/null || return 1
-        echo "  ✓ closed Orca tab $role"
-        closed=1
+        if resp=$(_orca_cli terminal close --terminal "$handle" --tab --json 2>&1); then
+            echo "  ✓ closed Orca tab $role"
+            closed=1
+        else
+            echo "  ⚠ Orca 탭 close 실패 ($role) — $(_orca_err "$resp")" >&2
+            echo "    에이전트는 아래 keeper kill 로 정지한다. 탭 잔해는 Orca 에서 수동으로 닫아라." >&2
+            failed=1
+        fi
     done <<< "$records"
-    [[ $closed -eq 1 ]] || echo "  - Orca terminals for cto:$name not running"
+    [[ $closed -eq 1 || $failed -eq 1 ]] || echo "  - Orca terminals for cto:$name not running"
     _keeper_kill "cto-$name-lead"
     _keeper_kill "cto-$name-codex"
     _keeper_kill "cto-$name-designer"
+    # rail pane 프로세스도 직접 걷는다 (2026-08-04 실사고). 탭 close 가 성공하면
+    # skill 피드(grep)는 탭과 함께 죽지만, close 가 tab_not_found 로 실패하면
+    # **살아남는다** — 그러면 다음 스폰에서 `_orca_ensure_rail` 의 pgrep 멱등
+    # 가드("skill 피드 생존 = rail 존재")가 유령을 보고 split 을 통째로 건너뛰어
+    # rail 없는 맨몸 lead 가 뜬다 (rtsp-streaming 실측). 정지의 본질 = 프로세스
+    # 종료 — keeper 와 같은 급으로 여기서 확정 처리한다. close 성공 경로에선
+    # 이미 죽어 있어 no-op (멱등). 패턴은 ensure_rail 가드·고아 정리와 동일 리터럴.
+    local pane
+    for pane in $(pgrep -f "grep .*\[cto:$name\]" 2>/dev/null); do
+        kill "$pane" 2>/dev/null || true
+    done
+    for pane in $(pgrep -f "teammate_tail.py $name " 2>/dev/null); do
+        kill "$pane" 2>/dev/null || true
+    done
+    return $failed
+}
+
+# close 가 거부한 유령 레코드를 역할 네임스페이스 밖으로 밀어낸다 (2026-08-04).
+# 왜 필요한가: `_orca_create_terminal` 은 같은 role title 이 이미 있으면 그 핸들을
+# **재사용**한다 (add-cto 멱등성의 근거). 그런데 close 실패 뒤에는 keeper 는 죽고
+# 레코드만 connected 로 남은 상태라, 그 재사용이 "죽은 탭을 살아있는 세션으로
+# 착각" 시킨다 — 재기동이 create 를 한 번도 안 부르고 조용히 끝난다(실측: 결함주입
+# 스모크에서 create 0회). 타이틀을 벗기면 유령은 매칭에서 탈락하고 create 가 새
+# 탭을 연다. 잔해 탭은 남지만, 그건 사용자가 닫을 수 있는 문제고 죽은 CTO 는 아니다.
+_orca_retire_stale_role_terminals() {
+    local name="${1:?name required}" records role handle retired=0
+    records=$(_orca_harness_terminals) || return 0
+    while IFS=$'\t' read -r role handle; do
+        [[ "$role" == "cto:$name:"* ]] || continue
+        if _orca_cli terminal rename --terminal "$handle" \
+                --title "stale:$role" --json >/dev/null 2>&1; then
+            retired=1
+        else
+            echo "  ⚠ 유령 탭 타이틀 해제 실패 ($role) — 재기동이 죽은 탭을 재사용할 수 있다." >&2
+            echo "    Orca 를 재시작한 뒤 다시 실행해라." >&2
+        fi
+    done <<< "$records"
+    [[ $retired -eq 1 ]] && echo "  ✓ 유령 탭을 역할에서 분리 (stale:cto:$name:*) — 새 탭으로 재기동"
+    return 0
 }
 
 # Per-role .claude/settings.json + slash-command symlinks + (for CTO) agent
@@ -498,7 +551,7 @@ write_role_settings() {
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
   },
   "teammateMode": "$teammate_mode",
-  "model": "claude-opus-4-8",
+  "model": "claude-opus-5",
   "effortLevel": "high",
   "statusLine": {
     "type": "command",
@@ -689,7 +742,7 @@ JSON
         # symlinked plugin files readable without per-file permission prompts.
         cat > "$target_dir/.claude/settings.json" <<JSON
 {
-  "model": "claude-opus-4-8",
+  "model": "claude-opus-5",
   "statusLine": {
     "type": "command",
     "command": "python3 $REPO/hooks/cto_statusline.py"
@@ -785,7 +838,7 @@ start_session() {
     command=$(_keeper_wrap "cto-${role#cto:}-lead" "$inner")
     handle=$(_orca_create_terminal "$orca_role" "$command" "$cwd") || return 1
     if [[ -n "$resume_str" ]]; then
-        echo "  lead 이전 대화 복원 (${resume_str% }) — 팀원은 복원 안 됨, /start-project 로 재spawn"
+        echo "  lead 이전 대화 복원 (${resume_str% }) — 팀원은 복원 안 됨, 첫 지시 턴에 자동 재spawn (마커 시딩)"
     fi
     # start_session's display name is `cto-<name>`; skill log tags use only
     # the canonical CTO name (`[cto:<name>]`).
@@ -966,7 +1019,8 @@ cmd_add_cto() {
     # 시그니처: <name> (CEO 가 만든 빌드 dir 이름) 또는 plan.md 경로/빌드 dir 1개.
     #   ./run.sh add-cto <name>                          # claude-project/·modules/ 스캔해 resolve
     #   ./run.sh add-cto claude-project/<name>/plan.md   # 경로 직접 지정도 가능
-    # 분해는 자동 시작 안 함 — attach 후 /model·/effort 고르고 /start-project 로 시작.
+    # 분해는 자동 시작 안 함 — attach 후 /model·/effort 고르고 첫 지시로 시작
+    # (시작 마커는 add-cto 가 심는다 — /start-project 타이핑 불필요).
     # 부모 dir 가 빌드타입(축1)·CTO 이름·작업 dir 를 전부 확정한다.
     # 스폰 가능 = plan.md(1단계 신규) 또는 specs/tasks.md(분해 완료 → plan 없이 재개);
     # 둘 다 없으면 실패 (fail-closed). 인자: 위치 인자 1개 + 선택 --fresh.
@@ -1084,13 +1138,31 @@ cmd_add_cto() {
         _wire_project_env "$dir"
     fi
 
-    # /start-project 마커 리셋 — 새 스폰마다 명시 시작 신호를 다시 요구한다
-    # (hooks/team/start_project_gate.py 가 이 파일로 팀 spawn 을 게이트한다).
-    # 이전 스폰이 중도 실패하면 마커가 남고, 그러면 새 CTO 가 /start-project 없이
-    # 팀을 뽑을 수 있어 게이트가 조용히 무력화된다 — 그게 게이트의 존재 이유인
-    # /model·/effort 선택 window 를 날린다. nudge 훅의 clear 는 로스터가 완성돼야만
-    # 돌아서 중도 실패를 못 덮는다. 여기가 유일하게 확실한 리셋 지점이다.
-    rm -f "$HOME/.claude/logs/started/$(printf '%s' "$name" | tr -c 'A-Za-z0-9._-' '_').started" 2>/dev/null || true
+    # 표준 dev.sh 시딩 (2026-08-04, 사용자 결정 — dev.sh 재발명 차단).
+    # phase1 이 백지에서 새로 쓰다 규격 미달(quote-editor 14줄 foreground 사고)이
+    # 나던 걸, 템플릿 복사로 태어날 때부터 규격화한다. CTO 는 상단 가변부
+    # (project_services/pre_up/post_down)만 채운다. 기존 dev.sh 는 안 덮는다.
+    if [[ ! -f "$dir/dev.sh" && -f "$REPO/harness/templates/dev.sh" ]]; then
+        cp "$REPO/harness/templates/dev.sh" "$dir/dev.sh"
+        chmod +x "$dir/dev.sh"
+        echo "dev.sh: 표준 템플릿 시딩 (가변부만 채우면 됨 — RULES §13·§5.5)"
+    fi
+
+    # /start-project 자동 신호 (2026-08-04, 사용자 결정 — 리셋에서 시딩으로 반전).
+    # add-cto 가 시작 마커를 **미리 심는다**: start_project_gate 의 팀 spawn 게이트가
+    # 열린 채 뜨고, Stop-훅(start_project_spawn_nudge)이 첫 턴 종료부터 로스터
+    # 완성(planner+reviewer)을 압박한다 → 사용자가 /start-project 를 타이핑하지
+    # 않아도 attach 후 첫 지시 턴에 팀이 뜬다. /model·/effort 조정 window 는 유지
+    # (빈 프롬프트 대기 + 자동 kickoff 없음은 그대로). 알려진 트레이드: 사용자
+    # 아닌 stray 턴이 기본 model/effort 로 조기 스폰할 수 있음 — 사용자가 명시
+    # 수용했다. /start-project 커맨드는 수동 재신호용으로 유지된다.
+    # 매 스폰마다 새로 쓰므로 예전 "stale 마커" 문제(S38)는 정의상 소멸 — 마커는
+    # 항상 이번 스폰의 신호다. 이전 회차 spawn claim 은 지운다 (팀원은 lead 와
+    # 함께 죽었는데 claim 이 남으면 one_teammate_per_role 게이트가 재스폰을 중복
+    # 스폰으로 오판해 차단한다 — /start-project 프롬프트 경로가 하던 정리와 동일).
+    mkdir -p "$HOME/.claude/logs/started"
+    printf '%s\n' "$name" > "$HOME/.claude/logs/started/$(printf '%s' "$name" | tr -c 'A-Za-z0-9._-' '_').started"
+    rm -f "$HOME/.harness-claude/orca-team-spawn-claims/$name"/{planner,designer,reviewer}.claimed 2>/dev/null || true
 
     # Orca Project 신원 = git repo 경계. 빌드 dir 에 자체 .git 이 없으면 부모
     # harness-claude repo 신원으로 등록돼 워크트리가 없고, 이어지는 terminal
@@ -1114,7 +1186,17 @@ cmd_add_cto() {
     if [[ $fresh -eq 1 ]]; then
         # 돌던 세션을 닫고 복원 id 를 버린다 → lead 가 새 대화로 뜬다.
         # Codex 는 건드리지 않는다 (production 맥락 보존; resume 은 cwd 발굴).
-        _orca_close_cto "$name"
+        # ★ 반환값을 반드시 삼킨다 (2026-08-04 실사고). _orca_close_cto 는 탭 close
+        # 실패를 **보고용 반환값**으로 올린다 (2026-08-02 설계) — stop/delete 는 그걸
+        # 받아 멈추는 게 맞지만, fresh 는 정반대다. 가드 없이 부르면 `set -e` 가
+        # add_cto 를 여기서 중단시켜 keeper 3개는 이미 죽고 재기동(start_session·
+        # codex·designer)은 하나도 안 돈다 = **"CTO 실행(fresh)" 이 CTO 를 죽이기만
+        # 함**. 실측: Orca 런타임/UI 가 갈라진 순간 3역할 전부 tab_not_found → 대시보드
+        # 실패 + rtsp-streaming keeper 전멸. 탭 잔해는 재기동을 막을 이유가 못 된다.
+        _orca_close_cto "$name" || {
+            echo "--fresh: 탭 잔해 있음 (사유는 위) — 재기동은 그대로 진행한다." >&2
+            _orca_retire_stale_role_terminals "$name"
+        }
         rm -f "$HOME/.harness-claude/cto-session-$name.id" \
               "$HOME/.harness-claude/cto-designer-session-$name.id"
         # 기억 소멸 일관성: 콕핏 rail 이 이전 세션 잔재를 보여주면 안 된다.
@@ -1137,11 +1219,12 @@ cmd_add_cto() {
     _start_designer_cto_session "$name" "$dir" || return 1
 
     # 분해는 자동 시작하지 않는다 — CTO 세션을 빈 claude 프롬프트로 띄워두고,
-    # 사용자가 attach 후 /model·/effort 를 고른 뒤 직접 /start-project 로 시작한다
-    # (모델/effort 선택 window 확보). /start-project = 팀 spawn 의 명시 사용자
-    # 신호 (harness-team-spawn "When to spawn" path 1). send-keys auto-kickoff 폐기.
+    # 사용자가 attach 후 /model·/effort 를 고른 뒤 첫 작업 지시를 준다. 시작
+    # 마커는 add-cto 가 이미 심었으므로(위) 첫 지시 턴에 팀이 자동 스폰된다 —
+    # /start-project 타이핑 불필요 (수동 재신호용으로는 유지). send-keys
+    # auto-kickoff 는 여전히 폐기 상태다 — 턴 자체는 사용자가 연다.
     echo "CTO 세션 대기 중 — 분해 자동 시작 안 함 (build_type=$build_type, 디렉토리가 확정)."
-    echo "  다음: ./run.sh attach-cto $name → 세션 안에서 /model · /effort 설정 → /start-project"
+    echo "  다음: ./run.sh attach-cto $name → /model · /effort 설정 → 바로 작업 지시 (팀 자동 스폰, /start-project 불필요)"
 
     echo "attach Claude:   ./run.sh attach-cto $name"
     echo "attach Codex:    ./run.sh attach-codex-cto $name"
@@ -1289,8 +1372,6 @@ cmd_attach_designer_cto() {
     fi
     echo "focused Orca terminal: harness:cto:$name:designer"
 }
-
-# (observe 는 폐기됨 — CEO/CTO 터미널 독립 운영.)
 
 # Non-interactive smoke test for a CTO sandbox. Sends a prompt to a fresh
 # claude --print invocation in the CTO's sandbox dir with HARNESS_ROLE set,
@@ -1483,41 +1564,6 @@ _delete_cto_traces() {
 
     # Free the port offset: regenerate PORT.md from the (now-removed) project set.
     harness ports --quiet 2>/dev/null && echo "  ✓ refreshed PORT.md (offset freed)" || true
-}
-
-cmd_prune_ghosts() {
-    # Orca "Unknown" 유령 오프라인 일괄 정리 — 사용자 절차의 3단계.
-    # (1. 노트북·폰 Orca 앱 Quit → 2. systemctl --user stop orca-harness →
-    #  3. ./run.sh prune-ghosts → 4. VERDICT: CLEAN 확인 후 서비스 재시작)
-    # 파일을 되덮는 주체는 서버 serve 런타임이므로 서비스 정지가 선행 조건이고,
-    # 유닛 정지 후에도 AppImage 고아가 남을 수 있어 이중으로 검사한다.
-    if systemctl --user is-active --quiet orca-harness.service 2>/dev/null; then
-        echo "error: orca-harness 서비스가 실행 중 — 먼저 정지하라:" >&2
-        echo "  systemctl --user stop orca-harness" >&2
-        return 2
-    fi
-    # ★pgrep 검사 금지 (2026-07-29 실사용 오탐): harnessd 가 Orca 다운 중 CLI
-    # 폴백으로 띄우는 순간성 `orca-linux.AppImage -e ...` 호출이 "고아 생존"으로
-    # 오판된다 — 스크립트 docstring 의 orca_running() 재작성 사유와 동일 함정.
-    # 파일을 되덮을 수 있는 주체 판정의 정본은 스크립트의 런타임 소켓 접속
-    # 검사이고, --apply 가 그 가드를 자체 수행한다.
-    echo "== 미리보기 =="
-    python3 "$REPO/scripts/orca-prune-ghosts.py" || return $?
-    echo
-    echo "== 정리 (--apply) =="
-    python3 "$REPO/scripts/orca-prune-ghosts.py" --apply || return $?
-    echo
-    echo "== 재검사 =="
-    local out
-    out=$(python3 "$REPO/scripts/orca-prune-ghosts.py" 2>&1)
-    echo "$out"
-    echo
-    if [[ "$out" == *"정리할 고아 없음"* ]]; then
-        echo "VERDICT: CLEAN — 재시작: systemctl --user start orca-harness → 앱 열기"
-    else
-        echo "VERDICT: GHOSTS REMAIN — 위 출력을 확인하라."
-        return 1
-    fi
 }
 
 cmd_ports() {
@@ -1746,6 +1792,7 @@ cmd_doctor() {
              plugins/_shared/RULES.md plugins/_shared/PROCESS.md plugins/_shared/CODE_QUALITY.md \
              plugins/ceo/commands/build-project.md plugins/ceo/commands/build-module.md \
              plugins/cto/commands/start-project.md \
+             plugins/cto/commands/decompose.md \
              plugins/cto/agents/planner.md plugins/cto/agents/designer.md \
              plugins/designer-cto/role.md \
              plugins/cto/agents/reviewer.md \
@@ -1855,11 +1902,17 @@ cmd_doctor() {
         echo "  ✗ quality: reviewer.md BLOCKER/SHOULD/NIT 승인 게이트 부재"; canon_ok=0
     fi
 
-    # 5e) hybrid team composition — three Claude teammates + one external Codex.
+    # 5e) hybrid team composition — two Claude teammates (designer 는 2026-07-29
+    # 독립 세션 분리) + one external Codex. ★2026-08-04 감사: 이 검사가 designer
+    # 분리 후에도 'Exactly 3' 을 핀한 채 초록이었다 — start-project.md 의 stale
+    # "3" 잔재가 검사를 통과시키는 false-green 상호의존. 불변식은 2가 정본이고,
+    # 3 잔재가 되살아나면 아래 negative grep 이 잡는다.
     local START="$REPO/plugins/cto/commands/start-project.md"
     local SPAWN="$REPO/plugins/cto/skills/harness-team-spawn/references/spawn-prompt.md"
-    grep -qE 'EXACTLY 3|Exactly 3|정확히 3' "$START" "$SPAWN" 2>/dev/null \
-        || { echo "  ✗ hybrid team: start-project/spawn prompt 에 Claude 3명 불변식 부재"; canon_ok=0; }
+    grep -qE 'EXACTLY 2|Exactly 2|정확히 2' "$START" "$SPAWN" 2>/dev/null \
+        || { echo "  ✗ hybrid team: start-project/spawn prompt 에 Claude 2명 불변식 부재"; canon_ok=0; }
+    grep -qE 'EXACTLY 3|Exactly 3|정확히 3|세 명|세 teammate|three Claude teammates' "$START" "$SPAWN" 2>/dev/null \
+        && { echo "  ✗ hybrid team: 3-teammate 잔재 부활 (designer 분리 이전 문구)"; canon_ok=0; }
     grep -qE 'codex-cto-<name>|codex-cto-\{\{name\}\}' "$START" "$DEV" 2>/dev/null \
         || { echo "  ✗ hybrid team: 외부 codex-cto 세션 참조 부재"; canon_ok=0; }
     grep -q 'basename "\$f").*developer.md.*continue' "$REPO/run.sh" 2>/dev/null \
@@ -1924,6 +1977,33 @@ cmd_doctor() {
         printf '%s\n' "$giout" | grep -E '^■.*✗|^   ✗' | sed 's/^/  /'
         echo "    → 고치기: ./run.sh git-listup <name> 확인 후 그 빌드 .gitignore 에 추가"
     fi
+
+    # 탭↔프로세스 어긋남. advisory 인 이유: 둘 다 사용자 개입(Orca 재시작 / 세션
+    # 정지)이 필요한 상태지 하네스가 자동으로 고칠 것이 아니다. 판정(logical_sessions)
+    # 은 이미 이 어긋남을 걸러내지만, 걸러진다고 사라지지는 않으므로 눈에 띄게 둔다.
+    echo "--- [10] Orca 탭 ↔ 에이전트 정합 (advisory) ---"
+    python3 - "$REPO" <<'PY'
+import sys
+sys.path.insert(0, sys.argv[1])
+try:
+    from harness import orca_runtime as o
+    d = o.drift()
+except Exception as exc:                      # Orca 미실행 등 — 진단을 막지 않는다
+    print(f"  ⚠ 확인 불가: {exc}")
+    raise SystemExit(0)
+if not d["ghost_tab"] and not d["orphan_agent"]:
+    print("  ✓ 탭과 에이전트가 일치")
+    raise SystemExit(0)
+for k in d["ghost_tab"]:
+    print(f"  ⚠ 유령 탭: {k} — 탭은 있는데 에이전트 없음")
+if d["ghost_tab"]:
+    print("    → 화면엔 안 보여도 런타임 목록에 남는다. Orca 탭을 닫거나")
+    print("      `systemctl --user restart orca-harness` (전 터미널 드랍) 로 정리.")
+for k in d["orphan_agent"]:
+    print(f"  ⚠ 고아 에이전트: {k} — 프로세스는 도는데 붙을 탭 없음")
+if d["orphan_agent"]:
+    print("    → 화면 없이 파일을 쓰고 토큰을 태운다. `./run.sh stop-cto <name>` 로 정지.")
+PY
 
     echo "== doctor: $([[ $rc -eq 0 ]] && echo 'ALL CLEAN ✓' || echo 'FAIL ✗ (위 항목 수정 후 재실행)') =="
     return $rc
@@ -2155,7 +2235,6 @@ mental model:
   ./run.sh add-cto <name> --fresh                  # 대화 리셋: Claude+Codex 대화·페어 메시지·skill로그 초기화 (빌드/스펙 유지; delete-cto 아님)
   ./run.sh attach-cto <name>                       # Claude CTO Orca terminal focus
   ./run.sh attach-designer-cto <name>              # Designer(독립 Claude 세션) terminal focus
-  ./run.sh prune-ghosts                            # Orca "Unknown" 유령 일괄 정리 (서비스 정지 후; VERDICT 출력)
   ./run.sh attach-codex-cto <name>                 # Codex CTO Orca terminal focus
 
 ── 조회 ──
@@ -2204,13 +2283,10 @@ case "${1:-}" in
     delete-cto) shift; cmd_delete_cto "$@" ;;
     stop-cto)  shift; cmd_stop_cto "$@" ;;
     ports)     shift; cmd_ports "$@" ;;
-    prune-ghosts) shift; cmd_prune_ghosts "$@" ;;
     fetch)     shift; cmd_fetch "$@" ;;
-    fetch-source) shift; cmd_fetch "$@" ;;   # 구명 호환
     test-cto)  shift; cmd_test_cto "$@" ;;
     ls)        cmd_ls ;;
     down)      cmd_down ;;
-    attach)    shift; cmd_attach "$@" ;;
     attach-cto) shift; cmd_attach "cto-${1:?usage: $0 attach-cto <name>}" ;;
     attach-codex-cto) shift; cmd_attach_codex_cto "$@" ;;
     attach-designer-cto) shift; cmd_attach_designer_cto "$@" ;;
@@ -2223,7 +2299,6 @@ case "${1:-}" in
     regress)   shift; python3 "$REPO/harness/regression_gate.py" "$@" ;;
     dashboard) shift; cmd_dashboard "$@" ;;
     git-listup) shift; cmd_git_listup "$@" ;;
-    observe)   echo "observe 는 폐기됨 — CEO/CTO 터미널 독립 운영. ./run.sh attach cto-<name> 사용." >&2; exit 1 ;;
     -h|--help|help) print_usage ;;
     *) echo "unknown command: $1" >&2; print_usage >&2; exit 1 ;;
 esac

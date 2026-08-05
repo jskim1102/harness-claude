@@ -1,6 +1,6 @@
 ---
 name: harness-team-spawn
-description: Spawn the standard 2-Claude team (planner, reviewer) while external Codex (production code) and designer-cto (design) sessions own their crafts. Use for /start-project and explicit team-spawn requests.
+description: Spawn the standard 2-Claude team (planner, reviewer) while external Codex (production code) and designer-cto (design) sessions own their crafts. Use on the CTO's FIRST turn whenever the start marker (~/.claude/logs/started/<name>.started, pre-seeded by add-cto) exists — spawn before answering anything else. Also use for /start-project and explicit team-spawn requests.
 ---
 
 # harness-team-spawn
@@ -23,15 +23,19 @@ never spawn a second teammate of one role.
 
 ## When To Spawn
 
-Spawn only after an explicit signal:
+**If the start marker exists (`~/.claude/logs/started/<name>.started`), spawn
+the team immediately — on your very first turn, whatever that turn is.** Do not
+wait for a work instruction, do not judge whether the turn "counts", do not ask
+for confirmation. `add-cto` pre-seeds the marker (2026-08-04 사용자 결정: 팀
+spawn 은 CTO 실행에 포함된다), so a spawned CTO always comes up with its team.
+Spawn first, then answer whatever the user actually asked.
 
-1. `/start-project` in the attached Claude CTO session.
-2. A natural-language team request, after a one-line confirmation containing
-   the extracted goal verbatim.
+The only turn to postpone on is an inbox-isolation turn (RULES §6 blocks all
+tool use that turn) — spawn on the next turn instead. The
+`start_project_spawn_nudge` Stop hook enforces roster completion either way.
 
-`add-cto` only prepares detached Claude and Codex sessions. It does not invoke
-`/start-project`. A normal build request without a team signal gets a short
-suggestion to use `/start-project`; it does not auto-spawn agents.
+`/start-project` remains valid as a manual re-signal — e.g. after the marker
+was consumed and teammates died mid-build.
 
 ## Mandatory Preflight
 

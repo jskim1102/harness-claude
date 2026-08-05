@@ -346,7 +346,7 @@ class GraphBoundary extends React.Component {
 // Memory Core — 옵시디언 brain 글로우 연결도 (캔버스 블룸, 라이브 데이터, 클릭→모달)
 const NODE_COLORS = ['#ff8c3b', '#39d98a', '#4d9bff', '#e25bd0', '#b07bff', '#ffd23b', '#22d3ee', '#f472b6']
 
-function BrainGraph({ items, links, onNode, onHub }) {
+function BrainGraph({ items, links, onNode, onHub, harnessDirty }) {
   const wrapRef = useRef(null)
   const canvasRef = useRef(null)
   const stateRef = useRef({ nodes: [], W: 900, H: 460 })
@@ -412,13 +412,17 @@ function BrainGraph({ items, links, onNode, onHub }) {
       }
       if (!moved) break
     }
-    const nodes = [{ id: 'CEO', label: 'DEEP.INC', x: 0.5, y: 0.5, r: 21, color: '#2dd4ef', hub: true }]
+    const nodes = [{
+      id: 'CEO', label: 'DEEP.INC', x: 0.5, y: 0.5, r: 21, color: '#2dd4ef', hub: true,
+      needsCommit: (harnessDirty || 0) > 0,   // 허브 = 하네스 저장소 자신
+    }]
     items.forEach((it, i) => {
       nodes.push({
         id: it.name, label: it.name, item: it,
         x: pos[it.name].x, y: pos[it.name].y,
         r: 12 + (i % 3) * 2.4, color: it.type === 'module' ? '#a78bfa' : '#34d399',
         active: ctoHealthy(it), partial: ctoPartial(it),
+        needsCommit: (it.git_dirty || 0) > 0,
       })
     })
     nodes.forEach((nd, i) => { nd.phase = i * 1.7; nd.speed = 0.6 + (i % 3) * 0.18 })
@@ -426,7 +430,7 @@ function BrainGraph({ items, links, onNode, onHub }) {
     const ls = (links || []).filter((l) => byId[l.source] && byId[l.target])
       .map((l) => ({ a: l.source, b: l.target, lineage: l.kind === 'lineage' }))
     return { nodes, byId, links: ls }
-  }, [items, links])
+  }, [items, links, harnessDirty])
   const modelRef = useRef(model)
   modelRef.current = model
 
@@ -489,12 +493,21 @@ function BrainGraph({ items, links, onNode, onHub }) {
         halo.addColorStop(0, rgba(nd.color, 0.5 * twinkle)); halo.addColorStop(0.4, rgba(nd.color, 0.16 * twinkle)); halo.addColorStop(1, rgba(nd.color, 0))
       }
       ctx.fillStyle = halo; ctx.beginPath(); ctx.arc(x, y, haloR, 0, 6.283); ctx.fill()
-      if (nd.active || nd.partial) {
+      // 링은 두 축이 겹친다: 실행중(초록/주황) · commit 필요(빨강).
+      // 둘 다면 반지름을 벌려 **2줄로 함께** 보인다 (한쪽이 다른쪽을 덮지 않게).
+      // 한 축만이면 기존과 같은 반지름 하나 — 단독 상태의 모양은 안 바뀐다.
+      const running = nd.active || nd.partial
+      if (running || nd.needsCommit) {
         const ringR = r + 5 + (reduce ? 0 : 2.5 * ap)
-        const ringColor = nd.partial ? '#ffb547' : '#39d98a'
-        ctx.shadowBlur = 12; ctx.shadowColor = rgba(ringColor, 0.9)
-        ctx.strokeStyle = rgba(ringColor, 0.55 + 0.35 * ap); ctx.lineWidth = 1.6
-        ctx.beginPath(); ctx.arc(x, y, ringR, 0, 6.283); ctx.stroke(); ctx.shadowBlur = 0
+        const rings = []
+        if (running) rings.push([ringR, nd.partial ? '#ffb547' : '#39d98a'])
+        if (nd.needsCommit) rings.push([running ? ringR + 4.5 : ringR, '#ff5c66'])
+        for (const [rr, rc] of rings) {
+          ctx.shadowBlur = 12; ctx.shadowColor = rgba(rc, 0.9)
+          ctx.strokeStyle = rgba(rc, 0.55 + 0.35 * ap); ctx.lineWidth = 1.6
+          ctx.beginPath(); ctx.arc(x, y, rr, 0, 6.283); ctx.stroke()
+        }
+        ctx.shadowBlur = 0
       }
       ctx.shadowBlur = (nd.hub ? 44 : 22) * twinkle; ctx.shadowColor = rgba(nd.color, 0.95)
       const coreR = r * (nd.active ? (0.92 + 0.12 * ap) : (reduce ? 1 : 0.95 + 0.05 * Math.sin(t * 1.1 + nd.phase)))
@@ -634,7 +647,7 @@ const mcCss = `
 .mc-open { font-size: 11px; font-weight: 700; letter-spacing: 1.2px; color: var(--a); }
 `
 
-function MissionControl({ items, links, onPick, onNode, updated, onHub }) {
+function MissionControl({ items, links, onPick, onNode, updated, onHub, harnessDirty }) {
   const accents = ['#fb923c', '#ec4899', '#38bdf8', '#34d399', '#a78bfa', '#22d3ee', '#f59e0b', '#f472b6']
   const mods = items.filter((i) => i.type === 'module')
   const projs = items.filter((i) => i.type === 'project')
@@ -683,7 +696,7 @@ function MissionControl({ items, links, onPick, onNode, updated, onHub }) {
           <div className="mc-chip"><b style={{ fontSize: 13 }}>{updated || '—'}</b><span>sync</span></div>
         </div>
       </div>
-      <div className="mc-core"><BrainGraph items={items} links={links} onNode={onNode} onHub={onHub} /></div>
+      <div className="mc-core"><BrainGraph items={items} links={links} onNode={onNode} onHub={onHub} harnessDirty={harnessDirty} /></div>
       <div className="mc-split">
         <section className="mc-col">
           <div className="mc-col-head" style={{ color: '#a78bfa' }}><span className="mc-dot" style={{ background: '#a78bfa' }} />MODULES <em>{mods.length}</em></div>
@@ -803,7 +816,7 @@ function PortRegistry({ columns, items, onPick, onShutdownAll, onCtoAll, shuttin
                     return (
                       <td key={c.label}>
                         {cell
-                          ? <span style={{ color: cell.up ? '#cdd3e3' : '#9aa3b8' }}>{cell.port} {cell.mode === 'docker' ? '🐳' : cell.mode === 'dev' ? '💻' : cell.mode === 'shared' ? '🔗' : <span style={{ color: '#8891aa' }}>○</span>}</span>
+                          ? <span style={{ color: cell.up ? '#cdd3e3' : '#9aa3b8' }}>{cell.port} {cell.mode === 'docker' ? '🐳' : cell.mode === 'dev' ? '💻' : cell.mode === 'mock' ? <span title="목업 프리뷰 (§4.1 http.server — dev 아님)">🎨</span> : cell.mode === 'shared' ? '🔗' : <span style={{ color: '#8891aa' }}>○</span>}</span>
                           : <span className="pr-dim">—</span>}
                       </td>
                     )
@@ -1172,6 +1185,11 @@ const gitCss = `
 .gs-code { color: #f59e0b; width: 22px; flex: none; white-space: pre; }
 .gs-path { color: #cdd3e3; word-break: break-all; }
 .gs-n { margin-left: auto; color: #6b7280; font-size: 11px; flex: none; white-space: nowrap; }
+/* 버튼(gs-move)이 앞에 있는 행: auto 마진은 버튼 하나만 갖는다 — 둘 다 auto 면
+   flexbox 가 남는 공간을 분배해 카운트가 중간에 뜬다 (올라감/안올라감 끝 정렬 불일치 원인). */
+.gs-move + .gs-n { margin-left: 0; }
+/* 커밋 필요(dirty) 마커 — status --porcelain 에 잡히는 파일, 또는 그런 파일을 품은 폴더 */
+.gs-dot { color: #fbbf24; font-size: 8px; margin-left: 6px; vertical-align: 2px; }
 .gs-sub { color: #67e8f9; }
 .gs-dim { color: #6b7280; }
 .gs-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
@@ -1248,6 +1266,27 @@ function GitStatusView({ base }) {
         // 총계만 보여주면 그 부분이 조용히 들어간다.
         setMsg({ err: false, text: `git add -A — 총 ${d.staged} (신규 ${d.added} · 수정 ${d.modified}`
           + ` · 삭제 ${d.deleted}${d.other ? ` · 기타 ${d.other}` : ''})` })
+        await load()
+      }
+    } catch (e) { setMsg({ err: true, text: String(e) }) }
+    setBusy('')
+  }
+
+  // unstage — stage 버튼의 되돌리기(`git reset`). **작업트리는 안 건드린다** —
+  // 인덱스만 HEAD 로 되돌리므로 잘못 눌러도 잃을 파일이 없다. 그래서 commit·push 와
+  // 달리 확인창 없이 1클릭이다. `-A` 로 원치 않는 경로가 섞여 들어갔을 때의 출구.
+  const unstage = async () => {
+    setBusy('__unstage'); setMsg(null)
+    try {
+      const t = localStorage.getItem('dashToken') || ''
+      const r = await fetch(`${base}/unstage`, {
+        method: 'POST', headers: t ? { 'X-Dash-Token': t } : {},
+      })
+      const d = await r.json().catch(() => ({}))
+      if (!r.ok || d.ok === false) setMsg({ err: true, text: d.error || `HTTP ${r.status}` })
+      else {
+        setMsg({ err: false, text: `stage 취소 — ${d.unstaged} 파일을 인덱스에서 내렸다`
+          + ` (작업트리 무변경${d.remaining ? ` · 남은 stage ${d.remaining}` : ''})` })
         await load()
       }
     } catch (e) { setMsg({ err: true, text: String(e) }) }
@@ -1343,7 +1382,8 @@ function GitStatusView({ base }) {
       if (!r.ok || d.ok === false) {
         setMsg({ err: true, text: d.error || `HTTP ${r.status}` })
       } else {
-        setMsg({ err: false, text: `.gitignore 에 ${d.added} 추가${d.already ? ' (이미 있음)' : ''}` })
+        setMsg({ err: false, text: `.gitignore 에 ${d.added} 추가${d.already ? ' (이미 있음)' : ''}`
+          + (d.removed_cached ? ` — 추적 중이던 ${d.removed_cached}개 파일 rm --cached (디스크 유지, 다음 커밋에서 저장소를 떠남)` : '') })
         await load()
       }
     } catch (e) { setMsg({ err: true, text: String(e) }) }
@@ -1378,6 +1418,16 @@ function GitStatusView({ base }) {
         <button className="gs-btn" onClick={stage} disabled={busy === '__stage'}
                 title="git add -A — 신규·수정·삭제 전부 인덱스에 올린다 (커밋 안 함)">
           stage
+        </button>
+        {/* stage 의 짝 — 있어야 `-A` 로 섞여 들어간 경로를 화면에서 되돌릴 수 있다.
+            stage 된 게 있을 때만 켠다(끌 게 없으면 누를 이유도 없다). */}
+        <button className="gs-btn" onClick={unstage}
+                disabled={g.staged.total === 0 || busy === '__unstage'}
+                title={g.staged.total === 0
+                  ? 'stage 된 파일이 없다'
+                  : `git reset — stage 된 ${g.staged.total} 파일을 인덱스에서 내린다.`
+                    + ' 작업트리는 그대로다 (파일이 지워지거나 바뀌지 않는다).'}>
+          {busy === '__unstage' ? '취소 중…' : 'stage 취소'}
         </button>
         <button className="gs-btn" onClick={() => setCommitOpen((v) => !v)}
                 disabled={g.staged.total === 0}
@@ -1468,15 +1518,21 @@ function GitStatusView({ base }) {
             <div className="gs-list">
               {g.upload.dirs.map((u, i) => (
                 <div className="gs-row" key={'d' + i}>
-                  <span className="gs-path gs-sub">{u.path}</span>
-                  <span className="gs-n">{u.gitkeep_only ? '.gitkeep만 — 빈 폴더 유지' : `${u.files} 파일`}</span>
+                  <span className="gs-path gs-sub">{u.path}
+                    {g.upload.dirty?.includes(u.path.replace(/\/$/, '')) &&
+                      <span className="gs-dot" title="커밋 필요한 변경이 안에 있다">●</span>}
+                  </span>
                   <button className="gs-move" disabled={busy === u.path} title={`.gitignore 에 추가 — 안 올라감으로`}
                           onClick={() => exclude(u.path)}>→</button>
+                  <span className="gs-n">{u.gitkeep_only ? '.gitkeep만 — 빈 폴더 유지' : `${u.files} 파일`}</span>
                 </div>
               ))}
               {g.upload.files.map((f, i) => (
                 <div className="gs-row" key={'f' + i}>
-                  <span className="gs-path">{f}</span>
+                  <span className="gs-path">{f}
+                    {g.upload.dirty?.includes(f) &&
+                      <span className="gs-dot" title="커밋 필요한 변경">●</span>}
+                  </span>
                   <button className="gs-move" disabled={busy === f || f === '.gitignore'}
                           title={f === '.gitignore' ? '규칙 파일 자체는 제외 불가' : '.gitignore 에 추가 — 안 올라감으로'}
                           onClick={() => exclude(f)}>→</button>
@@ -1632,19 +1688,19 @@ const schemaCss = `
 `
 
 export default function App() {
-  const [data, setData] = useState({ columns: [], items: [], links: [] })
+  const [data, setData] = useState({ columns: [], items: [], links: [], harness_dirty: 0 })
   const [err, setErr] = useState('')
   const [updated, setUpdated] = useState('')
   const [sel, setSel] = useState(null)      // 열린 모달 항목
   const [ctoStartAsk, setCtoStartAsk] = useState(null) // CTO 실행 방식 선택 팝업 대상
   const [schema, setSchema] = useState(null) // 열린 노드의 DB 스키마 (/api/schema)
   const [selMode, setSelMode] = useState('control') // 'schema'(MissionControl 카드) | 'control'(PortRegistry) | 'inbox'(그래프 노드)
-  const [nodeTab, setNodeTab] = useState('chat')    // 그래프 노드 모달 탭: 'chat'(codex↔claude) | 'git'
+  const [nodeTab, setNodeTab] = useState('git')     // 그래프 노드 모달 탭: 'git'(기본) | 'chat'(codex↔claude)
   const [copied, setCopied] = useState(false)
   const [busy, setBusy] = useState('')      // 진행중 액션 ('cto'|'docker')
   const [tasks, setTasks] = useState([])    // 우측상단 작업 toast
   const [hubInbox, setHubInbox] = useState(false) // 허브(DEEP.INC) 클릭 → 모달
-  const [hubTab, setHubTab] = useState('inbox')   // 'inbox' | 'git'(하네스 저장소)
+  const [hubTab, setHubTab] = useState('git')     // 'git'(기본, 하네스 저장소) | 'inbox'
   const taskId = useRef(0)
 
   useEffect(() => {
@@ -1655,7 +1711,7 @@ export default function App() {
         if (!r.ok) throw new Error('HTTP ' + r.status)
         const d = await r.json()
         if (!alive) return
-        setData({ columns: d.columns || [], items: d.items || [], links: d.links || [] })
+        setData({ columns: d.columns || [], items: d.items || [], links: d.links || [], harness_dirty: d.harness_dirty || 0 })
         setErr('')
         setUpdated(new Date().toLocaleTimeString())
       } catch (e) {
@@ -1727,7 +1783,7 @@ export default function App() {
   const refresh = async () => {
     try {
       const r = await apiGet('/api/state'); const d = await r.json()
-      setData({ columns: d.columns || [], items: d.items || [], links: d.links || [] })
+      setData({ columns: d.columns || [], items: d.items || [], links: d.links || [], harness_dirty: d.harness_dirty || 0 })
       setSel((s) => (s ? (d.items || []).find((it) => it.name === s.name && it.type === s.type) || s : s))
     } catch { /* keep last */ }
   }
@@ -1906,7 +1962,9 @@ export default function App() {
 
       {/* ── 연결도 = Mission Control ── */}
       <section style={S.section}>
-        <MissionControl items={items} links={data.links} onPick={(it) => { setSelMode('schema'); setSel(it) }} onNode={(it) => { setSelMode('inbox'); setNodeTab('chat'); setSel(it) }} updated={updated} onHub={() => { setHubTab('inbox'); setHubInbox(true) }} />
+        {/* type='cto' = 산출물 없는 논의 전용 세션. Port Registry 에는 포트를 갖고
+            뜨지만 여기서는 뺀다 — Mission Control 은 모듈·프로젝트 계보 그래프다. */}
+        <MissionControl items={items.filter((it) => it.type !== 'cto')} links={data.links} harnessDirty={data.harness_dirty} onPick={(it) => { setSelMode('schema'); setSel(it) }} onNode={(it) => { setSelMode('inbox'); setNodeTab('git'); setSel(it) }} updated={updated} onHub={() => { setHubTab('git'); setHubInbox(true) }} />
       </section>
 
       {/* ── 상세 모달 ── */}
@@ -1928,11 +1986,11 @@ export default function App() {
                 {/* 노드 모달 안에서 뷰를 갈아끼운다 — 모달 위에 모달을 쌓지 않는 기존 이디엄 유지 */}
                 <style>{ibCss}</style>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-                  <button className={'ib-tab' + (nodeTab === 'chat' ? ' on' : '')} onClick={() => setNodeTab('chat')}>
-                    💬 codex ↔ claude
-                  </button>
                   <button className={'ib-tab' + (nodeTab === 'git' ? ' on' : '')} onClick={() => setNodeTab('git')}>
                     🌿 Git 상태
+                  </button>
+                  <button className={'ib-tab' + (nodeTab === 'chat' ? ' on' : '')} onClick={() => setNodeTab('chat')}>
+                    💬 codex ↔ claude
                   </button>
                 </div>
                 {nodeTab === 'chat' ? <PairInboxView name={sel.name} /> : <GitStatusView base={`/api/cto/${sel.name}`} />}
@@ -2015,8 +2073,8 @@ export default function App() {
                 { key: 'cto', label: ctoPartial(sel) ? 'CTO pair 복구' : 'CTO pair', sub: ctoHalfSummary(sel), on: ctoHealthy(sel), partial: ctoPartial(sel), act: () => ctoToggle(sel) },
                 // dev/docker 상호배제: 같은 호스트 포트라 동시 기동 불가. 상대가 떠있으면
                 // '실행' 버튼 비활성(종료 방향은 항상 허용). 백엔드 가드(main.py)와 짝.
-                { key: 'dev', label: 'dev 서버', sub: 'venv uvicorn + vite', on: sel.dev_up, act: () => devToggle(sel), block: (!sel.dev_up && sel.docker_up) ? 'Docker 실행중 — 먼저 Docker 종료' : null },
-                { key: 'docker', label: 'Docker', sub: 'compose 전 서비스', on: sel.docker_up, act: () => dockerToggle(sel), block: (!sel.docker_up && sel.dev_up) ? 'dev 실행중 — 먼저 dev 종료' : null },
+                { key: 'dev', label: 'dev 서버', sub: 'venv uvicorn + vite', on: sel.dev_up, act: () => devToggle(sel), block: sel.has_dev === false ? 'dev.sh 없음 — 미지원' : (!sel.dev_up && sel.docker_up) ? 'Docker 실행중 — 먼저 Docker 종료' : null },
+                { key: 'docker', label: 'Docker', sub: 'compose 전 서비스', on: sel.docker_up, act: () => dockerToggle(sel), block: sel.has_compose === false ? 'docker-compose 없음 — 미지원' : sel.docker_built === false ? 'docker 미구축 — CTO에게 "docker화 해" 라고 지시하면 활성화됨' : (!sel.docker_up && sel.dev_up) ? 'dev 실행중 — 먼저 dev 종료' : null },
               ].map((s) => (
                 <div key={s.key} style={{ ...S.ctrlRow, ...(s.on ? S.ctrlRowOn : {}), ...(s.partial ? S.ctrlRowWarn : {}) }}>
                   <div style={S.ctrlMeta}>
@@ -2070,11 +2128,11 @@ export default function App() {
             {/* 노드 모달과 같은 이디엄 — 탭으로 뷰만 교체. git 은 하네스 루트 저장소. */}
             <style>{ibCss}</style>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-              <button className={'ib-tab' + (hubTab === 'inbox' ? ' on' : '')} onClick={() => setHubTab('inbox')}>
-                💬 CEO Inbox
-              </button>
               <button className={'ib-tab' + (hubTab === 'git' ? ' on' : '')} onClick={() => setHubTab('git')}>
                 🌿 Git 상태
+              </button>
+              <button className={'ib-tab' + (hubTab === 'inbox' ? ' on' : '')} onClick={() => setHubTab('inbox')}>
+                💬 CEO Inbox
               </button>
             </div>
             {hubTab === 'git' ? <GitStatusView base="/api/harness" /> : <CeoInboxView />}
@@ -2220,6 +2278,10 @@ const S = {
     border: '1px solid rgba(255,255,255,0.10)', borderRadius: 18, padding: '24px 26px',
     width: 'min(560px, 92vw)', color: '#e7e9f3',
     boxShadow: '0 24px 70px -20px rgba(0,0,0,0.7), 0 0 0 1px rgba(124,58,237,0.10)',
+    // 본문이 길면 뷰포트를 넘어간다 — overlay 가 가운데 정렬이라 위아래가 같이
+    // 잘려서 상단 버튼 줄이 화면 밖으로 나갔다(2026-08-01). 모달 자체를 스크롤시킨다.
+    // (overlay padding 20 × 2 를 뺀 값)
+    maxHeight: 'calc(100vh - 40px)', overflowY: 'auto',
   },
   // 인박스 모드(노드·허브) — 본문이 수 KB pre-wrap 이라 control/schema 모달보다 넓게.
   modalWide: { width: 'min(1000px, 92vw)' },

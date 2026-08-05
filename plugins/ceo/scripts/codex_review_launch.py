@@ -148,8 +148,9 @@ def main() -> int:
         )
 
     # module/project 판정은 부모 base 로 결정론 확정(PROCESS.md §0). codex 프롬프트로
-    # 넘겨 모듈이면 host-책임 security(인증/노출/접근제어/입력하드닝)를 blocker 로
-    # 안 올리게 한다(RULES §7 모듈 보안 경계). 실 시크릿/키 커밋은 예외로 여전히 잡음.
+    # 넘겨 모듈은 "미지의 호스트에 박힐 부품" 으로 판정하게 한다 — 호스트 책임을
+    # 깎아주는 게 아니라, 그 기대가 specs/USAGE.md 에 **계약으로 명시되었는지**를
+    # 본다(RULES §7 모듈 보안 경계). 실 시크릿/키 커밋은 여전히 blocker.
     target_type = "module" if base == "modules" else "project"
 
     # 새 경로 체계: <빌드dir>/specs/spec.md (slug 레벨 없음).

@@ -1,14 +1,21 @@
 ---
-description: Run a cross-model Codex code review (xhigh, read-only) on a completed project. Usage: /codex-review <project> [--consume]
+description: Run a cross-model Codex real-use risk review (security / scale / data-growth / operations, xhigh, read-only) on a completed project. Usage: /codex-review <project> [--consume]
 argument-hint: <project> [--consume]
 ---
 
-Launch the cross-model Codex code-review agent on project `$0`.
+Launch the cross-model Codex real-use risk review on project `$0`.
 
-What it does: resolves the project dir + its spec.md (stock: plan.md) + README, then runs the
-read-only Codex reviewer (gpt-5.5, reasoning effort xhigh) in the background.
-The structured report is written to a harness-side path and a summary is sent
-to the CEO inbox when the review finishes — so you are not blocked while it runs.
+What it does: resolves the project dir + its spec.md (stock: plan.md) + README, gathers the
+build's operational context (PORT.md row, compose files, `.env` key names — never values,
+static external-bind scan), then runs the read-only Codex reviewer (gpt-5.5, reasoning
+effort xhigh) in the background. The structured report is written to a harness-side path
+and a summary is sent to the CEO inbox when the review finishes — so you are not blocked
+while it runs.
+
+Scope: this review assumes the build **works**. Whether it runs and whether it matches its
+spec were already judged by the CTO team's reviewer and the user's gate — it does not
+re-judge them. It reports what breaks later: `security`, `scale`, `data-growth`,
+`operations`. Every finding carries a `trigger` (the condition that makes it fire).
 
 Trust anchor: launching writes a per-project PENDING marker
 (`~/.harness-claude/reviews/<project>/.pending`). The RULES §6 codex carve-out only

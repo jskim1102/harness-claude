@@ -173,6 +173,33 @@ race 같은 **표(§4) 서비스 offset 충돌**을 CEO 가 2차로 잡는다. (
 - 코드 (docker-compose.yml / vite.config.* / 서버 코드 / config 모듈)
   에서 포트 **하드코딩 X**. `os.environ["BACKEND_PORT"]` /
   `process.env.BACKEND_PORT` / `${BACKEND_PORT}` 처럼 변수 참조.
+- **컨테이너 내부 포트 표준 (2026-08-04 명문화)** — 호스트 포트는 offset 파생
+  (`.env`)이지만 **컨테이너 안은 전 프로젝트 고정 표준**이다 (격리돼 있어 충돌
+  없음 + Dockerfile/nginx/컨테이너간 통신 코드가 프로젝트 무관 동일해짐):
+
+  | 서비스 | 내부 포트 (고정) | compose 매핑 |
+  | --- | --- | --- |
+  | backend | `8000` | `"${BACKEND_PORT}:8000"` |
+  | frontend (nginx) | `80` | `"${FRONTEND_PORT}:80"` |
+  | mediamtx API/RTSP/WHEP | `9997`/`8554`/`8889` | `"${MEDIAMTX_*_PORT}:<고정>"` |
+  | postgres | `5432` | (공유 pg — infra compose 소유) |
+  | mailhog SMTP/UI | `1025`/`8025` | `"${MAILHOG_*_PORT}:<고정>"` |
+
+  Dockerfile `EXPOSE`/`CMD --port`·nginx `listen`/`proxy_pass`·컨테이너간
+  URL(`http://backend:8000`)도 이 고정값을 쓴다 — **내부까지 offset 을 새면
+  이미지가 프로젝트마다 달라져 이식·재빌드 사고**(2026-08-04 auth 8003 등 4건
+  정규화). **유일 예외 = ICE UDP**: same:same
+  (`${MEDIAMTX_ICE_UDP_PORT}:${MEDIAMTX_ICE_UDP_PORT}` — 위 docker 절 참조).
+- **시안/목업 프리뷰 서버 = 자기 `FRONTEND_PORT` 고정** (2026-08-04 사용자 결정).
+  frontend 미완 단계(phase1~2)의 design 게이트 웹 UI 는 그 프로젝트의
+  `FRONTEND_PORT` 로 서빙한다 (`python3 -m http.server ${FRONTEND_PORT}` 등) —
+  사용자 접속 경로(외부 포워딩·ufw 포함)가 최종 제품과 동일해야 하기 때문.
+  **그 외 §4 할당 포트는 임시 서버 금지**: 자기 `BACKEND_PORT` 도 X
+  (2026-08-04 perf-eval-gen 8013 목업 사고), 남의 할당 포트는 당연히 X.
+  실 frontend 기동(phase3~) 전에 목업 서버를 반드시 내린다 — 안 내리면 vite 가
+  strictPort 로 즉사한다(의도된 fail-fast). vite 계열 `server.strictPort: true`
+  필수(PROCESS phase1) — 점유 시 조용한 +1 점프가 남의 슬롯을 침범한다
+  (2026-08-04 rtsp-segmentation 5185→5186 드리프트 사고).
 - `add-cto` 가 `.env` 에 `PORT_OFFSET`/`BACKEND_PORT`/`FRONTEND_PORT` 를 자동
   작성한다. CTO 는 필요한 다른 서비스 포트(redis/minio/mediamtx 등)를
   `시작포트 + (PORT_OFFSET − 1)` 으로 자기 `.env` 에 추가 + `.env.example` 작성 +
@@ -244,10 +271,19 @@ race 같은 **표(§4) 서비스 offset 충돌**을 CEO 가 2차로 잡는다. (
 - **카메라 프로젝트 compose 는 자기 `mediamtx` 서비스/볼륨을 포함한다** (self-host,
   2026-07-18 공유 인스턴스 폐지 — pg 와 달리 external 공유망 불참). 포트 매핑은 `.env`
   의 `MEDIAMTX_*_PORT`(offset 파생) 참조: `${MEDIAMTX_API_PORT}:9997` /
-  `${MEDIAMTX_RTSP_PORT}:8554` / `${MEDIAMTX_WEBRTC_PORT}:8889/tcp` /
-  `${MEDIAMTX_ICE_UDP_PORT}:8189/udp`. backend/mediamtx 는 같은 프로젝트 compose 망을
+  `${MEDIAMTX_RTSP_PORT}:8554` / `${MEDIAMTX_WEBRTC_PORT}:8889/tcp`.
+  **ICE 포트만 예외 — same:same 매핑 필수**:
+  `${MEDIAMTX_ICE_UDP_PORT}:${MEDIAMTX_ICE_UDP_PORT}/udp` (+ 같은 쌍 `/tcp` =
+  ICE-TCP fallback) + `MTX_WEBRTCLOCALUDPADDRESS=":${MEDIAMTX_ICE_UDP_PORT}"`.
+  WebRTC ICE 후보는 mediamtx 의 **로컬 리슨 포트를 그대로 광고**하고 포트 재작성
+  옵션이 없으므로, 내부를 8189 고정으로 두면 브라우저가 host:8189 로 붙어 즉사한다
+  (cam-distance 외부 실영상 검증으로 실증된 유일 동작형). backend/mediamtx 는 같은 프로젝트 compose 망을
   공유(backend→`mediamtx:9997/8554` 서비스명 접속); frontend 는 WebRTC/WHEP 를
   브라우저가 직결하므로 망 불참.
+- `build:` 서비스에 `image:` 커스텀 명명 금지 — compose 기본 `<slug>-<service>`
+  유지 (대시보드 docker 구축 판정이 이 이름 prefix 를 본다; 커스텀명이면 구축
+  완료돼도 영구 "미구축" 오판). `image:` 는 스톡 이미지(postgres/mediamtx 등)
+  pull 전용.
 - `Dockerfile` + `docker-compose.yml` 양쪽 다 git 에 올림.
 - `docker-compose.yml` 의 포트 매핑 / env / volume 은 `.env` 변수 참조
   (`${BACKEND_PORT}` 등). 하드코딩 X (룰 4.1).
@@ -312,10 +348,10 @@ exit 1. reviewer 필수 기계검사 항목이며 `tests/smoke.sh` 가 회귀를
 - **포트 레이스 가드**: `dev.sh down` 은 포트 해제까지 대기(자식/reloader/워커 잔존이
   포트 점유 → 직후 `up` 이 Errno 98). `up` 은 사전 port-free 체크. Codex developer가
   phase1에서 작성하는 `dev.sh`에 이 계약을 반영한다.
-- **포트 패리티 린트(advisory)**: `python3 harness/parity_scan.py [<project>]`
-  가 dev 제공 포트집합 vs compose 포트집합을 diff 해
-  한쪽 모드만 되는 포트를 경고한다. image-only 의존 서비스(예 mediamtx)는 dev 에서
-  구조적으로 안 뜨므로 경고로 표면화 — 프로젝트별 docker-only 명시(PORT.md)로 기대 정렬.
+- (구 포트 패리티 린트 `parity_scan.py` 는 2026-08-04 폐기 — 실적발 0·상시 오탐 9.
+  패리티는 검사가 아니라 설계로 보장한다: 양 모드가 같은 `.env` `${VAR}` 를 읽고
+  [§4.1 하드코딩 금지 + git_guard port 카테고리], dev 측은 표준 dev.sh 템플릿의
+  `PORTS=()` 선언으로 고정.)
 - frontend 외부바인딩은 §5.3(vite `server.host`)이, backend 는 §5.3(uvicorn
   `0.0.0.0`)이 담당 — 여기 패리티 계약과 함께 본다.
 
@@ -449,6 +485,14 @@ bash SOURCE 에 RAW 텍스트로 splice** 된다 — 인자가 인용부호 안�
   파생물·git 히스토리로 그대로 유출돼 host 로 위임 불가 — 여전히 **blocking**
   모듈 버그다. 판정은 부모 디렉토리로 결정론 확정(PROCESS.md §0): `modules/` =
   카브아웃 적용, `claude-project/` = 실서비스라 미적용(security 지적 정상 처리).
+  - **codex-review 의 모듈 렌즈는 "누구 책임인가" 가 아니라 "계약으로
+    명시됐는가" 다** (2026-08-02). host 가 인증·검증·정리·동시성을 책임진다는
+    전제 자체는 맞지만, 그 전제가 `specs/USAGE.md` 에 **적히지 않았으면** host
+    가 알 방법이 없고 모든 파생물이 그 가정을 조용히 물려받는다. 그래서
+    codex-review 는 모듈 security 지적을 informational 로 강등하는 대신 "이
+    기대가 계약에 있나" 로 되묻는다. 산출물은 모듈 코드 수정이 아니라 **USAGE.md
+    계약 보강**이므로 위 non-blocking 규칙과 충돌하지 않는다 — 릴리스는 여전히
+    막지 않고, CEO 는 사용자 판단 없이 fix 를 dispatch 하지 않는다.
 
 ## 8. Autopilot (/goal) 경계
 
@@ -631,3 +675,27 @@ A 목록이 올라감 쪽에 남아 있으면 그 자리에서 `.gitignore` 를 
 **주의 — `.gitignore` 는 이미 추적 중인 파일에 무효다.** 첫 커밋 전에 맞춰 놓는 게
 유일하게 싼 시점이다. 이미 커밋됐다면 추적 해제가 따로 필요하고, 그건 사용자 명시
 지시가 있어야 한다(§1).
+
+## 17. planner 는 최초 분해 전용 (완료 후 호출 금지)
+
+`planner` 는 **plan.md → `specs/spec.md` + `specs/tasks.md` 를 만드는 1회용**이다.
+분해가 끝나면 휴면이고, **기본값은 다시 깨우지 않는 것**이다.
+
+**깨울 수 있는 경우 — 아래 셋뿐:**
+
+1. **`specs/tasks.md` 가 없을 때** (= 최초 분해). 개발 초기의 유일한 정상 경로.
+2. **사용자가 명시적으로 지시했을 때.** 수정 범위가 커서 재분해가 필요하다고
+   **사용자가 판단해** CTO 에게 "planner 써라" 라고 말한 경우. CTO 자체 판단으로
+   "범위가 크니 planner 를 부르는 게 좋겠다" 는 금지 — 크면 사용자에게 물어라.
+3. **빌드 진행 중의 `PROCESS §5.2` 계획 정합성 판정.** reviewer 가 `[범위밖]`
+   발견을 planner 에 직통으로 묻는 그 경로. **`tasks.md` 에 미완 ckpt(`[ ]`)가
+   남아 있는 동안에만** 유효하다.
+
+**금지 — 유지보수 모드.** `tasks.md` 의 모든 ckpt 가 닫혀(`[✅]`) 빌드가 완료된
+뒤, 사용자가 새 작업·수정을 지시하면 **CTO 는 planner 에게 묻지 않는다.** 그 작업은
+CTO 가 직접 판단해 `[dev]` 로 발주하고, 판단이 안 서면 planner 가 아니라 **사용자에게**
+올린다. 완료된 빌드에 대한 사용자 지시는 이미 그 자체가 요구사항이다 — 재분해를
+거칠 이유가 없고, 거치면 사용자가 한 말이 planner 의 해석을 한 겹 통과해 왜곡된다.
+
+판정 기준은 결정론이다: `specs/tasks.md` 부재 = 1번 · 미완 ckpt 존재 = 빌드 중(3번 가능)
+· 전 ckpt `[✅]` = 유지보수 모드(2번 외 금지).

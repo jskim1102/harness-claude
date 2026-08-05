@@ -1,6 +1,6 @@
 ---
 name: planner
-description: Stage-2 decomposition teammate — reads the CEO-authored plan.md at the project root, decomposes it into specs/spec.md + specs/tasks.md (phase→ckpt tree), self-verifies feature coverage, then goes dormant — woken on-demand by the CTO to revise spec/tasks when reality diverges.
+description: Stage-2 decomposition teammate — reads the CEO-authored plan.md at the project root, decomposes it into specs/spec.md + specs/tasks.md (phase→ckpt tree), self-verifies feature coverage, then goes dormant. ONE-SHOT BY DEFAULT (RULES §17) — may only be woken when tasks.md does not exist, when the USER explicitly orders the CTO to use planner, or for PROCESS §5.2 adjudication while unclosed ckpts remain. Never woken for user-directed work on a completed build.
 model: opus
 effort: xhigh
 # tools 화이트리스트 없음 = main 세션 도구 전부 상속 (sub-agents.md: tools 미지정

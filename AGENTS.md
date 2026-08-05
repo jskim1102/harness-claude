@@ -14,8 +14,10 @@
 다중 에이전트 하네스. CEO 1명 + N명의 CTO 가 SQLite 메시지큐로 협업한다. CEO와
 각 CTO의 Claude/Codex 프로세스는 역할 title이 고정된 Orca terminal에 상주한다
 (창을 닫아도 대화 유지 — `./run.sh ceo`/`attach-cto`로 focus,
-`stop-ceo`/`stop-cto`로만 종료). 각 빌드 dir는 Orca Project이고, Claude teammate는
-`orca claude-teams`가 lead tab의 native split으로 표시한다. 메시지 큐는 SQLite가
+`stop-ceo`/`stop-cto`로만 종료). 각 빌드 dir는 Orca Project이고, Claude teammate
+(planner·reviewer)는 lead 세션의 in-process 목록에 살며 lead 탭의 콕핏 rail
+(skill activity + 읽기전용 teammate 뷰어)로 관찰한다 — `orca claude-teams`
+래퍼는 2026-07-29 제거됐다. 메시지 큐는 SQLite가
 정본이며 wake/입력 라우팅은 exact Orca terminal을 사용한다.
 
 - 스택: Python 3.10+ (`harness` CLI/daemon) + Bash (`run.sh`) + Markdown (에이전트
@@ -49,7 +51,7 @@
 ```bash
 ./run.sh ceo                                  # CEO 시작/재접속 (Orca terminal focus, stop-ceo로만 종료)
 ./run.sh add-cto <name>                       # CTO 추가 (<name> 스캔 → claude-project/·modules/; Claude+Codex Orca terminal 준비)
-./run.sh attach-cto <name>                    # CTO Orca terminal focus. `observe`는 폐기 — 명령은 남아있으나 안내 후 exit 1
+./run.sh attach-cto <name>                    # CTO Orca terminal focus
 ./run.sh test-cto <name> "<prompt>"           # CTO 비대화형 스모크
 ./run.sh down                                 # 전체 종료 (+dev서버/워커 프로세스 +docker compose 컨테이너 정리)
 ./run.sh stop-cto <name>                      # 한 CTO 정지 (작업 보존 — 비파괴, resume = add-cto)

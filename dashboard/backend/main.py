@@ -212,6 +212,18 @@ def _inject_ceo(text: str) -> bool:
     return orca_runtime.send_role("ceo", text)
 
 
+def _docker_image_repos() -> set[str]:
+    """로컬 docker 이미지 repository 이름들 (best-effort; docker 부재 시 빈 set)."""
+    try:
+        r = subprocess.run(
+            ["docker", "images", "--format", "{{.Repository}}"],
+            capture_output=True, text=True, timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return set()
+    return set(r.stdout.split()) if r.returncode == 0 else set()
+
+
 def _cto_pair_state(
     claude_alive: bool, codex_alive: bool, designer_alive: bool
 ) -> str:
@@ -293,7 +305,14 @@ def inbox_system_clear() -> dict:
 def state() -> dict:
     pub = cli._docker_published_ports()
     host = cli._host_listening_ports()
-    cnames = cli._docker_container_names()
+    # §4.1 목업 프리뷰(http.server, phase1~2 시안 게이트)가 FRONTEND_PORT 를 점유해도
+    # "frontend dev 실행중" 이 아니다 — dev/docker 버튼 판정에서 제외 (2026-08-04).
+    mocks = cli._mock_listener_ports()
+    # docker "구축" 판정 = 빌드된 이미지 존재 (compose 기본 명명 `<slug>-<service>`).
+    # phase1 은 compose 를 **작성만** 하므로 파일 존재 ≠ docker화 완료 — 이미지가
+    # 한 번도 안 빌드된 프로젝트는 docker 버튼 비활성 (2026-08-04 사용자 발주;
+    # §13 과도 정합 — 첫 docker화는 CTO 검증 플로우지 대시보드 버튼이 아니다).
+    image_repos = _docker_image_repos()
     live_pairs = cli._live_cto_halves()
     # 표 컬럼 = PORT.md 와 동일 순서(cli.PORT_COLS) + PostgreSQL 뒤 DB 컬럼
     columns = []
@@ -318,6 +337,8 @@ def state() -> dict:
                     declared += 1
                     if p in pub:
                         mode = "docker"
+                    elif var == "FRONTEND_PORT" and p in mocks:
+                        mode = "mock"  # §4.1 목업 프리뷰 — dev 아님, running 미집계
                     elif var in ("BACKEND_PORT", "FRONTEND_PORT") and p in host:
                         mode = "dev"  # app 컬럼만 dev.sh(호스트) 개념 존재
                     else:
@@ -345,18 +366,28 @@ def state() -> dict:
                 status = "down"
             else:
                 status = "partial"
-            # dev/docker 실행 판단은 셀 mode(포트-in-published)가 아니라 실제 소유로:
-            #   docker = 이 프로젝트 컨테이너(<slug>-*)가 docker ps 에 있음 (공유 인프라
-            #            포트를 .env 에 들고 있어도 자기 컨테이너가 아니면 docker 아님).
-            #   dev    = app 포트(backend/frontend)를 host 프로세스가 점유 & not published
-            #            (published 는 docker-proxy listener → dev 아님).
-            # docker "모드" = backend/frontend 가 docker 컨테이너로 떠있음. mediamtx-only
-            # docker(dev 모드에서 대시보드가 띄우는 self-host mediamtx)는 docker 모드가
-            # 아니다 — <slug>-* 전체를 보면 mediamtx 때문에 dev 실행 시 docker_up 도 True 로
-            # 오판된다(2026-07-18 발견). backend/frontend 컨테이너만으로 모드 판정.
-            docker_up = any(n in (f"{d.name}-backend", f"{d.name}-frontend") for n in cnames)
+            # dev/docker 실행 판단 — 둘 다 **앱 포트(backend/frontend)** 기준이다:
+            #   docker = 그 포트를 docker 가 publish 중 (docker-proxy listener)
+            #   dev    = 그 포트를 host 프로세스가 점유하고 published 는 아님
+            # mediamtx-only docker(dev 모드에서 대시보드가 띄우는 self-host mediamtx)는
+            # 앱 포트를 publish 하지 않으므로 docker 모드로 안 잡힌다 — 2026-07-18 에
+            # 이걸 막으려고 컨테이너 이름 매칭으로 갔던 것인데, 그 방식이 더 크게 틀렸다.
+            #
+            # ★ 이름 매칭을 버린 이유 (2026-08-02 실사고): `<slug>-backend|frontend` 정확
+            # 일치를 요구해서 (1) compose 가 붙이는 replica 접미사 `-1` 을 못 벗기고
+            # (2) 서비스명이 `backend` 가 아닌 모듈은 영원히 "정지" 로 보였다. auth-service
+            # 는 서비스가 `auth`/`frontend`/`mailhog` 라 컨테이너 3개가 실제로 도는데도
+            # Docker 행만 "정지" 였다(접속 URL 은 살아있다고 표시 — 한 화면 안에서 두
+            # 판정이 어긋남). 포트 판정은 **서비스 이름을 아예 안 본다**.
+            #
+            # 같은 함수의 dev_up 이 이미 이 방식이고, dev_toggle 의 상호배제 검사도
+            # 그렇다. 판정을 하나로 맞춘다.
+            docker_up = any(
+                (p := env.get(v)) and p in pub
+                for v in ("BACKEND_PORT", "FRONTEND_PORT")
+            )
             dev_up = any(
-                (p := env.get(v)) and p in host and p not in pub
+                (p := env.get(v)) and p in host and p not in pub and p not in mocks
                 for v in ("BACKEND_PORT", "FRONTEND_PORT")
             )
             pair = live_pairs.get(d.name, {})
@@ -364,14 +395,20 @@ def state() -> dict:
             codex_active = bool(pair.get("codex"))
             designer_active = bool(pair.get("designer"))
             cto_state = _cto_pair_state(claude_active, codex_active, designer_active)
+            # deliverable: **cto** = 모듈도 프로젝트도 아닌 논의 전용 세션.
+            # 포트는 배정받아 Port Registry 에 뜨지만, Mission Control 그래프는
+            # 모듈·프로젝트 계보를 그리는 곳이라 여기 낄 자리가 없다 → 프런트가
+            # type 으로 걸러낸다.
+            kind_eff = "cto" if _is_cto_only(d) else kind
             items.append(
                 {
                     "name": d.name,
-                    "type": kind,
+                    "type": kind_eff,
                     "path": str(d),  # 서버 실제 경로(절대)
                     "git_repo": (d / ".git").exists(),  # own .git = 완료, 없으면 진행중
                     "git_url": _git_url(d),  # 완료 repo origin (브라우저 링크용 https)
                     "commit_date": _node_commit_date(d),  # 노드별 최근 커밋 YY.MM.DD (own .git)
+                    "git_dirty": _git_dirty(d),  # commit 필요한 변경 수 (0=클린)
                     # Backward-compatible aggregate plus explicit trio state.
                     # designer 를 빠뜨리면 state=partial 인데 ready=True 인 모순이
                     # 난다 (2026-07-29 dataset-viewer 실측 — _cto_snapshot 만 3자로
@@ -385,6 +422,13 @@ def state() -> dict:
                     "progress": _tasks_progress(d),  # tasks.md 진행률 {done,total} or None
                     "docker_up": docker_up,  # docker-published 포트 1개+ = 컨테이너 실행중
                     "dev_up": dev_up,        # 호스트 dev 서버(./dev.sh) 실행중
+                    # 산출물 존재 여부 — 없으면 프런트가 해당 버튼 비활성 (2026-08-04
+                    # 사용자 발주: compose 없는 프로젝트에 docker 버튼이 살아있어 혼란).
+                    "has_compose": any(d.glob("docker-compose*.yml")),
+                    "has_dev": (d / "dev.sh").is_file(),
+                    # docker화 실개발 완료 여부 = 빌드 이미지 존재 (파일 작성만인
+                    # phase1 상태와 구분). False → docker 버튼 비활성.
+                    "docker_built": any(rep.startswith(d.name + "-") for rep in image_repos),
                     "offset": (int(be) - 8000) if be.isdigit() else None,
                     "db": cli._detect_db_engine(d, env),
                     "cells": cells,
@@ -404,7 +448,9 @@ def state() -> dict:
                 links.append({"source": src, "target": it["name"], "kind": "lineage"})
         else:
             links.append({"source": "CEO", "target": it["name"], "kind": "ceo"})
-    return {"columns": columns, "items": items, "links": links}
+    # 허브(DEEP.INC)는 하네스 저장소 자신이다 — 노드와 같은 기준으로 commit 필요를 본다.
+    return {"columns": columns, "items": items, "links": links,
+            "harness_dirty": _git_dirty(REPO)}
 
 
 @app.get("/api/schema/{name}", dependencies=[Depends(require_token)])
@@ -522,6 +568,23 @@ def _designer_cto_alive(name: str) -> bool:
     return f"designer-cto-{name}" in _orca_alive_sessions()
 
 
+def _cto_ready_settled(name: str, timeout: float = 10.0) -> dict:
+    """스폰 직후 ready 판정 — keeper 소켓 생성 레이스 흡수 (2026-08-04 실사고).
+
+    생사판정 = Orca 레코드 ∧ keeper 소켓(2026-08-02 게이트)인데, keeper 소켓은
+    `terminal create` RPC 반환 뒤 pty 안에서 dtach 가 **비동기로** 만든다. add-cto
+    직후 즉시 스냅샷을 찍으면 소켓이 아직 없어 ready=false → 스폰이 성공(rc=0,
+    로그로 실증)했는데 대시보드는 "실패" 를 띄웠다. ready 가 되는 즉시 반환하고,
+    timeout 까지 안 되면 그 시점 스냅샷을 그대로 반환한다 (진짜 실패는 여전히 실패)."""
+    deadline = time.monotonic() + timeout
+    while True:
+        snap = _cto_snapshot(name)
+        if snap["cto_ready"] or time.monotonic() >= deadline:
+            return snap
+        time.sleep(0.5)
+        _invalidate_orca_alive()
+
+
 def _cto_snapshot(name: str) -> dict:
     """Read all three members once and return the public CTO status fields."""
     claude_active = _claude_cto_alive(name)
@@ -595,7 +658,7 @@ def cto_start(name: str, fresh: bool = False) -> dict:
                 cwd=str(REPO), capture_output=True, text=True, timeout=120,
             )
         _invalidate_orca_alive()
-        after = _cto_snapshot(name)
+        after = _cto_ready_settled(name)
         out = (r.stdout + r.stderr)[-2000:]
         if not after["cto_ready"]:
             # 실패 본문은 토스트에만 뜨고 증발한다 — 2026-07-29 rtsp-streaming
@@ -734,6 +797,42 @@ def _git(d: Path, *args: str) -> tuple[int, str]:
     return r.returncode, r.stdout
 
 
+_CTO_ONLY_RE = re.compile(r"^\s*-\s*deliverable:\s*\*{0,2}cto\*{0,2}\s*(?:—|-|$)", re.M)
+
+
+def _is_cto_only(d: Path) -> bool:
+    """plan.md 가 `deliverable: **cto**` 면 산출물 없는 논의 전용 세션이다.
+
+    module/project 는 부모 디렉토리로 결정론 판정되지만(BASES), 이 세 번째 종류는
+    디렉토리를 새로 파면 add-cto·harness ports 가 전부 막힌다(claude-project/
+    modules 만 허용). 그래서 `claude-project/` 안에 두고 plan.md 선언으로 구분한다.
+    """
+    try:
+        return bool(_CTO_ONLY_RE.search((d / "plan.md").read_text(encoding="utf-8")))
+    except OSError:
+        return False
+
+
+def _git_dirty(d: Path) -> int:
+    """commit 이 필요한 변경 수 (읽기전용 — 조회 명령만).
+
+    own `.git` 이 있으면 그 저장소의 working tree 를, 없으면 부모 하네스 저장소에서
+    이 디렉토리 범위만 본다 (`git_repo` 판정과 같은 축: own=완료, 없음=진행중이라
+    부모에 얹혀 있다). `.gitignore` 된 파일은 애초에 커밋 대상이 아니므로 porcelain
+    이 알아서 제외한다.
+
+    비용: 노드당 git 1회(실측 ~3ms). 같은 루프가 이미 `_git_url`·`_node_commit_date`
+    로 노드당 2회를 돌고 있어 같은 차수다.
+    """
+    if (d / ".git").exists():
+        rc, out = _git(d, "status", "--porcelain")
+    else:
+        rc, out = _git(REPO, "status", "--porcelain", "--", str(d))
+    if rc != 0:
+        return 0
+    return len([ln for ln in out.splitlines() if ln.strip()])
+
+
 def _z(raw: str) -> list[str]:
     return [t for t in raw.split("\0") if t != ""]
 
@@ -798,6 +897,31 @@ def _git_status(d: Path) -> dict:
         {"path": k + "/", "files": v, "gitkeep_only": dir_real.get(k, 0) == 0}
         for k, v in sorted(dir_counts.items())
     ]
+
+    # ── 커밋 필요(dirty) 최상위 접기 ────────────────────────────────────
+    # `status --porcelain` 에 잡히는 모든 경로(index+worktree+untracked)의 최상위
+    # 이름 집합. 올라감 목록에서 "이 파일/폴더는 커밋이 필요하다" 색을 입히는 용도
+    # — 폴더는 내부에 하나라도 있으면 dirty. R/C 는 -z 포맷에서 원본 경로가 다음
+    # 원소로 따라오므로 둘 다 접는다.
+    rc, draw = _git(d, "status", "--porcelain", "-z")
+    dirty_tops: set[str] = set()
+    if rc == 0:
+        ents = _z(draw)
+        i = 0
+        while i < len(ents):
+            e = ents[i]
+            i += 1
+            if len(e) < 4:
+                continue
+            st, path = e[:2], e[3:]
+            paths = [path]
+            if st[:1] in ("R", "C") and i < len(ents):
+                paths.append(ents[i])
+                i += 1
+            for pth in paths:
+                top = pth.split("/", 1)[0].rstrip("/")
+                if top:
+                    dirty_tops.add(top)
 
     # ── stage 됨 (인덱스) ───────────────────────────────────────────────
     # unborn HEAD 에서도 `diff --cached` 는 빈 트리 대비로 동작한다(실측: 첫 커밋
@@ -940,7 +1064,7 @@ def _git_status(d: Path) -> dict:
         # 저장하면 `git@…` 이 https 로 바뀌어 인증 방식이 조용히 달라진다.
         "branches": branches, "remote": _git_url(d), "remote_url": _remote_url(d),
         "upload": {"files": up_files, "dirs": up_dirs, "total": len(upload),
-                   "tracked": len(tracked)},
+                   "tracked": len(tracked), "dirty": sorted(dirty_tops)},
         "ignored": {"entries": ignored, "total": len(ig_all)},
         "staged": staged, "committed": committed,
         "upstream": upstream, "ahead": ahead, "pushed": pushed,
@@ -1035,8 +1159,9 @@ def _gitignore_add(d: Path, path: str) -> dict:
       · `path` 는 **지금 이 프로젝트의 최상위 올라감 항목**이어야 한다. 클라이언트가
         보낸 문자열을 그대로 쓰면 `*` 한 줄로 저장소 전체를 날리거나 `../` 로 다른
         디렉토리의 .gitignore 를 건드릴 수 있다.
-      · 이미 tracked 면 거부한다 — .gitignore 는 **추적 중인 파일에 무효**라
-        (`git rm --cached` 가 따로 필요) 클릭해도 안 옮겨지는데 옮겨진 척하게 된다.
+      · 이미 tracked 면 먼저 `git rm --cached` 로 인덱스에서 내린다 (.gitignore 는
+        추적 중인 파일에 무효라서). 인덱스만 만지므로 디스크 파일은 그대로 —
+        다음 커밋에서 저장소를 떠나고, 되돌리기는 unstage(git reset) + 줄 삭제.
       · `.gitignore` 자기 자신은 거부 — 자기를 무시하면 저장소에서 규칙 파일이 빠진다.
 
     패턴은 `/` 로 앵커한다. 이 화면이 다루는 건 최상위 항목인데, 앵커 없는 `specs/`
@@ -1073,19 +1198,30 @@ def _gitignore_add(d: Path, path: str) -> dict:
     rc, oraw = _git(d, "ls-files", "--others", "--exclude-standard", "-z")
     others = set(_z(oraw)) if rc == 0 else set()
 
+    # 추적 중인 항목은 .gitignore 만으로 안 빠진다 — 먼저 `git rm --cached` 로
+    # 인덱스에서 내린다 (2026-08-05, 추적 항목도 이동 가능하게). **인덱스에만 쓴다**:
+    # 디스크 파일은 그대로고, 다음 커밋에서 저장소를 떠난다. 되돌리기 = 기존
+    # unstage 버튼(git reset) + .gitignore 줄 삭제 — _stage 와 같은 §1 밖 부류.
+    removed_cached = 0
     if is_dir:
         members = [p for p in (tracked | others) if p.startswith(base + "/")]
         if not members:
             return {"ok": False, "error": f"'{entry}' 는 현재 올라감 목록에 없다"}
-        if any(p in tracked for p in members):
-            return {"ok": False, "error": f"'{entry}' 안에 추적 중인 파일이 있다 — "
-                                          ".gitignore 로는 안 빠진다 (git rm --cached 필요)"}
+        tracked_members = [p for p in members if p in tracked]
+        if tracked_members:
+            rc, out = _git(d, "rm", "--cached", "-r", "-q", "--", base)
+            if rc != 0:
+                return {"ok": False, "error": f"git rm --cached 실패: {out.strip()[:200]}"}
+            removed_cached = len(tracked_members)
     else:
         if base not in others:
             if base in tracked:
-                return {"ok": False, "error": f"'{entry}' 는 추적 중 — .gitignore 로는 안 빠진다 "
-                                              "(git rm --cached 필요)"}
-            return {"ok": False, "error": f"'{entry}' 는 현재 올라감 목록에 없다"}
+                rc, out = _git(d, "rm", "--cached", "-q", "--", base)
+                if rc != 0:
+                    return {"ok": False, "error": f"git rm --cached 실패: {out.strip()[:200]}"}
+                removed_cached = 1
+            else:
+                return {"ok": False, "error": f"'{entry}' 는 현재 올라감 목록에 없다"}
 
     chunk = ""
     if body and not body.endswith("\n"):
@@ -1098,7 +1234,7 @@ def _gitignore_add(d: Path, path: str) -> dict:
             fh.write(chunk)
     except OSError as exc:
         return {"ok": False, "error": f".gitignore 쓰기 실패: {exc}"}
-    return {"ok": True, "added": line, "already": False}
+    return {"ok": True, "added": line, "already": False, "removed_cached": removed_cached}
 
 
 def _stage(d: Path) -> dict:
@@ -1135,6 +1271,42 @@ def _stage(d: Path) -> dict:
             kinds["added" if st == "A" else "modified" if st == "M"
                   else "deleted" if st == "D" else "other"] += 1
     return {"ok": True, "staged": total, **kinds}
+
+
+def _unstage(d: Path) -> dict:
+    """stage 취소 — 인덱스를 HEAD 상태로 되돌린다. **작업트리는 건드리지 않는다.**
+
+    `stage` 버튼(`git add -A`)의 되돌리기다. `_stage` 가 "되돌리기는 `git reset`"
+    이라고 적어두고도 화면에 수단이 없어서, 원치 않는 경로가 섞여 들어가면 CLI 로
+    나가야 했다 (2026-08-02 사용자 요청).
+
+    §1 밖이다: 금지 목록은 commit·push·tag·init·**`reset --hard`**·rebase·
+    `checkout --`·gh pr 다. 여기서 쓰는 `git reset`(mixed)과 `git rm --cached` 는
+    **둘 다 인덱스 전용**이라 디스크의 파일을 지우거나 수정하지 않는다 — 잘못
+    눌러도 잃을 작업이 없다. stage 를 허용하면서 그 취소를 막을 이유가 없다.
+
+    첫 커밋 전(unborn HEAD)에는 되돌아갈 HEAD 가 없으므로 인덱스를 비운다.
+    `--cached` 가 "인덱스에서만 뺀다" 를 보장한다.
+    """
+    if not (d / ".git").exists():
+        return {"ok": False, "error": "git repo 아님"}
+
+    rc, sraw = _git(d, "diff", "--cached", "--name-only", "-z")
+    before = len(_z(sraw)) if rc == 0 else 0
+
+    head_rc, _ = _git(d, "rev-parse", "--verify", "-q", "HEAD")
+    if head_rc == 0:
+        rc, _ = _git(d, "reset", "-q")
+    elif before == 0:
+        rc = 0                              # 첫 커밋 전 + 인덱스 비어있음 = 할 일 없음
+    else:
+        rc, _ = _git(d, "rm", "-r", "--cached", "-q", ".")
+    if rc != 0:
+        return {"ok": False, "error": "stage 취소 실패"}
+
+    rc, sraw = _git(d, "diff", "--cached", "--name-only", "-z")
+    after = len(_z(sraw)) if rc == 0 else 0
+    return {"ok": True, "unstaged": before - after, "remaining": after}
 
 
 # 호스트 이름 자체 규칙 — **`-` 로 시작 금지**가 핵심이다. git 은 ssh/scp 형식
@@ -1337,6 +1509,17 @@ def harness_stage() -> dict:
     return _stage(REPO)
 
 
+@app.post("/api/cto/{name}/unstage", dependencies=[Depends(require_token)])
+def cto_unstage(name: str) -> dict:
+    d = _proj(name)
+    return _unstage(d) if d else {"ok": False, "error": "unknown project"}
+
+
+@app.post("/api/harness/unstage", dependencies=[Depends(require_token)])
+def harness_unstage() -> dict:
+    return _unstage(REPO)
+
+
 @app.post("/api/cto/{name}/remote", dependencies=[Depends(require_token)])
 def cto_remote(name: str, url: str = Body(..., embed=True)) -> dict:
     d = _proj(name)
@@ -1415,7 +1598,10 @@ def cto_all(action: str) -> dict:
                     cwd=str(REPO), capture_output=True, text=True, timeout=120,
                 )
             _invalidate_orca_alive()
-            (done if _in_desired_state(name, action) else failed).append(name)
+            # start 는 keeper 소켓 생성 레이스가 있어 settled 판정 (cto_start 와 동일).
+            settled = (_cto_ready_settled(name)["cto_ready"] if action == "start"
+                       else _in_desired_state(name, action))
+            (done if settled else failed).append(name)
     verb = "활성화" if action == "start" else "정지"
     parts = [f"{verb} {len(done)}"]
     if skipped:
@@ -1478,9 +1664,12 @@ def dev_toggle(name: str) -> dict:
             return _BUSY
         pub = cli._docker_published_ports()
         host = cli._host_listening_ports()
+        mocks = cli._mock_listener_ports()
         env = cli._read_env_ports(d / ".env")
         appports = [env.get("BACKEND_PORT", ""), env.get("FRONTEND_PORT", "")]
-        dev_up = any(p and p in host and p not in pub for p in appports)
+        # 목업 프리뷰(§4.1 http.server)는 dev 로 안 친다 — 안 그러면 phase1~2 목업이
+        # dev_up=True 를 만들어 버튼이 "종료" 로 꼬인다 (2026-08-04 사용자 발주).
+        dev_up = any(p and p in host and p not in pub and p not in mocks for p in appports)
         action = "down" if dev_up else "up"
         bundled_mtx = bool(env.get("MEDIAMTX_API_PORT"))
         mtx_out = ""
@@ -1492,6 +1681,11 @@ def dev_toggle(name: str) -> dict:
             if docker_up:
                 return {"ok": False, "action": "up", "blocked": "docker",
                         "error": "docker 실행중 — 먼저 docker 를 끄세요 (dev/docker 같은 포트, 동시 불가)"}
+            fe = env.get("FRONTEND_PORT", "")
+            if fe and fe in mocks:
+                return {"ok": False, "action": "up", "blocked": "mock",
+                        "error": f"목업 프리뷰(http.server)가 FRONTEND_PORT {fe} 점유 중 — "
+                                 f"시안 게이트 종료 후 CTO 가 목업 서버를 내려야 dev 기동 가능 (RULES §4.1)"}
             # mediamtx 먼저 (backend 가 붙을 대상). 서비스만 up = backend/frontend 컨테이너 X.
             if bundled_mtx:
                 m = subprocess.run(
@@ -1528,6 +1722,12 @@ def docker_toggle(name: str) -> dict:
     d = _resolve_project(name)
     if not d:
         return {"ok": False, "error": "unknown project"}
+    if not any(d.glob("docker-compose*.yml")):
+        return {"ok": False, "error": "docker-compose 없음 (phase1 산출물) — docker 미지원 프로젝트"}
+    if not any(rep.startswith(d.name + "-") for rep in _docker_image_repos()):
+        return {"ok": False, "error": "docker 미구축 (빌드 이미지 없음) — compose 는 phase1 작성물일 뿐. "
+                                      "사용자가 CTO 에게 'docker화 해' 라고 지시하면 CTO 가 빌드·검증 후 "
+                                      "이 버튼이 활성화됩니다 (§13)"}
     with _hold(name) as got:
         if not got:
             return _BUSY
@@ -1549,11 +1749,19 @@ def docker_toggle(name: str) -> dict:
         # 기동 불가('address already in use'). dev 가 떠있으면 docker up 거부 —
         # 먼저 dev 를 내려야 한다(down 방향은 항상 허용).
         host = cli._host_listening_ports()
+        mocks = cli._mock_listener_ports()
         appports = [env.get("BACKEND_PORT", ""), env.get("FRONTEND_PORT", "")]
-        dev_up = any(p and p in host and p not in pub for p in appports)
+        # 목업(§4.1)은 dev 아님 — 단 docker 도 FRONTEND_PORT 를 publish 하므로 목업이
+        # 떠 있으면 bind 충돌. dev 와 별개 사유로 거부한다 (2026-08-04).
+        dev_up = any(p and p in host and p not in pub and p not in mocks for p in appports)
         if dev_up:
             return {"ok": False, "action": "up", "blocked": "dev",
                     "error": "dev 서버 실행중 — 먼저 dev 를 끄세요 (dev/docker 같은 포트, 동시 불가)"}
+        fe = env.get("FRONTEND_PORT", "")
+        if fe and fe in mocks:
+            return {"ok": False, "action": "up", "blocked": "mock",
+                    "error": f"목업 프리뷰(http.server)가 FRONTEND_PORT {fe} 점유 중 — "
+                             f"시안 게이트 종료 후 CTO 가 목업 서버를 내려야 docker 기동 가능 (RULES §4.1)"}
         # up: 빌드 분리 실행 (요청 블록 X). 로그는 빌드 dir 의 .dash-docker.log.
         log = (d / ".dash-docker.log").open("w")
         subprocess.Popen(

@@ -26,20 +26,20 @@ harness roles
 세션이 없으면 사용자에게 `./run.sh add-cto <name>`을 안내한다. 자동 실행·재시작은
 하지 않는다.
 
-## Step 1 — Spawn Exactly 3 Claude Teammates
+## Step 1 — Spawn Exactly 2 Claude Teammates
 
 Spawn은 fresh/유지보수 판단보다 먼저다. `planner → reviewer`
-순서로 세 명 전원을 upfront spawn 한다. `developer`는 외부 Codex 세션이므로
+순서로 두 명 전원을 upfront spawn 한다. `developer`는 외부 Codex 세션이므로
 `Agent(subagent_type=developer)`를 절대 호출하지 않는다.
 
 Invoke the `harness-team-spawn` skill. It owns:
 
-- the exact 3-Claude spawn prompt
-- plan-approval mode for all three Claude teammates
+- the exact 2-Claude spawn prompt
+- plan-approval mode for both Claude teammates
 
 Codex 세션은 Step 0에서 확인한 별도 세션을 그대로 사용한다.
 
-완성 모듈이어도 세 Claude teammate는 모두 spawn 한다. 이 명령에서는 유지보수
+완성 모듈이어도 두 Claude teammate는 모두 spawn 한다. 이 명령에서는 유지보수
 여부를 판단하거나 planner에게 재분해 메시지를 보내지 않는다.
 
 ### Spawn Self-check
@@ -55,6 +55,6 @@ Codex developer는 별도 `harness:cto:<name>:codex` Orca tab이다. Claude tab�
 
 ## Report
 
-Claude team name과 세 teammate의 spawn 상태만 보고하고 종료한다. plan/tasks/spec
+Claude team name과 두 teammate의 spawn 상태만 보고하고 종료한다. plan/tasks/spec
 내용, phase/segment, 다음 빌드 행동은 이 명령에서 다루지 않는다.
 spawn 직후 teammate가 자발적으로 작업을 시작하면 중단하고 대기하도록 지시한다.

@@ -33,12 +33,13 @@ plan.md 의 3축 선언을 그대로 따른다:
 | 1 Plan 작성 | CEO ↔ 사용자 | `/build-project`·`/build-module <brief>` → `<빌드dir>/plan.md` (3축 + Library Check) | 🤚 plan 확정 |
 | 1 Plan 검사 | CEO | plan.md 자체 점검 후 CTO로 | ⚙️ |
 | 2 스폰 | 사용자 | `./run.sh add-cto <name>` (plan.md 없으면 실패) | 🤚 |
-| 2 팀 대기 | CTO + planner/reviewer | 팀 spawn만 하고 대기; 업무는 명시적 CTO dispatch 후 시작 (designer/codex 탭은 add-cto 가 이미 준비) | 🤚 |
+| 2 팀 대기 | CTO + planner/reviewer | 첫 턴에 팀 spawn (마커 자동시딩; 같은 턴 사용자 요청은 spawn 후 처리); 업무는 명시적 CTO dispatch 후 시작 (designer/codex 탭은 add-cto 가 이미 준비) | 🤚 |
 | 3 분해 | planner (CTO 경유) | 명시적 dispatch 후 plan.md → `specs/spec.md` + `specs/tasks.md` | ⚙️ |
 | 3 구간지정 | 사용자 | `phaseN.ckptN~phaseM.ckptM` 지정 (= 분해 승인) | 🤚 |
 | 3 phase1 환경설정 | Codex developer | 포트·백엔드 venv·프론트 scaffold+npm·Docker·dev.sh 준비 (실행 X) | 🤖 |
 | 3 게이트1 | 사용자 | 환경설정 확인 | 🤚 |
 | 3 phase2 프론트 | designer-cto → Codex developer | CTO 가 inbox 로 designer 발주 → 시안 → 사용자가 Claude Design 캔버스에서 미세조정 → 계약 확정 → Codex가 실제 프론트 코드 구현 → dev 서버 기동 | 🤖 |
+| 3 phase2 (design-max) | 사용자 ↔ designer-cto → Codex developer | `specs/design-mode` 마커 시: CTO 는 "phase2 시작하세요" 안내 후 비관여 → 사용자↔designer 직접 대화(mobbin refs·brief·AI assets) → 사용자가 Claude Design 완성 후 핸드오프 번들 회수 → designer 계약 정합 → 사용자가 CTO 에 산출물 통보 → CTO 가 Codex 발주 | 🤚 대화 |
 | 3 게이트2 | 사용자 ↔ designer-cto/Codex | 라이브 디자인 루프 (Claude Design 캔버스 + 브라우저) → 승인 | 🤚 대화 반복 |
 | 3 phase3+ 빌드 | Codex developer | 프론트/백엔드 코드 구현 (`compose up` 은 `"docker화 해"` 시만, RULES §13) | 🤖 |
 | 3 자체 검증 | CTO → reviewer | **필수** API·DB·코드 검증 → 수정 → 보고 (사용자가 segment 지정 시 "검토 필요없음" 명시한 경우만 생략) | ⚙️ |
@@ -54,7 +55,8 @@ plan.md 의 3축 선언을 그대로 따른다:
 `/start-project`는 planner/reviewer를 spawn하는 것만 수행한다. 이 턴에는
 plan.md, specs, tasks, phase, ckpt, segment를 읽거나 생성·검증하지 않는다. 세 팀원이
 준비되면 CTO는 사용자에게 상태만 보고하고 대기한다. 아래 분해 절차는 사용자가 CTO에게
-분해를 명시적으로 지시하고 CTO가 planner에게 dispatch한 뒤에만 시작한다.
+분해를 명시적으로 지시하고(`/decompose` 또는 자연어) CTO가 planner에게
+dispatch한 뒤에만 시작한다.
 
 ### 2.1 분해 (명시적 CTO dispatch 후)
 
@@ -64,7 +66,8 @@ plan.md 읽고 전체 phase/ckpt 트리를 만든다 → `<빌드dir>/specs/spec
 - phase1 = 환경설정 — 포트(offset→`.env`/`.env.example`/compose; self-host mediamtx 는
   `MEDIAMTX_{API,RTSP,WEBRTC,ICE_UDP}_PORT`=base+`PORT_OFFSET`, base 9997/8554/8889/8189 —
   backend/frontend 와 동일 offset 규칙, `run.sh add-cto` 가 자동 기록)·백엔드 venv+패키지·
-  프론트 scaffold(vite 등)+`package.json`+`npm install`→node_modules·
+  프론트 scaffold(vite 등, **vite.config `server.strictPort: true` 필수** — 포트 점유 시
+  자동 +1 점프가 타 프로젝트 할당 포트를 침범하는 걸 차단)+`package.json`+`npm install`→node_modules·
   Docker pull·Dockerfile(+GPU 프로젝트면 Dockerfile-gpu)·`dev.sh`(호스트 러너 — venv+vite
   detached `up`/`down`, compose `up -d`/`down` 짝)·`.gitignore`(**RULES §16** — 하네스
   산출물 `.claude/`·`plan.md`·`specs/`·`DESIGN.md`·`.source*/`·`.env` 제외. `.gitignore` 는
@@ -144,25 +147,57 @@ plan.md 읽고 전체 phase/ckpt 트리를 만든다 → `<빌드dir>/specs/spec
    같은 턴에는 요약만 하고, 사용자가 Codex TUI의 다음 턴에서 명시 승인한 뒤
    실행한다(RULES §6). 완료증거/blocker는 역방향 inbox로 회신한다. 이 bridge는
    CEO나 다른 프로젝트로 연결하지 않으며 `SendMessage(developer)`도 쓰지 않는다.
+
+   **2.1 `files` 열은 인수기준에서 역산한다** (2026-08-02 승격 — 7빌드 중 6에서 재발).
+   `files` 를 "이 기능이 사는 파일" 로 적으면 인수기준을 만족할 수 없다. 인수기준을
+   먼저 읽고 **그걸 충족하려면 무엇이 필요한지 거꾸로 뽑아라** — 테스트 픽스처
+   (`conftest.py`), 마이그레이션, 모델/스키마, 설정 상수, 그리고 **네가 쓴 `Run:` 이
+   실행되기 위한 전제**까지. 실측: rate-limit 는 데코레이터라 라우트 모듈에 있어야
+   하는데 목록에 없었고, JWKS `kid` 는 발행자 `tokens.py` 를 요구했으며(둘 다
+   auth-service), `docker compose exec backend pytest` 라는 Run 은 `Dockerfile` 의
+   `COPY tests` 없이는 **실행 자체가 불가능**했다(cam-distance).
+   - **`files` 초과는 그 자체로 위반이 아니다.** developer 가 보고하면 CTO 가
+     판정한다. 범위를 지키려다 인수기준을 못 맞추는 쪽이 더 나쁘다.
+   - 반대 방향도 실패다: 파일을 좁게 못박고 그 밖을 요구하는 검증 명령을 함께 주면
+     developer 는 어느 쪽도 만족시킬 수 없다 (dataset-trainer 세그먼트 7: 파일을
+     `training.py` 하나로 고정하고 존재하지 않는 테스트 셀렉터를 요구 →
+     `147 deselected`, 왕복 1회 손실).
+
+   **2.2 매 ckpt 완료 노트에 전체 스위트 카운트를 남긴다** (2026-08-02 승격).
+   `Run:` 은 스코프 셀렉터(`pytest -k …`)여도 된다. 다만 완료 노트에는 **전체 스위트
+   총계**(`pytest -q` 의 passed/failed)를 숫자로 적는다. 숫자가 단조 증가하지 않으면
+   그 자리에서 멈춘다.
+   근거는 반례다 — auth-service 는 스코프 Run 이 25개인데도 이 사고가 안 났다. CTO 가
+   24개 체크포인트에서 전체 스위트를 돌리고 `43 → 67 → 101 → 141 → 167 passed` 로
+   **기록**했기 때문이다. 반대로 dataset-trainer 는 그 기록이 없어 전체가 빨간 채로 6
+   ckpt 를 지나갔고 마지막에 **132 errors** 가 한꺼번에 터졌다 — 원인은 하나였고 6
+   ckpt 전에 잡을 수 있었다. 즉 문제는 스코프 셀렉터가 아니라 **전체 카운트를 기록하지
+   않는 것**이다.
 3. **phase1 끝** → 증거(docker ps·포트·헬스체크 + `./run.sh git-listup <name>` 출력 —
    RULES §16 A 목록이 "올라감" 에 남아 있으면 그 자리에서 `.gitignore` 수정) 들고
    🤚 게이트1 (환경설정 확인).
 4. **phase2 끝** → dev 서버(hot-reload, `FRONTEND_PORT`, **`0.0.0.0` 바인딩 — RULES §5.3, 127.0.0.1 금지**) 기동 → 🤚 게이트2
    **CTO 의무 — 모든 축 예외 없음**: phase2 프론트가 끝나면 **무조건** dev 서버를
-   `0.0.0.0` 으로 띄우고, 아래 **4항목**을 사용자에게 제시하며 **"접속해 디자인 시안 확인해주세요"** 를 명시 요청한다:
-     1. **내부 URL(같은 머신)**: `http://127.0.0.1:<FRONTEND_PORT>` — 방화벽 무관, 항상 닿음.
-     2. **외부 URL**: LAN(같은 망) `http://<hostname -I 사설 IP>:<FRONTEND_PORT>` ·
-        인터넷 `http://<curl -s api.ipify.org 공인 IP>:<FRONTEND_PORT>`
-        (인터넷은 라우터 포트포워딩 필요 · CGNAT 면 불가 · 공개망 노출 보안 고려).
-        `hostname -I` 사설 IP 를 "인터넷 외부" 로 제시 금지 (LAN 행에만).
-     3. **방화벽 개방 명령** (LAN/외부 접속하려면 사용자가 그대로 복붙 실행):
+   `0.0.0.0` 으로 띄우고, 아래 **3항목**을 사용자에게 제시하며 **"접속해 디자인 시안 확인해주세요"** 를 명시 요청한다:
+     1. **접속 URL 3줄 정본 양식 (2026-08-04 사용자 지시 — 보고 마지막에 무조건 이 형태로)**:
+        ```
+        http://192.168.0.36:<FRONTEND_PORT>/<경로>     ← LAN
+        http://100.81.96.110:<FRONTEND_PORT>/<경로>    ← tailscale
+        http://211.106.144.18:<FRONTEND_PORT>/<경로>   ← 외부(포워딩)
+        ```
+        `<경로>` = 산출물 진입점 (dev 서버면 `/`, 시안 목업이면 `/web-mock.html` 등).
+        **phase2.ckpt1 시안(목업) 게이트도 동일** — 목업은 자기 `FRONTEND_PORT`
+        정적 서빙(RULES §4.1)이므로 같은 3줄 양식으로 제시한다.
+        내부 확인용 `http://127.0.0.1:<FRONTEND_PORT>` 는 CTO 자가검증에만 쓰고
+        사용자 제시 줄에는 위 3줄을 쓴다.
+     2. **방화벽 개방 명령** (LAN/외부 접속하려면 사용자가 그대로 복붙 실행):
         `sudo ufw allow <FRONTEND_PORT>` [+ 외부에서 백엔드 API/WS 직접 호출 시 `sudo ufw allow <BACKEND_PORT>`].
         **§5.3 의 `0.0.0.0` 바인딩만으론 부족 — OS 방화벽(ufw)이 inbound 를 막으므로 이 명령이 있어야 외부에서 닿는다.**
-     4. **포트포워딩 포트** (인터넷 접속 시 라우터 설정): 공인IP:`<PORT>` → 사설IP:`<PORT>`, 대상 = `FRONTEND_PORT`[, `BACKEND_PORT`].
+     3. **포트포워딩 포트** (인터넷 접속 시 라우터 설정): 공인IP:`<PORT>` → 사설IP:`<PORT>`, 대상 = `FRONTEND_PORT`[, `BACKEND_PORT`].
    외부접속이 필요한 **모든 포트**(프론트 + 외부에서 API/WS 직접 호출 시 백엔드)에 대해 `ufw allow` + 포워딩 포트를 빠짐없이 명시한다.
    게이트2 시각 검수를 **최종 compose 로 미루지 않는다** (extract 빌드도 동일 — 프론트가 phase2 에
    있으니 빈 껍데기가 아니라 실 UI 레이아웃이 보여야 한다).
-   **게이트2 전제 (사용자 명시)**: phase2 종료 시 CTO 는 **무조건** 위 4항목(내/외부 접속 URL)을 제시하고,
+   **게이트2 전제 (사용자 명시)**: phase2 종료 시 CTO 는 **무조건** 위 3항목(3줄 URL 양식 포함)을 제시하고,
    사용자는 그 URL 에 접속해 **프론트엔드 UI 디자인을 실제로 검수할 수 있어야** 한다. 핵심 UI 가 백엔드에
    게이트돼 빈 화면만 보이면 게이트2 불성립 — 백엔드/compose 없이 핵심 UI 전 경로가 보이도록
    mock/local-state 를 phase2 에 내장한다(§2 분해공식 참조). 사용자가 빈 화면 보고서야 패치하는 사후대응
@@ -187,10 +222,13 @@ plan.md 읽고 전체 phase/ckpt 트리를 만든다 → `<빌드dir>/specs/spec
    (`CODE_QUALITY.md`)은 2차 참고자료다. 모든 finding 은 근거 태그를 단다 —
    `[인수기준]` `[사양F<n>]` `[회귀]` `[범위밖]`.
 
-   **5.2 계획 정합성 판정 (필수 경유).** `[범위밖]` 이거나 계획과 충돌하는 발견은
-   reviewer 가 **planner 에게 직접** 물어 3택 판정을 받는다
+   **5.2 계획 정합성 판정 (빌드 진행 중 필수 경유).** `[범위밖]` 이거나 계획과
+   충돌하는 발견은 reviewer 가 **planner 에게 직접** 물어 3택 판정을 받는다
    (계획누락 / 의도된선택 / 새요구사항). **CTO 는 판정을 거치지 않은 범위 밖
-   발견을 `[dev]` 수정 task 로 만들지 않는다.** 판정별 처리:
+   발견을 `[dev]` 수정 task 로 만들지 않는다.**
+   **적용 범위 = `tasks.md` 에 미완 ckpt(`[ ]`)가 남아 있는 동안뿐이다 (RULES §17).**
+   전 ckpt 가 닫힌 뒤(유지보수 모드)의 발견은 planner 를 깨우지 않고 CTO 가 직접
+   판단하거나 사용자에게 올린다. 판정별 처리:
    - 계획누락 → planner 가 spec/tasks 갱신 → `[dev]` 발주
    - 의도된선택 → 기각 + `decisions.md` 기록 (같은 지적 재발 방지)
    - 새요구사항 → 사용자 판단으로 surface
@@ -208,7 +246,7 @@ plan.md 읽고 전체 phase/ckpt 트리를 만든다 → `<빌드dir>/specs/spec
 6. CTO → 사용자 **자체검증 보고** (검증 증거 포함) — 이는 자체검증일 뿐, "완료" 아님(게이트3 PASS 후 완료). reviewer 결과는 **파일 X, 보고 메시지**.
 7. 사용자 : 브라우저 실사용 테스트 (🤚 게이트3) → PASS = 다음 segment / FAIL = 재작업.
    **서버 노출 시점(게이트3 서버 노출(dev 서버 URL) 등 — 게이트2 뿐 아니라 사용자에게 서버 URL 을
-   주는 모든 지점)에서 step4 의 4항목(내부 URL · 외부 URL · `sudo ufw allow <PORT>` · 포트포워딩 포트)
+   주는 모든 지점)에서 step4 의 3항목(**3줄 URL 정본 양식**[LAN 192.168.0.36 · tailscale 100.81.96.110 · 외부 211.106.144.18] · `sudo ufw allow <PORT>` · 포트포워딩 포트)
    형식으로 접속 정보를 제시한다.**
 8. 진행 상태는 `specs/tasks.md` 체크박스만 갱신 (완료 `[✅]`, 미완 `[ ]`, 블로커 `[❓]`) — 별도 상태파일 금지. 완료는 반드시 초록 체크 `[✅]` (레거시 `[x]` 도 완료로 인식하나 신규 작성 금지), 블로커는 `[❓]` (레거시 `[!]` 도 인식하나 신규 금지).
 
@@ -291,6 +329,10 @@ README.md 는 작성하지 않는다 (RULES §1 — 사용자 전용).
 - 고정: 테스트/명령 증거를 남긴 뒤 완료 보고 → 게이트1
 
 ### phase2 프론트 디자인 (designer-cto → Codex developer)
+- **design-max 분기** (`specs/design-mode` 마커): CTO 발주·아래 고정 스킬 체인 대신
+  designer role.md "Design-Max 모드" 절차를 따른다 — 사용자 직접 대화, 산출물 =
+  `specs/design/refs/ + brief.md + assets/ + handoff/`. CTO 는 사용자 통보 후에만
+  Codex 발주. 게이트2(dev 서버 3줄 URL 검수)는 동일하게 적용.
 - project 고정 3: `design-consultation`(open-design 디자인시스템 152개에서
   선택/참조) → `design-shotgun`(시안 보드→사용자 선택) → `design-html`(선택된
   open-design tokens.css 사용)

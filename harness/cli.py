@@ -268,34 +268,19 @@ def _is_harness_dir(dir_path: Path) -> bool:
 
 
 def _alive_sessions() -> set[str]:
-    """Return logical harness session labels from one Orca terminal snapshot.
+    """Return logical harness session labels — `orca_runtime.logical_sessions()` 위임.
+
+    **정본 하나 (2026-08-02).** 예전엔 여기서 터미널 목록을 직접 훑어 같은 판정을
+    다시 구현했다. 두 벌이라 한쪽만 고치면 갈라진다 — 실제로 유령 탭 필터를
+    `logical_sessions()` 에 넣었을 때 대시보드(이 함수를 쓴다)는 안 고쳐졌다.
+    로직은 한 곳에 두고 여기서는 부르기만 한다.
 
     스냅샷 소스는 `orca_runtime.terminals()` — RPC(소켓) 우선, 실패 시 CLI 폴백.
     예전에는 여기서 직접 `orca terminal list` 를 띄웠는데, 그 한 줄이 호출마다
     Electron 을 새로 마운트해 706ms 를 먹었다. harnessd 가 1초 폴링이라 하루
     7만 회였다 (2026-07-28).
     """
-    terminals = orca_runtime.terminals()
-    alive: set[str] = set()
-    for terminal in terminals:
-        if not isinstance(terminal, dict):
-            continue
-        if terminal.get("connected") is not True or terminal.get("writable") is not True:
-            continue
-        title = terminal.get("title")
-        if title == "harness:ceo":
-            alive.add("ceo")
-            continue
-        if not isinstance(title, str) or not (match := _ORCA_CTO_TITLE_RE.match(title)):
-            continue
-        name, member = match.groups()
-        if member == "lead":
-            alive.add(f"cto-{name}")
-        elif member == "codex":
-            alive.add(f"codex-cto-{name}")
-        elif member == "designer":
-            alive.add(f"designer-cto-{name}")
-    return alive
+    return orca_runtime.logical_sessions()
 
 
 def _discover_roles() -> list[dict]:
@@ -774,6 +759,43 @@ def _host_listening_ports() -> set[str]:
     return out
 
 
+def _mock_listener_ports() -> set[str]:
+    """§4.1 목업 프리뷰(`python -m http.server`)가 점유 중인 호스트 포트.
+
+    phase1~2 시안 게이트는 자기 FRONTEND_PORT 에 정적 http.server 를 띄운다
+    (2026-08-04 사용자 결정). 이건 "frontend dev 서버 실행중"이 아니므로 대시보드
+    dev/docker 판정·PORT.md 상태에서 구분해야 버튼이 안 꼬인다. 판정 = 리스너
+    프로세스 cmdline 에 `http.server` 포함 (canon 이 python http.server 고정이라
+    결정론). best-effort — ss/-proc 실패 시 빈 set (기존 dev 판정으로 격하)."""
+    out: set[str] = set()
+    try:
+        r = subprocess.run(
+            ["ss", "-ltnpH"],
+            capture_output=True, text=True, timeout=4,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return out
+    if r.returncode != 0:
+        return out
+    for line in r.stdout.splitlines():
+        cols = line.split()
+        if len(cols) < 4:
+            continue
+        m = re.search(r":(\d+)$", cols[3])
+        if not m:
+            continue
+        port = m.group(1)
+        for pid in re.findall(r"pid=(\d+)", line):
+            try:
+                with open(f"/proc/{pid}/cmdline", "rb") as f:
+                    if b"http.server" in f.read():
+                        out.add(port)
+                        break
+            except OSError:
+                continue
+    return out
+
+
 def _live_cto_halves() -> dict[str, dict[str, bool]]:
     """Live hybrid CTO halves keyed by project name, from one Orca snapshot.
 
@@ -876,6 +898,7 @@ def _last_commit_date() -> str:
 def _render_ports_md(projects: list[dict]) -> str:
     pub = _docker_published_ports()
     host = _host_listening_ports()
+    mocks = _mock_listener_ports()
     live_ctos = _live_cto_sessions()
     header = ["프로젝트/모듈", "offset", "CTO세션"]
     for _label, var in PORT_COLS:
@@ -903,6 +926,9 @@ def _render_ports_md(projects: list[dict]) -> str:
             else:
                 if v in pub:
                     cells.append(f"{v} 🐳")
+                elif var == "FRONTEND_PORT" and v in mocks:
+                    # §4.1 목업 프리뷰(http.server) — dev 서버 아님 (2026-08-04)
+                    cells.append(f"{v} 🎨")
                 elif var in ("BACKEND_PORT", "FRONTEND_PORT") and v in host:
                     # host - pub = dev.sh (호스트 프로세스); app 컬럼만 dev 개념 존재
                     cells.append(f"{v} 💻")
@@ -925,7 +951,7 @@ def _render_ports_md(projects: list[dict]) -> str:
         "PostgreSQL 열은 공유 프로젝트면 자기 컨테이너 포트가 없어 `공유→db명` 으로 표기.",
         "> MTX API/RTSP/TCP/UDP = 각 카메라 프로젝트가 자기 mediamtx 를 base+offset 로 self-host "
         "(9997/8554/8889/8189 + offset, .env MEDIAMTX_*_PORT). 공유 mediamtx 는 폐지됨(2026-07-18).",
-        "> 🐳 docker · 💻 dev.sh(backend/frontend) · 🔗 공유 인프라 · ✋ down",
+        "> 🐳 docker · 💻 dev.sh(backend/frontend) · 🎨 목업 프리뷰(§4.1 http.server — dev 아님) · 🔗 공유 인프라 · ✋ down",
         "",
         "## 현황",
         "",

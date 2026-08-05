@@ -33,7 +33,17 @@ check "attach-codex-cto 비실존 세션 거부"  1 ./run.sh attach-codex-cto no
 help_out=$(./run.sh help)
 [[ "$help_out" == *"attach-codex-cto"* && "$help_out" != *"add-codex-cto"* ]] \
   && ok "help: add 하나 + attach 둘" || bad "help: Codex 명령 노출 불일치"
-check "observe 폐기 안내"            1 ./run.sh observe
+# 폐기 명령은 "unknown command" 로 떨어져야 한다 — exit 1 만 보면 인자 오류와
+# 구분이 안 돼 명령이 살아있어도 초록이 된다 (split-cto 2026-07-14 false-green).
+for dead in observe attach fetch-source; do
+  dead_out=$(./run.sh "$dead" x 2>&1 || true)
+  [[ "$dead_out" == *"unknown command: $dead"* ]] \
+    && ok "폐기 명령 제거: $dead" || bad "폐기 명령 $dead 잔존 :: $(echo "$dead_out" | head -1)"
+done
+# prune-ghosts 는 실행하면 Orca 를 내리므로 정적 핀 — 정본 = 자동 스크립트
+# (중복 분기 검출은 [runsh-surface] 의 surf_dups 가 담당).
+grep -q 'prune-ghosts) shift; exec bash' run.sh \
+  && ok "prune-ghosts → orca-restart-clean.sh" || bad "prune-ghosts 오배선"
 check "delete-cto ceo 차단"          1 ./run.sh delete-cto ceo
 NO_SUCH_ORCA="$(mktemp)"
 cat > "$NO_SUCH_ORCA" <<'EOF'
@@ -254,6 +264,20 @@ PY
     printf '{"result":{"terminal":{"handle":"%s"}}}\n' "$handle"
     ;;
   rename)
+    # 상태형이어야 한다: 실 Orca 의 rename 은 목록의 title 을 실제로 바꾼다.
+    # 무상태 스텁은 "타이틀을 벗겨 유령을 역할에서 분리" 하는 경로를 vacuous 하게
+    # 초록칠한다 (분리했는데 목록엔 그대로 → 재사용 판정이 안 바뀜).
+    handle=""; new_title=""
+    args=("$@")
+    for ((i = 0; i < ${#args[@]}; i++)); do
+      [[ "${args[i]}" == "--terminal" ]] && handle="${args[i+1]}"
+      [[ "${args[i]}" == "--title" ]] && new_title="${args[i+1]}"
+    done
+    if [[ -n "$handle" && -n "$new_title" && -s "$ORCA_STATE" ]]; then
+      awk -F '\t' -v OFS='\t' -v h="$handle" -v t="$new_title" \
+        '$2 == h { $1 = t } { print }' "$ORCA_STATE" > "$ORCA_STATE.next"
+      mv "$ORCA_STATE.next" "$ORCA_STATE"
+    fi
     printf '{"ok":true}\n'
     ;;
   switch)
@@ -278,6 +302,12 @@ PY
     printf '{"ok":true,"result":{"split":{"handle":"%s"}}}\n' "$leaf"
     ;;
   close)
+    # 결함 주입 (2026-08-04): Orca 런타임/UI 가 갈라지면 close 만 tab_not_found 로
+    # 거부하고 레코드는 connected 로 남는다 — 실측된 상태를 그대로 흉내낸다.
+    if [[ -n "${ORCA_CLOSE_FAIL:-}" ]]; then
+      printf '{"ok":false,"error":{"code":"runtime_error","message":"tab_not_found"}}\n'
+      exit 1
+    fi
     handle=""
     while [[ $# -gt 0 ]]; do
       [[ "$1" == "--terminal" ]] && { handle="$2"; break; }
@@ -313,7 +343,13 @@ if (
   _check_claude_version(){ return 0; }
   _ensure_harnessd(){ :; }
   write_role_settings(){ printf 'settings %s\n' "$*" >> "$ORCA_LOG"; }
+  # 마커 시딩 기능 검증 (2026-08-04): stale claim 을 미리 깔아 add-cto 가
+  # (1) 시작 마커를 쓰고 (2) 이전 회차 claim 을 지우는지 실행으로 본다.
+  mkdir -p "$HOME/.harness-claude/orca-team-spawn-claims/codex-smoke"
+  touch "$HOME/.harness-claude/orca-team-spawn-claims/codex-smoke/planner.claimed"
   cmd_add_cto codex-smoke >/dev/null 2>&1 || exit 1
+  [[ -f "$HOME/.claude/logs/started/codex-smoke.started" ]] || exit 1
+  [[ ! -f "$HOME/.harness-claude/orca-team-spawn-claims/codex-smoke/planner.claimed" ]] || exit 1
   # 최초 add-cto = 빈 git 저장소 자동 init (Orca Project 신원 경계). 커밋 0 이어도
   # .git 이 있어야 kind=git 등록 + 워크트리 확보 (없으면 terminal selector_not_found).
   [[ -d "$CODEX_TMP/repo/claude-project/codex-smoke/.git" ]] || exit 1
@@ -423,6 +459,111 @@ if (
 else
   bad "add-cto/stop-cto 정상 경로 실패"
 fi
+
+# ★ 2026-08-04 실사고: 대시보드 "CTO 실행 (fresh)" 가 rtsp-streaming 에서 실패하고
+# CTO 가 죽은 채로 남았다. 결함은 둘이 겹친 것이다:
+#   (1) `set -e` 중단 — _orca_close_cto 는 keeper 를 죽인 뒤 탭 close 실패를
+#       **반환값으로 보고**하는데(2026-08-02 설계), fresh 분기가 그걸 안 받아
+#       add_cto 가 통째로 중단 → 재기동 3개가 하나도 안 돌았다.
+#   (2) 유령 재사용 — 가드만 달면 이번엔 _orca_create_terminal 이 close 못 한
+#       레코드를 role title 로 찾아 **재사용**해 create 를 0회 부른다 = 조용한 죽음.
+# (2) 는 아래 결함주입으로 실행 검증한다. (1) 은 실행 검증이 불가능하다:
+# 스모크가 cmd_add_cto 를 `|| exit 1` 로 부르는 순간 bash 가 그 함수 **안쪽까지**
+# errexit 를 끄기 때문에 중단 자체가 재현되지 않는다(실측). 그래서 (1) 은 바로
+# 아래 구조 게이트로 못박는다 — 가드 없는 호출 = 즉시 빨간불.
+if python3 - "$REPO/run.sh" <<'PY' 2>/dev/null
+import re, sys, pathlib
+src = pathlib.Path(sys.argv[1]).read_text().splitlines()
+# add_cto 의 --fresh 분기 안에서 _orca_close_cto 를 부르는 줄을 찾는다.
+hits = [i for i, l in enumerate(src)
+        if "_orca_close_cto" in l and "()" not in l and not l.lstrip().startswith("#")]
+if not hits:
+    raise SystemExit(1)
+bad = []
+for i in hits:
+    line = src[i].strip()
+    # 호출은 반드시 반환값을 받아야 한다: `|| return 1`(stop/delete) 또는
+    # `|| { ... }`(fresh, 계속 진행). 맨몸 호출은 set -e 로 add_cto 를 중단시킨다.
+    if not re.search(r"\|\|", line):
+        bad.append((i + 1, line))
+if bad:
+    for ln, line in bad:
+        print(f"run.sh:{ln} 가드 없는 _orca_close_cto: {line}", file=sys.stderr)
+    raise SystemExit(1)
+PY
+then
+  ok "★gate: _orca_close_cto 호출이 전부 반환값을 받는다 (set -e 중단 방지)"
+else
+  bad "run.sh 에 가드 없는 _orca_close_cto 호출 — 탭 close 실패가 add-cto 를 중단시킨다"
+fi
+# ★ 같은 사고의 3번째 갈래: close 실패로 살아남은 rail pane 프로세스(skill 피드
+# grep · teammate_tail 뷰어)가 `_orca_ensure_rail` 의 pgrep 멱등 가드를 속여
+# 재스폰 lead 가 rail 없이 뜬다 (rtsp-streaming 실측). _orca_close_cto 는 keeper
+# 처럼 rail 프로세스도 반드시 걷어야 한다 — 실 프로세스를 띄워 실행 검증한다.
+RAIL_NAME="railreap-smoke-$$"
+python3 -c "import time; time.sleep(60)" \
+  "grep --line-buffered -F -e [cto:$RAIL_NAME]" & RAIL_GREP=$!
+python3 -c "import time; time.sleep(60)" \
+  "teammate_tail.py $RAIL_NAME planner" & RAIL_TAIL=$!
+sleep 0.2
+if (
+  source "$REPO/run.sh" >/dev/null 2>&1
+  set +e
+  _orca_harness_terminals(){ :; }   # 탭 없음 — 프로세스 reap 경로만 본다
+  _keeper_kill(){ :; }
+  _orca_close_cto "$RAIL_NAME" >/dev/null 2>&1
+  exit 0
+) && sleep 0.3 && ! kill -0 "$RAIL_GREP" 2>/dev/null && ! kill -0 "$RAIL_TAIL" 2>/dev/null; then
+  ok "★gate: _orca_close_cto 가 rail pane 프로세스(grep·teammate_tail)를 걷는다"
+else
+  bad "★gate: rail 프로세스 생존 — 재스폰 lead 가 rail 없이 뜬다 (ensure_rail 가드 오판)"
+  kill "$RAIL_GREP" "$RAIL_TAIL" 2>/dev/null || true
+fi
+echo "== [fresh-respawn] 탭 close 실패가 --fresh 재기동을 죽이면 안 된다 =="
+CF_TMP="$CODEX_TMP/close-fail"
+mkdir -p "$CF_TMP/repo/claude-project/cf-smoke" "$CF_TMP/repo/harness" \
+         "$CF_TMP/home" "$CF_TMP/codex-home"
+cp "$REPO/harness/codex_hooks.py" "$CF_TMP/repo/harness/codex_hooks.py"
+touch "$CF_TMP/repo/claude-project/cf-smoke/plan.md" \
+      "$CF_TMP/repo/claude-project/cf-smoke/.env"
+CF_LOG="$CF_TMP/orca.log"
+if (
+  source "$REPO/run.sh" >/dev/null 2>&1   # set -euo pipefail 유지 = 실 기동과 동일
+  REPO="$CF_TMP/repo"
+  PATH="$CODEX_TMP/bin:$PATH"
+  HOME="$CF_TMP/home"; export HOME
+  CODEX_HOME="$CF_TMP/codex-home"; export CODEX_HOME
+  ORCA_LOG="$CF_LOG"; export ORCA_LOG
+  ORCA_STATE="$CF_TMP/orca.state"; export ORCA_STATE
+  : > "$ORCA_LOG"; : > "$ORCA_STATE"
+  _check_claude_version(){ return 0; }
+  _ensure_harnessd(){ :; }
+  write_role_settings(){ :; }
+  cmd_add_cto cf-smoke >/dev/null 2>&1 || exit 1
+  mkdir -p "$HOME/.harness-claude"
+  echo dead-lead > "$HOME/.harness-claude/cto-session-cf-smoke.id"
+  echo dead-designer > "$HOME/.harness-claude/cto-designer-session-cf-smoke.id"
+  # 이제부터 close 는 tab_not_found — 그래도 fresh 는 끝까지 가야 한다.
+  ORCA_CLOSE_FAIL=1; export ORCA_CLOSE_FAIL
+  : > "$ORCA_LOG"
+  cmd_add_cto cf-smoke --fresh >/dev/null 2>&1 || exit 1
+  # close 뒤의 fresh 작업이 전부 실행됐는가 (중단 지점 이후 코드)
+  [[ ! -f "$HOME/.harness-claude/cto-session-cf-smoke.id" ]] || exit 1
+  [[ ! -f "$HOME/.harness-claude/cto-designer-session-cf-smoke.id" ]] || exit 1
+  [[ -f "$HOME/.harness-claude/cto-fresh-cf-smoke.ts" ]] || exit 1
+) then
+  # 3역할 keeper 를 죽였으면 3역할을 다시 세워야 한다 (죽이기만 하면 그게 실사고).
+  if grep -Fq "keeper/cto-cf-smoke-lead.sock" "$CF_LOG" \
+     && grep -Fq "keeper/cto-cf-smoke-codex.sock" "$CF_LOG" \
+     && grep -Fq "keeper/cto-cf-smoke-designer.sock" "$CF_LOG"; then
+    ok "★gate: 탭 close 실패에도 --fresh 가 3역할 재기동 완주"
+  else
+    bad "--fresh 가 close 실패 후 재기동 누락 :: $(tr '\n' '|' < "$CF_LOG")"
+  fi
+else
+  bad "★gate: 탭 close 실패가 add-cto --fresh 를 중단시킴 (set -e 회귀)"
+fi
+
 # config.toml 단일 정본: Orca 훅과 하네스 3개가 관리 블록에 정확히
 # 한 번씩 합쳐지고 hooks.json 은 Codex 시작 전에 사라져야 한다.
 if python3 - "$CODEX_TMP" <<'PY' 2>/dev/null
@@ -974,6 +1115,50 @@ t.audit('SmokeEvent', {}, 'allow')
 [[ $aud_rc -eq 0 ]] && ok "audit() 쓰기 실패해도 예외 전파 X" || bad "audit() 가 예외를 던짐 (rc $aud_rc)"
 [[ "$aud_out" == *"audit write failed"* ]] && ok "★audit() 쓰기 실패 → stderr 흔적" || bad "audit() 실패가 여전히 조용함"
 
+# §4 포트 가드 (2026-08-04 8013 목업 점유 + vite 드리프트 사고) — 픽스처 .env 로
+# 결정론 판정: 할당 스캔은 HARNESS_ROOT, 자기 신원은 HARNESS_CTO_DIR.
+PGROOT="/tmp/smoke-portguard"
+rm -rf "$PGROOT"; mkdir -p "$PGROOT/modules/alpha" "$PGROOT/claude-project/beta"
+printf 'PORT_OFFSET=1\nBACKEND_PORT=8101\nFRONTEND_PORT=5301\n' > "$PGROOT/modules/alpha/.env"
+printf 'PORT_OFFSET=2\nBACKEND_PORT=8102\n' > "$PGROOT/claude-project/beta/.env"
+pg(){ # pg <expect-exit> <own-relpath|-> <command>
+  local own=(); [[ "$2" != "-" ]] && own=(HARNESS_CTO_DIR="$PGROOT/$2")
+  out=$(echo "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$(python3 -c "import json,sys;print(json.dumps(sys.argv[1]))" "$3")}}" \
+    | env HARNESS_ROOT="$PGROOT" "${own[@]}" python3 hooks/git_guard.py 2>/dev/null); got=$?
+  [[ "$got" == "$1" ]] && ok "port[$1/$2]: $3" || bad "port guard exit $got != $1 :: $3"
+}
+pg 0 modules/alpha "python3 -m http.server 5301"                     # 임시서버: 자기 FRONTEND_PORT = 목업 정본 → 통과
+pg 2 modules/alpha "python3 -m http.server 8101"                     # 임시서버: 자기 BACKEND_PORT 차단 (8013 사고)
+pg 2 modules/alpha "python3 -m http.server 8102"                     # 임시서버: 타 프로젝트 포트 차단
+pg 2 claude-project/beta "python3 -m http.server 5301"                     # 임시서버: 남의 FRONTEND_PORT 차단
+pg 0 modules/alpha "python3 -m http.server 18101"                    # 임시서버: 표밖 대역 통과
+pg 0 modules/alpha "uvicorn app:app --port 8101"                     # bind: 자기 포트 통과
+pg 2 modules/alpha "uvicorn app:app --port 8102"                     # bind: 타 프로젝트 포트 차단
+pg 2 modules/alpha "npm run dev -- --host 0.0.0.0 --port 5301 && echo x; vite --port 8102"  # 세그먼트별: 자기+남 혼합 → 차단
+pg 0 modules/alpha "psql --port 8102 -c 'select 1'"                  # 접속 클라이언트는 통과 (bind 아님)
+pg 0 modules/alpha "psql --port=5435 -c 'select 1'"                  # 공유 pg 제외
+pg 2 modules/alpha "docker run -p 8102:8000 img"                     # docker publish 타 포트 차단
+pg 0 modules/alpha "docker run -p 18102:8000 img"                    # docker publish 표밖 통과
+pg 2 - "uvicorn app:app --port 8101"                         # 무신원(CEO 등): 할당 포트 bind 차단
+pg 0 modules/alpha "HARNESS_USER_OK=port python3 -m http.server 8101" # 사용자 마커 통과
+pg 0 modules/alpha "curl http://localhost:8102/api"                  # 포트 언급만(비-bind) 통과
+rm -rf "$PGROOT"
+
+# 목업 판별 (§4.1 http.server ≠ dev 서버 — 대시보드 버튼 꼬임 방지, 2026-08-04):
+# 실제 http.server 를 loopback 고포트에 띄워 감지·비감지 양쪽 핀.
+python3 -m http.server 39871 --bind 127.0.0.1 >/dev/null 2>&1 &
+MOCK_PID=$!
+sleep 1
+mock_out=$(python3 -c "
+import sys; sys.path.insert(0,'.')
+from harness.cli import _mock_listener_ports
+m=_mock_listener_ports()
+assert '39871' in m, f'mock 미감지: {sorted(m)}'
+" 2>&1); mock_rc=$?
+kill $MOCK_PID 2>/dev/null
+[[ $mock_rc -eq 0 ]] && ok "mock 판별: http.server 감지" || bad "mock 판별 실패 :: $(echo "$mock_out" | tail -1)"
+check "mock 판별: 부재 시 빈/무오류" 0 python3 -c "import sys; sys.path.insert(0,'.'); from harness.cli import _mock_listener_ports; m=_mock_listener_ports(); assert isinstance(m,set); assert '39871' not in m"
+
 echo "== [7] harness CLI =="
 check "roles"                    0 harness roles
 check "ports --next 숫자"         0 bash -c "harness ports --next | grep -qE '^[0-9]+$'"
@@ -1007,6 +1192,12 @@ def run(argv, *a, **k):
             for i, t in enumerate(titles)
         ]}}))
     return R(FORGE)
+c.subprocess.run=run; d.subprocess.run=run
+# 이 케이스가 고정하는 건 **title 위조 필터**다. 생사판정에 keeper 게이트가
+# 붙은 뒤(2026-08-02)로는 Orca 목록만 가짜로 넣으면 전부 걸러져 단언이
+# vacuous 해진다 — 가짜 Orca 를 쓰는 테스트는 keeper 도 같이 가짜여야 한다.
+import harness.orca_runtime as o
+o.keeper_alive=lambda key: True
 c.subprocess.run=run; d.subprocess.run=run
 alive=c._alive_sessions(); halves=c._live_cto_halves(); dl=d._list_cto_sessions()
 assert alive=={REAL}, 'cli._alive_sessions forged: %r' % (alive,)
@@ -1237,7 +1428,8 @@ assert calls[-1][-4:] == ['--text', d.CODEX_INBOX_PROMPT, '--enter', '--json']
 o=$(grep -c "observe 화면" harness/daemon.py)
 [[ "$o" == "0" ]] && ok "daemon 메시지에 observe 없음" || bad "daemon observe 잔재"
 check "stall: tasks 미완 카운트" 0 python3 -c "import sys; sys.path.insert(0,'.'); from harness.daemon import _parse_tasks_incomplete as f; assert f('- [ ] a\n- [✅] b\n- [!] c\n- [x] d')==2, f('got %d' % f('- [ ] a\n- [✅] b\n- [!] c\n- [x] d'))"
-check "stall: verdict 결정론" 0 python3 -c "import sys; sys.path.insert(0,'.'); from harness.daemon import _stall_verdict as v; assert v(True,False,2,400) is True; assert v(False,False,2,400) is False; assert v(True,True,2,400) is False; assert v(True,False,0,400) is False; assert v(True,False,2,100) is False; assert v(True,False,2,400,True) is False; assert v(True,False,2,400,False) is True"
+check "stall: verdict 결정론" 0 python3 -c "import sys; sys.path.insert(0,'.'); from harness.daemon import _stall_verdict as v, STALL_SEC as S; over=S+100; under=S-100; assert v(True,False,2,over) is True; assert v(False,False,2,over) is False; assert v(True,True,2,over) is False; assert v(True,False,0,over) is False; assert v(True,False,2,under) is False; assert v(True,False,2,over,True) is False; assert v(True,False,2,over,False) is True"
+check "stall: backoff 상한 > 임계" 0 python3 -c "import sys; sys.path.insert(0,'.'); from harness.daemon import STALL_SEC as S, STALL_BACKOFF_MAX_SEC as B; assert B > S, 'backoff cap %s must exceed threshold %s' % (B, S)"
 check "stall: hybrid pair 4상태" 0 python3 -c "from harness.daemon import _pair_status as s; assert s(True,True)=='healthy'; assert s(True,False)=='claude-only'; assert s(False,True)=='codex-only'; assert s(False,False)=='both-down'"
 pair_stall_out=$(python3 - <<'PY' 2>&1
 import logging
@@ -1376,6 +1568,88 @@ pair_stall_got=$?
   && ok "stall: pair collector/grace/dedup/recovery/suppression" \
   || bad "stall: pair lifecycle :: $(echo "$pair_stall_out" | tail -1)"
 
+# 지시추적 watcher (2026-08-04 8013 낡은-스냅샷 사고 재발방지):
+# fire / no-fire / expiry / bad-spec / invalid-role 5경로 결정론 검증.
+watch_out=$(python3 - <<'PY' 2>&1
+import json
+import logging
+import os
+import sqlite3
+import tempfile
+import time
+from pathlib import Path
+
+import harness.daemon as d
+import harness.db as db
+
+with tempfile.TemporaryDirectory() as tmp:
+    root = Path(tmp)
+    wdir = root / "watch"
+    wdir.mkdir()
+    db_path = root / "db.sqlite"
+
+    def test_connect():
+        conn = sqlite3.connect(db_path, isolation_level=None)
+        conn.row_factory = sqlite3.Row
+        conn.executescript(db.SCHEMA)
+        return conn
+
+    def bodies():
+        with test_connect() as conn:
+            return [r["body"] for r in conn.execute("SELECT body FROM msg ORDER BY id")]
+
+    d.connect = test_connect
+    d.WATCH_DIR = wdir
+    log = logging.getLogger("watch-smoke")
+    log.handlers = [logging.NullHandler()]
+    log.propagate = False
+    state = {}
+
+    # 1. fire: probe exit 0 → 인박스 1건 + .fired rename
+    (wdir / "w-fire.json").write_text(json.dumps(
+        {"desc": "이행 감지", "probe": "true"}))
+    d.check_watches(state, log)
+    assert any("w-fire 조건 충족" in b for b in bodies()), bodies()
+    assert (wdir / "w-fire.json.fired").exists()
+    assert not (wdir / "w-fire.json").exists()
+
+    # 2. no-fire: probe exit 1 → 메시지 없음, 파일 유지
+    (wdir / "w-wait.json").write_text(json.dumps(
+        {"desc": "대기", "probe": "false"}))
+    d.check_watches(state, log)
+    assert not any("w-wait" in b for b in bodies())
+    assert (wdir / "w-wait.json").exists()
+
+    # 2b. interval 스로틀: 재호출해도 interval 내면 probe 재실행 안 함 (상태 유지)
+    d.check_watches(state, log)
+    assert (wdir / "w-wait.json").exists()
+
+    # 3. expiry: mtime 을 ttl 밖으로 밀면 만료 알림 + .expired
+    old = time.time() - 3600 * 25
+    os.utime(wdir / "w-wait.json", (old, old))
+    d.check_watches(state, log)
+    assert any("w-wait 만료" in b for b in bodies()), bodies()
+    assert (wdir / "w-wait.json.expired").exists()
+
+    # 4. bad spec: probe 없음 → .bad 격리, 메시지 없음
+    (wdir / "w-bad.json").write_text(json.dumps({"desc": "x"}))
+    d.check_watches(state, log)
+    assert (wdir / "w-bad.json.bad").exists()
+    assert not any("w-bad" in b for b in bodies())
+
+    # 5. invalid to_role → .bad 격리 (무한 재시도 방지)
+    (wdir / "w-role.json").write_text(json.dumps(
+        {"desc": "x", "probe": "true", "to": "evil; rm -rf /"}))
+    d.check_watches(state, log)
+    assert (wdir / "w-role.json.bad").exists()
+    assert not any("w-role" in b for b in bodies())
+PY
+)
+watch_got=$?
+[[ "$watch_got" == "0" ]] \
+  && ok "watch: fire/no-fire/throttle/expiry/bad-spec/invalid-role" \
+  || bad "watch: 지시추적 watcher :: $(echo "$watch_out" | tail -1)"
+
 echo "== [8] canon 정합성 (doctor [5] RULE A/B + quality) =="
 # 현 canon 은 정합 → doctor [5] 섹션이 clean 통과해야 (위반 echo 없음).
 d=$(./run.sh doctor 2>&1)
@@ -1496,6 +1770,45 @@ PY
   && ok "netbind sentinel: server.host 누락·loopback=위반, host:true=통과" \
   || bad "netbind sentinel :: $nbsent"
 
+echo "== [8b] 세션 생사 = Orca 탭 ∧ keeper (유령/고아 탐지) =="
+# 2026-08-02 실사고: Orca 런타임과 UI 가 갈라져 죽은 CTO 의 탭이 목록에
+# connected=true 로 남았다(close 는 tab_not_found). 대시보드가 그걸 "활성" 으로
+# 읽어 **죽은 CTO 에 복구 버튼**을 띄웠다. 판정을 탭 하나에만 걸면 그게 거짓말할 때
+# 통째로 속는다 — keeper 소켓(= stop-cto 가 지움)을 두 번째 독립 신호로 둔다.
+# 여기서는 canon 상태를 단언하지 않는다(실 세션 상태는 사용자 것). 로직만 고정.
+livesent=$(python3 - "$REPO" <<'PY'
+import pathlib, sys, tempfile
+sys.path.insert(0, sys.argv[1])
+from harness import orca_runtime as o
+with tempfile.TemporaryDirectory() as t:
+    o.KEEPER_DIR = t
+    k = pathlib.Path(t)
+    (k / "ceo.sock").touch()
+    (k / "cto-alpha-lead.sock").touch()          # 탭도 있음  → 살아있음
+    (k / "cto-beta-lead.sock").touch()           # 탭 없음    → 고아 에이전트
+    o._scan_titles = lambda: {"ceo", "cto-alpha", "cto-ghost"}   # cto-ghost = keeper 없음
+    live = sorted(o.logical_sessions())
+    d = o.drift()
+    print(",".join(live), "|", ",".join(d["ghost_tab"]), "|", ",".join(d["orphan_agent"]))
+PY
+)
+[[ "$livesent" == "ceo,cto-alpha | cto-ghost | cto-beta" ]] \
+  && ok "생사판정: 유령 탭 제외 + 양방향 drift 검출" \
+  || bad "생사판정 회귀 :: $livesent"
+# 정본 하나: 대시보드가 쓰는 cli._alive_sessions 가 같은 판정을 재구현하면
+# 한쪽만 고쳐져 갈라진다 (실제로 그렇게 갈라졌다).
+samesrc=$(python3 - "$REPO" <<'PY'
+import sys
+sys.path.insert(0, sys.argv[1])
+from harness import cli, orca_runtime as o
+o.logical_sessions = lambda: {"sentinel-value"}
+print("delegates" if cli._alive_sessions() == {"sentinel-value"} else "FORKED")
+PY
+)
+[[ "$samesrc" == delegates ]] \
+  && ok "생사판정 정본 1개 (cli._alive_sessions → logical_sessions 위임)" \
+  || bad "생사판정 이중구현 부활 :: $samesrc"
+
 echo "== [9a] 대시보드 remote URL 검증 (ssh 인자 주입) =="
 # git 은 ssh/scp 형식의 `user@host` 를 **한 인자로** ssh 에 넘긴다 — 그 문자열이
 # `-` 로 시작하면 옵션이 되어 임의 명령이 된다(CVE-2017-1000117 계열).
@@ -1558,29 +1871,6 @@ import gitignore_scan as g; print(','.join(sorted(g.FORBIDDEN)))")
   && ok "gitignore: §16 A 목록 = 정본 7항목" \
   || bad "gitignore A 목록 drift :: $gikeys"
 
-echo "== [10] parity (RULES §5.5 dev/docker 포트 패리티 파서) =="
-# sentinel: ${VAR:?msg} 내부콜론·IP 3파트·${} 컨테이너측 → 호스트포트만 정확 추출
-psent=$(python3 - "$REPO" <<'PY'
-import sys, pathlib
-sys.path.insert(0, str(pathlib.Path(sys.argv[1]) / "harness"))
-import parity_scan as p
-env = {"BACKEND_PORT": "8001", "FRONTEND_PORT": "5174", "MTX": "9998"}
-cases = {
-    '- "${BACKEND_PORT:?set in .env}:8000"': "8001",
-    '- "127.0.0.1:${MTX:?x}:9997"': "9998",
-    '- "${FRONTEND_PORT}:${FRONTEND_PORT}"': "5174",
-    '- "8555:8554/tcp"': "8555",
-}
-ok = all(p._host_port(k, env) == v for k, v in cases.items())
-print("ok" if ok else "FAIL:" + ",".join(f"{k}->{p._host_port(k, env)}" for k in cases))
-PY
-)
-[[ "$psent" == "ok" ]] \
-  && ok "parity sentinel: \${VAR:?}·IP3파트·\${}컨테이너 → 호스트포트 정확" \
-  || bad "parity sentinel :: $psent"
-python3 "$REPO/harness/parity_scan.py" >/dev/null 2>&1 \
-  && ok "parity: advisory exit 0 (게이트 아님)" || bad "parity scan 비정상 종료"
-
 echo "== [11] start_project_gate (CTO 팀 spawn 결정론 게이트 — Agent) =="
 # CTO Agent(팀역할) spawn 을 /start-project 마커에 묶어 stray 자동스폰 차단.
 GH="$REPO/hooks/team/start_project_gate.py"
@@ -1633,12 +1923,14 @@ except SystemExit as e:
 # settings.json 템플릿이 게이트를 Agent matcher 로 실제 배선하는지 (run.sh)
 grep -q "start_project_gate.py" "$REPO/run.sh" \
   && ok "gate: run.sh settings.json 에 배선됨" || bad "gate: run.sh 배선 누락"
-# 8) stale 마커 리셋 (S38): docstring 이 "add-cto 가 지운다" 고 약속했지만 run.sh 는
-#    started/ 를 건드린 적이 없었다 → 중도 실패한 이전 스폰의 마커가 살아남아
-#    다음 CTO 가 /start-project 없이 팀을 뽑을 수 있었다(게이트 무력화).
-grep -q 'logs/started/.*\.started' "$REPO/run.sh" \
-  && ok "★gate: add-cto 가 stale .started 마커를 실제로 지움" \
-  || bad "gate: run.sh 에 마커 clear 없음 — docstring 약속이 여전히 미구현"
+# 8) 마커 시딩 (2026-08-04 반전, 사용자 결정): add-cto 가 시작 마커를 **미리 쓴다**
+#    → attach 후 첫 지시 턴 = 시작 신호, /start-project 타이핑 불필요. 예전
+#    의미(stale 마커 rm, S38)는 "매 스폰마다 새로 쓰기" 가 대체한다. rm 으로
+#    회귀하면 여기서 잡는다 (기능 검증은 codex-smoke 라이프사이클 블록).
+grep -q '\.started' "$REPO/run.sh" \
+  && ! grep -q 'rm -f "\$HOME/.claude/logs/started' "$REPO/run.sh" \
+  && ok "★gate: add-cto 마커 시딩 (rm 회귀 없음)" \
+  || bad "gate: add-cto 마커 시딩 부재 또는 rm 회귀 — 첫 지시 자동 스폰이 죽는다"
 # 블록 메시지가 실존하지 않는 문서 앵커를 인용하지 않는지 (role.md §62 는 없다).
 grep -q 'role.md §62' "$GH" \
   && bad "gate: 블록 메시지가 존재하지 않는 role.md §62 인용" \
@@ -1807,6 +2099,42 @@ for f in $F5_DOCS; do
     || bad "F5: $(basename "$f") — [review] 에서 skip-verify 무시/waiver 경로 누락"
 done
 
+echo "== [12b] 완료게이트 재배달 멱등 (하나의 TaskCompleted 가 두 번 배달) =="
+# 실측 2026-08-02: 같은 session_id·prompt_id 로 훅이 두 번 불린다 — 1차는 teammate
+# 컨텍스트가 실린 payload, 2차는 team_name/teammate_name 이 벗겨진 payload. 1차 allow
+# 가 sentinel 을 소각하므로 2차가 "증거 없음" 으로 완료를 되돌려 [review] 가 구조적으로
+# 닫히지 않았다 (cam-distance task#1: 12:28:42 allow → 12:28:46 block).
+# ★ 격리 HOME 을 쓴다 — 실 하네스의 sentinel/lastreview 를 건드리면 안 된다.
+DDH="$(mktemp -d)/home"; DDP=dedupsmoke
+DDPID=11111111-2222-3333-4444-555555555555
+DDPID2=99999999-8888-7777-6666-555555555555
+mkdir -p "$DDH/.claude/logs/verified/$DDP" "$DDH/.claude/logs/codereview" \
+         "$DDH/.harness-claude/regression/$DDP"
+dd_seed() {
+  echo PASSED > "$DDH/.claude/logs/verified/$DDP/task-1.verified"
+  : > "$DDH/.claude/logs/codereview/$DDP.reviewer.invoked"
+  echo '{}' > "$DDH/.harness-claude/regression/$DDP/baseline.json"; sleep 0.05
+  echo '{"regressions":0}' > "$DDH/.harness-claude/regression/$DDP/last-check.json"
+  rm -f "$DDH/.claude/logs/codereview/$DDP.lastreview"
+}
+dd_full() { printf '{"task_id":"1","team_name":"session-abc","teammate_name":"reviewer","permission_mode":"bypassPermissions","prompt_id":"%s","session_id":"s1","hook_event_name":"TaskCompleted","task_subject":"[review] seg — Run: ./x","task_description":""}' "$1"; }
+dd_strip() { printf '{"task_id":"1","prompt_id":"%s","session_id":"s1","hook_event_name":"TaskCompleted","task_subject":"[review] seg — Run: ./x","task_description":""}' "$1"; }
+dd_run() { HOME="$DDH" HARNESS_ROLE=cto:$DDP python3 "$CVG" >/dev/null 2>&1; echo $?; }
+dd_seed
+[[ "$(dd_full "$DDPID" | dd_run)" == "0" ]] \
+  && ok "재배달: 1차 배달 → allow" || bad "재배달: 1차 배달이 allow 아님"
+[[ "$(dd_strip "$DDPID" | dd_run)" == "0" ]] \
+  && ok "재배달: 같은 prompt_id 2차 배달 → allow (자기소각 없음)" \
+  || bad "재배달: 2차 배달이 완료를 되돌림 — 게이트 자기소각 회귀"
+# 재사용 방지는 유지돼야 한다 — 다른 prompt_id 는 새 증거를 요구한다.
+[[ "$(dd_full "$DDPID2" | dd_run)" == "2" ]] \
+  && ok "재배달: 새 prompt_id + 새 증거 없음 → block (재사용 방지 유지)" \
+  || bad "재배달: 멱등이 재사용 방지를 무력화함"
+dd_seed
+[[ "$(dd_full "$DDPID2" | dd_run)" == "0" ]] \
+  && ok "재배달: 새 prompt_id + 새 증거 → allow" || bad "재배달: 정상 새 완료가 막힘"
+rm -rf "$(dirname "$DDH")"
+
 echo "== [13] start_project_spawn_nudge (Stop: 3-Claude + Codex 압박) =="
 # 마커 동안 Claude 3역할 + 외부 Codex가 아니면 block, 3회 후 fail-open.
 NG="$REPO/hooks/team/start_project_spawn_nudge.py"
@@ -1821,6 +2149,35 @@ rm -f "$NGM/nudgesmoke.started" "$NGSTATE/${NGSESS}.count"
 echo "$ngpay" | HARNESS_ROLE=cto:nudgesmoke python3 "$NG" >/dev/null 2>&1; [[ $? -eq 0 ]] \
   && ok "nudge: 마커 없음 → allow" || bad "nudge: 마커 없음 allow 실패"
 touch "$NGM/nudgesmoke.started"
+# 0a) ★조건부 spawn 문구 금지 (2026-08-04 사용자 지시): 팀 spawn 은 CTO 실행에
+# 포함된다 — 마커 있으면 첫 턴에 무조건. "작업 지시 턴에만" 류 조건이 지침에
+# 다시 들어오면 CTO 마다 spawn 타이밍이 갈리고 사용자가 또 수동으로 밀어야 한다.
+ngcond=$(python3 - "$REPO" <<'PY'
+import pathlib, sys
+root = pathlib.Path(sys.argv[1])
+hits = []
+for rel in ("plugins/cto/skills/harness-team-spawn/SKILL.md", "plugins/cto/role.md"):
+    txt = (root / rel).read_text()
+    for pat in ("작업 지시 턴", "신호 없는 턴", "work signal", "substantive user"):
+        if pat in txt:
+            hits.append(f"{rel}:{pat}")
+print(",".join(hits))
+PY
+)
+[[ -z "$ngcond" ]] \
+  && ok "★gate: 팀 spawn 지침에 조건부 문구 없음 (마커=첫 턴 무조건)" \
+  || bad "spawn 조건부 문구 회귀 :: $ngcond"
+# 0b) ★교착 게이트 (2026-08-04 실사고): 인박스 격리 턴(RULES §6)엔 압박하지 않는다.
+# add-cto 마커 시딩 이후, 데몬 nudge 로 인박스를 읽은 턴에서 이 훅이 "spawn 하라"
+# 며 Stop 을 block 하는데, 같은 턴의 Agent/Skill 은 inbox_isolation_guard 가 §6 로
+# 차단한다 → 훅 둘이 반대를 요구해 CTO 가 갇힌다 (perf-eval-gen 실측: 2회 시도
+# 2회 차단 후 Stop 무한 재발화). §6 이 상위 안전규칙 → 격리 턴엔 allow.
+NGISO="$HOME/.harness-claude/inbox-isolation"; mkdir -p "$NGISO"
+touch "$NGISO/cto-nudgesmoke.turn"
+echo "$ngpay" | HARNESS_ROLE=cto:nudgesmoke python3 "$NG" >/dev/null 2>&1; [[ $? -eq 0 ]] \
+  && ok "★gate: nudge 가 인박스 격리 턴엔 물러남 (§6 교착 방지)" \
+  || bad "nudge↔inbox_isolation 교착 — 격리 턴에 spawn 압박 (CTO 가 빠져나갈 수 없다)"
+rm -f "$NGISO/cto-nudgesmoke.turn"
 if false; then  # Historical multiplexer fixture; Orca-native probe follows.
   legacy-multiplexer kill-session -t "$NGSESS" 2>/dev/null || true
   legacy-multiplexer kill-session -t "$NGCODEX" 2>/dev/null || true
@@ -1910,6 +2267,11 @@ if os.environ.get("ORCA_CODEX") == "1":
 print(json.dumps({"result": {"terminals": rows}}))
 EOF
 chmod +x "$NGORCA/orca-ide"
+# 생사판정이 Orca 탭 ∧ keeper 로 바뀌었다(2026-08-02). 훅은 별도 프로세스라
+# in-process 스텁이 안 닿으므로 keeper 도 픽스처로 준다 — 안 그러면 ORCA_CODEX=1
+# 케이스가 전부 "codex 없음" 으로 읽혀 단언이 뒤집힌다.
+NGKEEP="$NGORCA/keeper"; mkdir -p "$NGKEEP"; : > "$NGKEEP/cto-nudgesmoke-codex.sock"
+export HARNESS_KEEPER_DIR="$NGKEEP"
 
 touch "$NGM/nudgesmoke.started"; rm -f "$NGSTATE/${NGSESS}.count"
 echo "$ngpay" | ORCA_CLI_COMMAND="$NGORCA/orca-ide" ORCA_LEAVES=5 ORCA_CODEX=0 \
@@ -1933,7 +2295,7 @@ touch "$NGM/nudgesmoke.started"; rm -f "$NGSTATE/${NGSESS}.count"
 echo "$ngpay" | ORCA_CLI_COMMAND="$NGORCA/orca-ide" ORCA_FAIL=1 \
   HARNESS_ROLE=cto:nudgesmoke python3 "$NG" >/dev/null 2>&1; [[ $? -eq 0 ]] \
   && ok "nudge: Orca unavailable → fail-open" || bad "nudge: Orca fail-open failed"
-rm -rf "$NGORCA"
+rm -rf "$NGORCA"; unset HARNESS_KEEPER_DIR
 rm -f "$NGM/nudgesmoke.started" "$NGSTATE/${NGSESS}.count"
 # settings.json 템플릿이 Stop 훅을 실제 배선하는지 (run.sh)
 grep -q "start_project_spawn_nudge.py" "$REPO/run.sh" \
@@ -1983,7 +2345,11 @@ def ctx(role):
 ceo=ctx('ceo'); cto=ctx('cto:x'); none=ctx(None)
 assert 'Harness 시스템 하드룰' in ceo and 'Role: CEO' in ceo and '하네스 빌드 프로세스' not in ceo, 'ceo scope'
 assert 'Harness 시스템 하드룰' in cto and 'Role: CTO' in cto and '하네스 빌드 프로세스' in cto, 'cto scope'
-assert 'STARTUP OVERRIDE' in cto and '팀 spawn만 수행한다' in cto and '업무·분해·orientation·review 메시지를 보내지 않는다' in cto, 'spawn-only override'
+# 2026-08-04 계약: 마커=첫 턴 무조건 spawn + 그 턴 사용자 요청 정상 처리.
+# spawn-only 는 /start-project 수동 재신호 턴에만 남는다.
+assert 'STARTUP OVERRIDE' in cto and '첫 턴에 무조건 팀 spawn' in cto \
+    and '작업 지시면 바로 시작' in cto and '수동 재신호)만 spawn-only' in cto, 'startup override 계약'
+assert '팀 spawn만 수행한다' not in cto, 'old spawn-only override 잔재'
 assert none=='', 'role unset must be empty'
 PY
 then ok "session_start: CEO=RULES+role(PROCESS 미주입)·CTO=+PROCESS·unset=무출력"
@@ -2196,7 +2562,10 @@ chmod +x "$PA/orca-ide"
 cat > "$PA/pa_check.py" <<'EOF'
 import sys
 sys.path.insert(0, ".")
-from harness import cli
+from harness import cli, orca_runtime as o
+# 가짜 Orca CLI 를 쓰는 케이스 — 생사판정의 keeper 게이트(2026-08-02)도 같이
+# 가짜여야 픽스처가 살아있는 것으로 읽힌다.
+o.keeper_alive = lambda key: True
 got = sorted(cli._live_cto_sessions())
 # alpha=쌍(dedup 1회), beta=codex-only orphan(가시=핵심 픽스), gamma-x=claude-only,
 # ceo/harnessd=제외. 프리픽스 스트립: codex-cto- 먼저, 그다음 cto-.
@@ -2247,11 +2616,56 @@ for c, x, d in itertools.product((True, False), repeat=3):
     assert snap["cto_active"] == (snap["cto_state"] != "both-down"), snap
     assert snap["cto_designer_active"] == d, snap
 PY
+# ★ 2026-08-04 실사고: add-cto 는 rc=0 성공인데 대시보드가 "실패" 를 띄웠다.
+# keeper 소켓(dtach)은 terminal create 와 비동기로 생기는데, cto_start 가 직후
+# 스냅샷 1회로 판정해 소켓 생성 전이면 ready=false. 판정은 조건 폴링(settled)이어야
+# 한다 — 스냅샷이 늦게 true 가 되는 레이스를 흉내내 ok=True 를 실행 검증한다.
+check "dashboard: cto_start ready 판정이 keeper 소켓 레이스를 흡수 (settled)" 0 \
+  dashboard/backend/.venv/bin/python - <<'PY'
+import dashboard.backend.main as m
+calls = {"n": 0}
+def flip_snapshot(name):
+    # 1회차 = cto_start 의 before, 2회차 = settled 첫 시도 (create 직후, 소켓 아직
+    # 없음), 4회차부터 ready — 폴링 없이 1샷 판정이면 여기서 ok=False 로 죽는다.
+    calls["n"] += 1
+    ready = calls["n"] >= 4
+    return {"cto_active": ready, "cto_ready": ready,
+            "cto_state": "healthy" if ready else "both-down",
+            "cto_claude_active": ready, "cto_codex_active": ready,
+            "cto_designer_active": ready}
+m._cto_snapshot = flip_snapshot
+m._resolve_project = lambda n: True
+m._invalidate_orca_alive = lambda: None
+m.time.sleep = lambda s: None  # 폴링 간격 제거 (판정 로직만 검증)
+m.subprocess.run = lambda *a, **k: type("R", (), {"stdout": "", "stderr": "", "returncode": 0})()
+r = m.cto_start("race-smoke", fresh=True)
+assert r["ok"] is True, r
+assert calls["n"] >= 4, calls  # 실제로 재시도했는가 (1샷이면 2에서 끝)
+# 진짜 실패(끝내 ready 안 됨)는 여전히 실패로 보고해야 한다 — 폴링이 성공을
+# 조작하면 안 된다. timeout 을 0 으로 줘 첫 스냅샷 false = 즉시 실패.
+calls["n"] = -10**9
+orig = m._cto_ready_settled
+m._cto_ready_settled = lambda name, timeout=10.0: orig(name, timeout=0.0)
+r = m.cto_start("race-smoke", fresh=True)
+assert r["ok"] is False, r
+PY
 # /api/state items 루프도 같은 3자 규칙을 써야 한다 (위 함수는 통과하는데 이 루프만
 # 2자로 남으면 화면에서만 모순이 보인다 — 정확히 그 버그가 났었다).
 grep -q '"cto_ready": claude_active and codex_active and designer_active' "$REPO/dashboard/backend/main.py" \
   && ok "dashboard: /api/state items ready 가 designer 포함" \
   || bad "dashboard: /api/state items ready 가 designer 를 뺐다 (state↔ready 모순)"
+# docker 실행 판정은 **컨테이너 이름이 아니라 앱 포트**를 봐야 한다 (2026-08-02
+# 실사고). `<slug>-backend|frontend` 정확일치는 compose 의 replica 접미사 `-1` 을
+# 못 벗기고, 서비스명이 backend 가 아닌 모듈(auth-service = auth/frontend/mailhog)은
+# 컨테이너 3개가 도는데도 영원히 "정지" 로 보였다. 이름 매칭이 되살아나면 잡는다.
+grep -q 'f"{d.name}-backend"' "$REPO/dashboard/backend/main.py" \
+  && bad "dashboard: docker 판정이 컨테이너 이름 매칭으로 회귀 (서비스명 관례에 묶임)" \
+  || ok "dashboard: docker 판정 = 앱 포트 published (서비스명 무관)"
+# 판정 정본 하나: state() 와 dev_toggle 이 서로 다른 기준을 쓰면 한 화면 안에서
+# 모순이 보인다 (Docker 행은 정지인데 접속 URL 은 살아있음).
+[[ "$(grep -c 'for v in ("BACKEND_PORT", "FRONTEND_PORT")' "$REPO/dashboard/backend/main.py")" -ge 2 ]] \
+  && ok "dashboard: docker/dev 판정이 같은 앱 포트 기준" \
+  || bad "dashboard: docker/dev 판정 기준이 갈라짐"
 # 대시보드는 harness.cli 를 import 한다 — reload 감시에 harness/ 가 없으면 코어를
 # 고쳐도 화면만 낡는다 (2026-07-29 실측).
 grep -q "reload-dir '\$REPO/harness'" "$REPO/run.sh" \
@@ -2730,8 +3144,17 @@ echo '{"regressions":3}' > "$TMH/.harness-claude/regression/tmsm/last-check.json
 _tm 2 '- [ ] [review] seg' '- [✅] [review] seg' \
   && ok "tasksmd-gate: 회귀 3건 → 차단" || bad "tasksmd-gate: 회귀 있는데 통과"
 echo '{"regressions":0}' > "$TMH/.harness-claude/regression/tmsm/last-check.json"
+# 회귀 0 만으로는 부족하다 — reviewer 를 실제 dispatch 했다는 증거도 요구한다.
+# (rtsp-keypoint phase4: 리뷰를 안 돌리고 체크박스만 사후에 찍힌 경로. 회귀 판정만
+#  공유하고 호출-증거 판정은 TaskCompleted 게이트에만 있어서 뚫려 있었다.)
+mkdir -p "$TMH/.claude/logs/codereview"
+rm -f "$TMH/.claude/logs/codereview/tmsm.reviewer.invoked"
+_tm 2 '- [ ] [review] seg' '- [✅] [review] seg' \
+  && ok "tasksmd-gate: 회귀 0 이어도 reviewer 호출 없으면 차단" \
+  || bad "tasksmd-gate: reviewer 미dispatch 인데 [review] 닫힘 (체크박스 선점)"
+: > "$TMH/.claude/logs/codereview/tmsm.reviewer.invoked"
 _tm 0 '- [ ] [review] seg' '- [✅] [review] seg' \
-  && ok "tasksmd-gate: 회귀 0 → 통과" || bad "tasksmd-gate: 회귀 0 인데 차단"
+  && ok "tasksmd-gate: 회귀 0 + reviewer 호출 → 통과" || bad "tasksmd-gate: 정상 리뷰가 차단됨"
 mkdir -p "$TMH/.harness-claude/review-waivers/tmsm"; touch "$TMH/.harness-claude/review-waivers/tmsm/task-1.waiver"
 echo '{"regressions":9}' > "$TMH/.harness-claude/regression/tmsm/last-check.json"
 _tm 0 '- [ ] [review] seg' '- [✅] [review] seg' \
@@ -2776,11 +3199,18 @@ PY
 echo "== [runsh-surface] run.sh 서브커맨드 정본 대조 (RULES §15) =="
 # 2026-07-21: 에이전트가 버그 수정 중 시키지도 않은 `./run.sh mtx-env` 를 신설했다.
 # CLI 표면은 사용자 소유 — 늘리거나 줄이면 여기서 깨진다. 정본 = docs/RUNSH-COMMANDS.txt.
-_runsh_cmds() {
+_runsh_cmds_raw() {
   sed -n '/^case "${1:-}" in$/,/^esac$/p' "$REPO/run.sh" \
     | grep -oE '^    [^)]+\)' | sed 's/^    //; s/)$//' | tr '|' '\n' \
-    | sed 's/^ *//; s/ *$//' | grep -vE '^(\*|"")$' | sort -u
+    | sed 's/^ *//; s/ *$//' | grep -vE '^(\*|"")$'
 }
+_runsh_cmds() { _runsh_cmds_raw | sort -u; }
+# `sort -u` 가 중복 라벨을 삼켜 표면 대조로는 중복 분기가 안 보인다 — bash case 는
+# 첫 매치만 실행하므로 둘째부터는 도달불가 죽은 코드다 (2026-08-03 prune-ghosts 가
+# 그렇게 죽어 있었고, help 는 죽은 쪽 동작을 광고하고 있었다).
+surf_dups="$(_runsh_cmds_raw | sort | uniq -d | tr '\n' ' ')"
+[[ -z "$surf_dups" ]] && ok "run.sh dispatch 중복 라벨 없음" \
+  || bad "run.sh case 중복 라벨 — 뒤엣것은 도달불가 :: $surf_dups"
 surf_actual="$(_runsh_cmds)"
 surf_pinned="$(grep -v '^#' "$REPO/docs/RUNSH-COMMANDS.txt" | grep -v '^$' | sort -u)"
 if [[ "$surf_actual" == "$surf_pinned" ]]; then

@@ -106,7 +106,10 @@ codex 는 **사용자가 CEO 창에서 직접 명령할 때만** 실행한다. C
 
 허용 트랙:
 
-- `/codex-review <project>` — 완료된 빌드 산출물 코드리뷰
+- `/codex-review <project>` — 완료된 빌드의 **실사용 리스크** 리뷰. 작동·사양
+  준수는 CTO 팀이 이미 판정했으므로 다시 안 본다. 보는 축은 `security`·`scale`·
+  `data-growth`·`operations` — 사용자가 늘고 데이터가 쌓이고 입력이 악의적일 때
+  무엇이 무너지는가. 모든 finding 은 발화 조건(`trigger`)을 달고 온다.
 - `/codex-protocol-review` — harness-claude 운영 프로토콜/정합성 감사
 
 각 명령 실행이 곧 PENDING 마커를 기록하는 행위다 — 이 마커가 "이 리뷰를 실제로

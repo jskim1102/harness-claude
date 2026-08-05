@@ -60,8 +60,8 @@ phase/ckpt 분해는 하지 않는다 (CTO 몫). codex 호출 없음.
    plan 확정: modules/<name>/plan.md
    다음 — 새 터미널에서:
      ./run.sh add-cto <name>                     # 세션만 — 분해 자동 시작 X
-     ./run.sh attach cto-<name>
-   세션 안에서: /model · /effort 설정 → /start-project (분해 시작)
+     ./run.sh attach-cto <name>
+   세션 안에서: /model · /effort 설정 → 바로 작업 지시 (팀 자동 스폰 — /start-project 불필요)
    ```
 
 ## 유동 스킬 (사용자 요청 시)

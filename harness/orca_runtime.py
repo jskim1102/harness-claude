@@ -122,6 +122,50 @@ def _live(record: dict[str, Any]) -> bool:
     )
 
 
+# env seam: 훅·데몬은 별도 프로세스라 in-process 스텁이 안 닿는다. 가짜 Orca 로
+# 도는 테스트가 keeper 도 같이 가짜로 놓을 수 있어야 판정이 vacuous 해지지 않는다.
+KEEPER_DIR = os.environ.get("HARNESS_KEEPER_DIR") or os.path.expanduser(
+    "~/.harness-claude/keeper"
+)
+
+# 세션 키(logical_sessions 반환값) → keeper 소켓 이름.
+_KEEPER_SUFFIX = {"cto": "lead", "codex-cto": "codex", "designer-cto": "designer"}
+
+
+def keeper_sock(session_key: str) -> str:
+    """'cto-foo' → keeper/cto-foo-lead.sock 처럼 세션 키를 소켓 경로로 옮긴다."""
+    if session_key == "ceo":
+        name = "ceo"
+    else:
+        for prefix, suffix in _KEEPER_SUFFIX.items():
+            head = prefix + "-"
+            if session_key.startswith(head):
+                name = f"cto-{session_key[len(head):]}-{suffix}"
+                break
+        else:
+            return ""
+    return os.path.join(KEEPER_DIR, f"{name}.sock")
+
+
+def keeper_alive(session_key: str) -> bool:
+    """그 역할의 keeper 소켓이 있는가 = 에이전트 프로세스가 실재하는가.
+
+    **왜 Orca 레코드만으로는 부족한가 (2026-08-02 실사고).** Orca 런타임과 UI 가
+    갈라지면 이미 죽은 세션의 탭이 런타임 목록에 `connected=true` 로 계속 남는다
+    (`terminal close` 는 `tab_not_found` 로 거부, UI 엔 안 보임). 그 상태에서
+    대시보드는 죽은 CTO 를 "활성" 으로 읽고 **`복구` 버튼까지 띄웠다** — 정지하려던
+    CTO 를 되살리는 방향이다. keeper 소켓은 `stop-cto` 가 지우므로 그 유령과
+    실재를 가른다.
+
+    파일 존재만 본다(연결 시도 X). dtach 소켓에 붙었다 떼면 실 세션에 winch/redraw
+    부작용이 생길 수 있어서, 살아있는 것을 건드리지 않는 쪽을 택했다. keeper 가
+    비정상 종료해 파일만 남는 경우는 이 검사를 통과하지만, 그건 지금과 같은 수준일
+    뿐 더 나빠지지 않는다.
+    """
+    sock = keeper_sock(session_key)
+    return bool(sock) and os.path.exists(sock)
+
+
 def role_title(role: str) -> str | None:
     if role == "ceo":
         return "harness:ceo"
@@ -173,8 +217,20 @@ def resolve_role(role: str) -> dict[str, Any] | None:
     return role_record(title) if title else None
 
 
+def _session_key(role: str) -> str:
+    """resolve_role 이 받는 role 표기 → logical_sessions 키 (keeper 조회용)."""
+    if role == "ceo":
+        return "ceo"
+    for prefix in ("codex-cto:", "designer-cto:", "cto:"):
+        if role.startswith(prefix):
+            return prefix[:-1] + "-" + role[len(prefix):] if prefix != "cto:" \
+                else "cto-" + role[len("cto:"):]
+    return role
+
+
 def role_alive(role: str) -> bool:
-    return resolve_role(role) is not None
+    """Orca 레코드 ∧ keeper 실재. 유령 탭을 살아있다고 세지 않는다 (keeper_alive 참조)."""
+    return resolve_role(role) is not None and keeper_alive(_session_key(role))
 
 
 def role_handle(role: str) -> str | None:
@@ -237,7 +293,48 @@ def send_role(role: str, text: str) -> bool:
     return proc.returncode == 0
 
 
-def logical_sessions() -> set[str]:
+def orca_sessions() -> set[str]:
+    """Orca 레코드**만** 본 세션 키 (keeper 게이트 전). 유령 탐지용 원재료."""
+    return _scan_titles()
+
+
+def drift() -> dict[str, list[str]]:
+    """탭과 프로세스가 어긋난 것들 — 두 방향 다 낸다.
+
+    `ghost_tab`   Orca 엔 있는데 keeper 없음 = 죽은 세션의 탭 껍데기.
+                  대시보드가 이걸 "활성" 으로 읽어 죽은 CTO 에 복구 버튼을 띄웠다
+                  (2026-08-02). 지금은 판정에서 걸러지지만, 걸러진다고 사라지진
+                  않는다 — Orca 재시작 전까지 목록에 남는다.
+    `orphan_agent` keeper 는 있는데 Orca 탭 없음 = **화면 없이 도는 에이전트**.
+                  이쪽이 더 위험하다: 사용자 눈에 안 보이는데 파일을 쓰고 토큰을
+                  태운다. 붙을 화면이 없으니 정지도 대시보드로 안 된다.
+    """
+    tabs = orca_sessions()
+    keepers = set()
+    try:
+        for entry in os.listdir(KEEPER_DIR):
+            if not entry.endswith(".sock"):
+                continue
+            base = entry[: -len(".sock")]
+            if base == "ceo":
+                keepers.add("ceo")
+            elif base.startswith("cto-"):
+                stem = base[len("cto-"):]
+                for suffix, prefix in (("-lead", "cto-"), ("-codex", "codex-cto-"),
+                                       ("-designer", "designer-cto-")):
+                    if stem.endswith(suffix):
+                        keepers.add(prefix + stem[: -len(suffix)])
+                        break
+    except OSError:
+        pass
+    return {
+        "ghost_tab": sorted(tabs - keepers),
+        "orphan_agent": sorted(keepers - tabs),
+    }
+
+
+def _scan_titles() -> set[str]:
+    """Orca 터미널 목록 → 세션 키. keeper 게이트는 여기서 걸지 않는다."""
     alive: set[str] = set()
     seen_tabs: set[str] = set()
     for record in terminals():
@@ -261,3 +358,12 @@ def logical_sessions() -> set[str]:
         elif match:
             alive.add(f"codex-cto-{match.group('name')}")
     return alive
+
+
+def logical_sessions() -> set[str]:
+    """살아있는 하네스 세션 = **Orca 레코드 ∧ keeper 실재**.
+
+    유령 탭(런타임엔 남아있고 프로세스는 죽은 것)을 "살아있음" 으로 세면 대시보드가
+    죽은 CTO 에 복구·정지 버튼을 띄운다 (2026-08-02 실사고).
+    """
+    return {key for key in _scan_titles() if keeper_alive(key)}
