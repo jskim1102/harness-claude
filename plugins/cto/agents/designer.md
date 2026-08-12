@@ -10,7 +10,7 @@ description: INACTIVE LEGACY — design is owned by the independent designer-cto
 >
 > Design is owned by the **independent designer-cto session** — the active
 > contract lives at `plugins/designer-cto/role.md` (phase2 design chain,
-> Claude Design 미세조정 루프, paired-inbox protocol included there). Reach it
+> 브라우저 검수 루프 + Design-Max 모드, paired-inbox protocol included there). Reach it
 > with `harness send --to designer-cto:<name>`.
 >
 > The full legacy teammate body was removed 2026-07-29 by the designer split

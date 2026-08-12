@@ -1092,6 +1092,47 @@ ss_ctx(){ echo "{\"source\":\"$1\",\"session_id\":\"t\"}" \
   && ok "스폰이력 없는 resume → 알림 없음" || bad "무이력 resume 에 알림 오주입"
 rm -rf "$SS_TMP"
 
+echo "== [6d3] planner_dispatch_gate (분해 후 planner 구동 금지) =="
+# 사용자 하드룰 (2026-08-11): planner 는 (1) 최초 분해(specs/tasks.md 생성 전)와
+# (2) 사용자 명시 지시(HARNESS_USER_OK=planner 토큰) 외 절대 구동 금지.
+# 스폰(Agent)과 재디스패치(SendMessage) 두 경로 모두 결정론 차단 — RULES §17 격상.
+PDG="$REPO/hooks/team/planner_dispatch_gate.py"
+PDG_PROJ="$REPO/claude-project/zz-smoke-pdg"
+mkdir -p "$PDG_PROJ"
+pdg(){ # pdg <expect-exit> <json> <desc>
+  local out; out=$(echo "$2" | HARNESS_ROLE= python3 $PDG 2>/dev/null); local got=$?
+  [[ "$got" == "$1" ]] && ok "$3" || bad "$3 (exit $got != $1)"
+}
+PDG_CWD="\"cwd\":\"$PDG_PROJ\""
+pdg 0 "{\"tool_name\":\"Agent\",\"tool_input\":{\"subagent_type\":\"planner\",\"prompt\":\"분해해\"},$PDG_CWD}" \
+  "tasks.md 부재(최초 분해) → Agent(planner) 통과"
+mkdir -p "$PDG_PROJ/specs"; echo "- [ ] phase1" > "$PDG_PROJ/specs/tasks.md"
+pdg 2 "{\"tool_name\":\"Agent\",\"tool_input\":{\"subagent_type\":\"planner\",\"prompt\":\"재분해해\"},$PDG_CWD}" \
+  "tasks.md 존재 → Agent(planner) 차단"
+pdg 0 "{\"tool_name\":\"Agent\",\"tool_input\":{\"subagent_type\":\"planner\",\"prompt\":\"사용자 지시 HARNESS_USER_OK=planner 재분해\"},$PDG_CWD}" \
+  "사용자 토큰 → Agent(planner) 통과"
+pdg 2 "{\"tool_name\":\"SendMessage\",\"tool_input\":{\"to\":\"planner\",\"message\":\"판정해줘\"},$PDG_CWD}" \
+  "tasks.md 존재 → SendMessage(planner) 차단"
+pdg 2 "{\"tool_name\":\"SendMessage\",\"tool_input\":{\"to\":\"Planner\",\"message\":\"판정해줘\"},$PDG_CWD}" \
+  "대소문자 무시 차단"
+pdg 2 "{\"tool_name\":\"SendMessage\",\"tool_input\":{\"to\":\"planner@session-ab12\",\"message\":\"판정해줘\"},$PDG_CWD}" \
+  "agentId 형식(planner@team) 차단"
+pdg 0 "{\"tool_name\":\"SendMessage\",\"tool_input\":{\"to\":\"planner\",\"message\":\"HARNESS_USER_OK=planner 사용자 지시 재분해\"},$PDG_CWD}" \
+  "사용자 토큰 → SendMessage(planner) 통과"
+pdg 0 "{\"tool_name\":\"Agent\",\"tool_input\":{\"subagent_type\":\"reviewer\",\"prompt\":\"리뷰해\"},$PDG_CWD}" \
+  "비-planner(reviewer) 무관 통과"
+pdg 0 "{\"tool_name\":\"SendMessage\",\"tool_input\":{\"to\":\"team-lead\",\"message\":\"보고\"},$PDG_CWD}" \
+  "비-planner 수신자 무관 통과"
+pdg 0 "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"ls\"},$PDG_CWD}" \
+  "비대상 tool 무시"
+pdg 0 "{\"tool_name\":\"Agent\",\"tool_input\":{\"subagent_type\":\"planner\",\"prompt\":\"x\"},\"cwd\":\"/tmp/unknown-proj\"}" \
+  "프로젝트 미식별 → fail-open 통과"
+check "planner_gate 깨진 JSON fail-open" 0 bash -c "echo bad | python3 $PDG"
+rm -rf "$PDG_PROJ"
+PDG_WIRED=$(grep -c "planner_dispatch_gate.py" "$REPO/run.sh" || true)
+[[ "$PDG_WIRED" -ge 2 ]] \
+  && ok "planner_gate: run.sh Agent+SendMessage 이중 배선됨" || bad "planner_gate: run.sh 배선 부족 ($PDG_WIRED/2)"
+
 echo "== [6e] fail-open 관측성 (가드가 죽어도 흔적은 남는다) =="
 # 2026-07-23 감사: 훅들이 내부 오류 시 stderr 한 줄 없이 통과시켜서, 권한우회
 # 모드의 유일한 브레이크가 사라져도 아무도 몰랐다. 종료코드 의미는 그대로(0),
@@ -2950,6 +2991,27 @@ if grep -A2 'terminal create \\' "$REPO/run.sh" | grep -q '^\s*|| return 1$'; th
 else
   ok "★terminal create 실패가 bare return 1 이 아님"
 fi
+
+echo "== [gitignore-seed] 빌드 .gitignore 기본항목 자동 시딩 =="
+# 2026-08-12 사용자 지시: 새 프로젝트/모듈은 dev.sh 런타임 파일(.dev.pids/.dev-logs)
+# + 하네스 세션 설정(.claude)을 자동으로 gitignore 한다. add-cto 가 매번 호출(멱등).
+SBG_TMP=$(mktemp -d)
+source <(sed -n "/^_seed_build_gitignore()/,/^}/p" "$REPO/run.sh")
+type _seed_build_gitignore >/dev/null 2>&1 \
+  && ok "seed 함수 추출·정의됨" || bad "seed 함수 run.sh 에서 추출 실패"
+_seed_build_gitignore "$SBG_TMP"
+for e in .dev.pids .dev-logs/ .claude/; do
+  grep -qxF "$e" "$SBG_TMP/.gitignore" && ok "신규 빌드 시딩: $e" || bad "시딩 누락: $e"
+done
+SBG_N1=$(wc -l < "$SBG_TMP/.gitignore"); _seed_build_gitignore "$SBG_TMP"
+[[ "$(wc -l < "$SBG_TMP/.gitignore")" == "$SBG_N1" ]] \
+  && ok "멱등 — 재호출 시 중복 추가 없음" || bad "멱등 위반 — 재호출이 중복 추가"
+printf '.dev-logs\n.claude\n' > "$SBG_TMP/.gitignore"; _seed_build_gitignore "$SBG_TMP"
+grep -qxF ".dev-logs/" "$SBG_TMP/.gitignore" \
+  && bad "슬래시 변형 중복 추가됨" || ok "기존 슬래시 없는 항목 존중 (중복 없음)"
+rm -rf "$SBG_TMP"
+grep -q '_seed_build_gitignore "\$dir"' "$REPO/run.sh" \
+  && ok "add-cto 경로에 배선됨" || bad "add-cto 배선 누락"
 
 echo "== [add-cto-wire] add-cto mediamtx 포트 자동배선 (RULES §4/§4.1) =="
 # 2026-07-23: 카메라 프로젝트의 MEDIAMTX_*_PORT 4줄을 add-cto 가 backend/frontend

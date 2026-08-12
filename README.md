@@ -59,9 +59,10 @@
 
 # 팀 spawn: add-cto 가 시작 마커를 자동 시딩 — attach 후 /model·/effort 설정하고
 # 바로 작업 지시하면 그 턴에 Claude 2명(planner·reviewer) 자동 spawn (타이핑 불필요)
-/decompose [메모]                    # 분해 시작: planner 가 plan.md → spec.md+tasks.md → 트리 표시 후 대기
+/decompose                           # 분해 시작: planner 가 plan.md → spec.md+tasks.md → 트리 표시 후 대기
                                      #   이후 "phaseN.ckptM~..." segment 지정 = 분해 승인 (게이트1)
-/decompose --design [메모]           # 디자인 강화 분해 (내용 논의중 — 현재는 일반과 동일 + specs/design-mode 마커)
+/decompose --design                  # design-max 분해: phase2 를 사용자↔designer-cto 직접 대화로
+                                     #   (specs/design-mode 마커 + mobbin refs·brief·AI assets → Claude Design)
 /start-project                       # (수동 재신호용) 세션 중간 팀 재구성 때만 — 평소엔 안 씀
 
 ## 종료

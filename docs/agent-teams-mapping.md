@@ -65,7 +65,7 @@ Codex developer (같은 Orca Project의 `harness:cto:<name>:codex` tab, producti
 | 활동 | active teammate | trigger (entry) | trigger (exit) |
 |---|---|---|---|
 | **Plan** | planner | 사용자 새 요청 또는 plan 수정 요청 | spec.md / tasks.md 완성 + 사용자 컨펌 |
-| **Design** | 독립 designer-cto 세션 (inbox 발주; planner 휴면) | Plan 완료 또는 UI 수정 요청 | DESIGN.md + 시안 + Claude Design 사용자 미세조정 + 구현 계약 |
+| **Design** | 독립 designer-cto 세션 (inbox 발주; planner 휴면 — design-max 는 사용자 직접 대화) | Plan 완료 또는 UI 수정 요청 | DESIGN.md + 시안 + 사용자 브라우저 검수 (design-max 시 Claude Design) + 구현 계약 |
 | **Build** | 외부 Codex developer + Claude reviewer(on-demand) | 승인 디자인/다음 ckpt 시작 | ckpt 완료 + reviewer PASS + 사용자 시각검증 |
 
 핵심: Claude Agent Team은 plan/design/review를 유지하고, 별도 Codex가 모든

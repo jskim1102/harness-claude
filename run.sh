@@ -484,6 +484,20 @@ _orca_retire_stale_role_terminals() {
 # Per-role .claude/settings.json + slash-command symlinks + (for CTO) agent
 # definitions + team rules.
 # role is 'ceo' or 'cto' (template lookup under plugins/$role/).
+# 빌드 저장소 .gitignore 기본항목 시딩 (2026-08-12 사용자 지시). 런타임 파일이
+# 커밋에 섞이는 클래스를 원천 차단한다: dev.sh 산출(.dev.pids/.dev-logs) +
+# 하네스 세션 설정(.claude — doctor[9] 가 매 빌드마다 지적하던 항목).
+# 멱등: 이미 있으면(슬래시 유무 무관) 추가하지 않는다. add-cto 마다 호출.
+_seed_build_gitignore() {
+    local dir="$1" e
+    for e in .dev.pids .dev-logs/ .claude/; do
+        if ! grep -qxF "$e" "$dir/.gitignore" 2>/dev/null \
+           && ! grep -qxF "${e%/}" "$dir/.gitignore" 2>/dev/null; then
+            echo "$e" >> "$dir/.gitignore"
+        fi
+    done
+}
+
 write_role_settings() {
     local target_dir="$1"
     local role="$2"
@@ -682,6 +696,10 @@ write_role_settings() {
           {
             "type": "command",
             "command": "python3 $REPO/hooks/team/sendmessage_recipient_gate.py"
+          },
+          {
+            "type": "command",
+            "command": "python3 $REPO/hooks/team/planner_dispatch_gate.py"
           }
         ]
       },
@@ -695,6 +713,10 @@ write_role_settings() {
           {
             "type": "command",
             "command": "python3 $REPO/hooks/team/one_teammate_per_role_gate.py"
+          },
+          {
+            "type": "command",
+            "command": "python3 $REPO/hooks/team/planner_dispatch_gate.py"
           }
         ]
       },
@@ -1176,6 +1198,7 @@ cmd_add_cto() {
             || { echo "error: git 저장소 초기화 실패 ($dir)" >&2; return 1; }
         echo "git: 빈 저장소 초기화 ($dir) — 커밋 없음 (최초 add-cto 1회)"
     fi
+    _seed_build_gitignore "$dir"
 
     local orca_project_id
     orca_project_id=$(_orca_register_project "$dir") || return 1
@@ -1789,6 +1812,7 @@ cmd_doctor() {
     local f missing=0
     for f in hooks/cto_statusline.py hooks/session_start.py hooks/git_guard.py hooks/team/skill_announce.py \
              hooks/inbox_isolation_guard.py hooks/inbox_isolation_clear.py \
+             hooks/team/planner_dispatch_gate.py \
              plugins/_shared/RULES.md plugins/_shared/PROCESS.md plugins/_shared/CODE_QUALITY.md \
              plugins/ceo/commands/build-project.md plugins/ceo/commands/build-module.md \
              plugins/cto/commands/start-project.md \
@@ -2144,6 +2168,12 @@ cmd_dashboard() {
                 DASH_TOKEN=$(grep -m1 -E '^DASH_TOKEN=' "$REPO/.env" | cut -d= -f2-)
             fi
             export DASH_TOKEN
+            # 접속 링크 호스트도 같은 정본(.env)에서 — 미설정이면 프론트가 브라우저
+            # hostname 폴백이라 빈 값도 안전하다.
+            if [[ -z "${DASH_ACCESS_HOST:-}" && -f "$REPO/.env" ]]; then
+                DASH_ACCESS_HOST=$(grep -m1 -E '^DASH_ACCESS_HOST=' "$REPO/.env" | cut -d= -f2-)
+            fi
+            export DASH_ACCESS_HOST
             mkdir -p "$d/.dash-logs"
             # --reload-dir 로 harness/ 도 감시한다: 대시보드는 harness.cli 를
             # import 해 쓰는데 기본 감시범위(cwd=dashboard/backend)로는 harness/

@@ -38,9 +38,9 @@ plan.md 의 3축 선언을 그대로 따른다:
 | 3 구간지정 | 사용자 | `phaseN.ckptN~phaseM.ckptM` 지정 (= 분해 승인) | 🤚 |
 | 3 phase1 환경설정 | Codex developer | 포트·백엔드 venv·프론트 scaffold+npm·Docker·dev.sh 준비 (실행 X) | 🤖 |
 | 3 게이트1 | 사용자 | 환경설정 확인 | 🤚 |
-| 3 phase2 프론트 | designer-cto → Codex developer | CTO 가 inbox 로 designer 발주 → 시안 → 사용자가 Claude Design 캔버스에서 미세조정 → 계약 확정 → Codex가 실제 프론트 코드 구현 → dev 서버 기동 | 🤖 |
-| 3 phase2 (design-max) | 사용자 ↔ designer-cto → Codex developer | `specs/design-mode` 마커 시: CTO 는 "phase2 시작하세요" 안내 후 비관여 → 사용자↔designer 직접 대화(mobbin refs·brief·AI assets) → 사용자가 Claude Design 완성 후 핸드오프 번들 회수 → designer 계약 정합 → 사용자가 CTO 에 산출물 통보 → CTO 가 Codex 발주 | 🤚 대화 |
-| 3 게이트2 | 사용자 ↔ designer-cto/Codex | 라이브 디자인 루프 (Claude Design 캔버스 + 브라우저) → 승인 | 🤚 대화 반복 |
+| 3 phase2 프론트 | designer-cto → Codex developer | CTO 가 inbox 로 designer 발주 → 시안 → 사용자가 브라우저(FRONTEND_PORT 목업)로 검수·수정 지시 → 계약 확정 → Codex가 실제 프론트 코드 구현 → dev 서버 기동 | 🤖 |
+| 3 phase2 (design-max) | 사용자 ↔ designer-cto → Codex developer | `specs/design-mode` 마커 시: CTO 는 "phase2 시작하세요" 안내 후 비관여 → 사용자↔designer 직접 대화(mobbin refs=구조 · brief=UI구조 · system/=비주얼 정본 · assets) → designer 가 system/ 을 DesignSync 로 push → 사용자가 Claude Design 완성 후 핸드오프 번들 회수 → designer 계약 정합 → 사용자가 CTO 에 산출물 통보 → CTO 가 Codex 발주 | 🤚 대화 |
+| 3 게이트2 | 사용자 ↔ designer-cto/Codex | 라이브 디자인 루프 (브라우저) → 승인 | 🤚 대화 반복 |
 | 3 phase3+ 빌드 | Codex developer | 프론트/백엔드 코드 구현 (`compose up` 은 `"docker화 해"` 시만, RULES §13) | 🤖 |
 | 3 자체 검증 | CTO → reviewer | **필수** API·DB·코드 검증 → 수정 → 보고 (사용자가 segment 지정 시 "검토 필요없음" 명시한 경우만 생략) | ⚙️ |
 | 3 게이트3 | 사용자 | 브라우저 실사용 테스트 → PASS=다음 segment | 🤚 |
@@ -203,7 +203,7 @@ plan.md 읽고 전체 phase/ckpt 트리를 만든다 → `<빌드dir>/specs/spec
    mock/local-state 를 phase2 에 내장한다(§2 분해공식 참조). 사용자가 빈 화면 보고서야 패치하는 사후대응
    금지 — by-design 으로 phase2 에 들어가야 한다.
    **라이브 디자인 루프**: 사용자가 브라우저로 보며 수정사항 말함 →
-   designer-cto 가 시안/계약 수정(사용자의 Claude Design 캔버스 수정 반영 포함) → Codex가 production 코드 반영 → 사용자는 새로고침으로 확인 → 반복 → 승인.
+   designer-cto 가 시안/계약 수정 → Codex가 production 코드 반영 → 사용자는 새로고침으로 확인 → 반복 → 승인.
    **compose 로 띄우지 말 것** (수정마다 재기동 비효율 — dev 서버만).
 5. **segment 완료 시 reviewer 호출 필수** — API 테스트(curl·pytest)·DB 무결성(SQL)·
    코드 평가. 사용자의 accepted goal과 현재 working behavior가 리뷰 baseline이다.
@@ -222,15 +222,16 @@ plan.md 읽고 전체 phase/ckpt 트리를 만든다 → `<빌드dir>/specs/spec
    (`CODE_QUALITY.md`)은 2차 참고자료다. 모든 finding 은 근거 태그를 단다 —
    `[인수기준]` `[사양F<n>]` `[회귀]` `[범위밖]`.
 
-   **5.2 계획 정합성 판정 (빌드 진행 중 필수 경유).** `[범위밖]` 이거나 계획과
-   충돌하는 발견은 reviewer 가 **planner 에게 직접** 물어 3택 판정을 받는다
+   **5.2 계획 정합성 판정 (빌드 진행 중 필수 경유 — 판정자 = CTO).** `[범위밖]`
+   이거나 계획과 충돌하는 발견은 reviewer 가 **CTO 에게** 물어 3택 판정을 받는다
    (계획누락 / 의도된선택 / 새요구사항). **CTO 는 판정을 거치지 않은 범위 밖
    발견을 `[dev]` 수정 task 로 만들지 않는다.**
-   **적용 범위 = `tasks.md` 에 미완 ckpt(`[ ]`)가 남아 있는 동안뿐이다 (RULES §17).**
-   전 ckpt 가 닫힌 뒤(유지보수 모드)의 발견은 planner 를 깨우지 않고 CTO 가 직접
-   판단하거나 사용자에게 올린다. 판정별 처리:
-   - 계획누락 → planner 가 spec/tasks 갱신 → `[dev]` 발주
-   - 의도된선택 → 기각 + `decisions.md` 기록 (같은 지적 재발 방지)
+   (2026-08-11 변경: 구 판정자였던 planner 직통 경로 폐지 — planner 는 최초
+   분해와 사용자 명시 지시 외 구동 금지, RULES §17 + planner_dispatch_gate 훅.)
+   판정별 처리:
+   - 계획누락 → CTO 가 spec/tasks 를 직접 갱신 → `[dev]` 발주. 갱신 규모가
+     재분해 수준이면 사용자에게 올린다 (planner 가동은 사용자 지시 필요)
+   - 의도된선택 → 기각 + CTO 가 `decisions.md` 기록 (같은 지적 재발 방지)
    - 새요구사항 → 사용자 판단으로 surface
 
    **5.3 승인 동작 보호 규칙 (하드).** **사용자가 승인해서 현재 동작하는 behavior 는
@@ -331,7 +332,12 @@ README.md 는 작성하지 않는다 (RULES §1 — 사용자 전용).
 ### phase2 프론트 디자인 (designer-cto → Codex developer)
 - **design-max 분기** (`specs/design-mode` 마커): CTO 발주·아래 고정 스킬 체인 대신
   designer role.md "Design-Max 모드" 절차를 따른다 — 사용자 직접 대화, 산출물 =
-  `specs/design/refs/ + brief.md + assets/ + handoff/`. CTO 는 사용자 통보 후에만
+  `specs/design/refs/`(구조 refs) + `refs-visual/`(톤 refs) + `brief.md`(UI 구조
+  전용) + `sample/`(구조 스케치 — 전 화면 무채색 와이어프레임, 사용자 검수 완료) +
+  `system/`(비주얼 정본 — 정본 규격 디자인시스템, DesignSync push 원본) +
+  `assets/`(필요 시) + `handoff/`(사용자가 놓는 수신함). acceptance 게이트는
+  designer 가 스스로 닫을 수 있는 산출물만 검사한다 — `handoff/`·`assets/` 는
+  존재 자체를 게이트로 걸지 않는다. CTO 는 사용자 통보 후에만
   Codex 발주. 게이트2(dev 서버 3줄 URL 검수)는 동일하게 적용.
 - project 고정 3: `design-consultation`(open-design 디자인시스템 152개에서
   선택/참조) → `design-shotgun`(시안 보드→사용자 선택) → `design-html`(선택된

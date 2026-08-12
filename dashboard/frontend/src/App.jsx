@@ -816,7 +816,9 @@ function PortRegistry({ columns, items, onPick, onShutdownAll, onCtoAll, shuttin
                     return (
                       <td key={c.label}>
                         {cell
-                          ? <span style={{ color: cell.up ? '#cdd3e3' : '#9aa3b8' }}>{cell.port} {cell.mode === 'docker' ? '🐳' : cell.mode === 'dev' ? '💻' : cell.mode === 'mock' ? <span title="목업 프리뷰 (§4.1 http.server — dev 아님)">🎨</span> : cell.mode === 'shared' ? '🔗' : <span style={{ color: '#8891aa' }}>○</span>}</span>
+                          ? <span style={{ color: cell.up ? '#cdd3e3' : '#9aa3b8' }}>{cell.port} {cell.mode === 'docker' ? '🐳' : cell.mode === 'dev' ? '💻' : cell.mode === 'mock' ? <span title="목업 프리뷰 (§4.1 http.server — dev 아님)">🎨</span> : cell.mode === 'shared' ? '🔗' : <span style={{ color: '#8891aa' }}>○</span>}
+                              {cell.owner && <span style={{ color: '#fbbf24', marginLeft: 4 }}
+                                title={`이 포트는 '${cell.owner}' compose 프로젝트가 잡고 있다 — 이 프로젝트의 docker 종료로는 안 내려간다`}>⚠</span>}</span>
                           : <span className="pr-dim">—</span>}
                       </td>
                     )
@@ -1688,7 +1690,7 @@ const schemaCss = `
 `
 
 export default function App() {
-  const [data, setData] = useState({ columns: [], items: [], links: [], harness_dirty: 0 })
+  const [data, setData] = useState({ columns: [], items: [], links: [], access_host: '', harness_dirty: 0 })
   const [err, setErr] = useState('')
   const [updated, setUpdated] = useState('')
   const [sel, setSel] = useState(null)      // 열린 모달 항목
@@ -1711,7 +1713,7 @@ export default function App() {
         if (!r.ok) throw new Error('HTTP ' + r.status)
         const d = await r.json()
         if (!alive) return
-        setData({ columns: d.columns || [], items: d.items || [], links: d.links || [], harness_dirty: d.harness_dirty || 0 })
+        setData({ columns: d.columns || [], items: d.items || [], links: d.links || [], access_host: d.access_host || '', harness_dirty: d.harness_dirty || 0 })
         setErr('')
         setUpdated(new Date().toLocaleTimeString())
       } catch (e) {
@@ -1783,7 +1785,7 @@ export default function App() {
   const refresh = async () => {
     try {
       const r = await apiGet('/api/state'); const d = await r.json()
-      setData({ columns: d.columns || [], items: d.items || [], links: d.links || [], harness_dirty: d.harness_dirty || 0 })
+      setData({ columns: d.columns || [], items: d.items || [], links: d.links || [], access_host: d.access_host || '', harness_dirty: d.harness_dirty || 0 })
       setSel((s) => (s ? (d.items || []).find((it) => it.name === s.name && it.type === s.type) || s : s))
     } catch { /* keep last */ }
   }
@@ -1921,7 +1923,9 @@ export default function App() {
 
   const selUrl = sel && safeUrl(sel.git_url)
   const selFePort = sel && sel.cells && sel.cells.FRONTEND_PORT && sel.cells.FRONTEND_PORT.port
-  const selAccess = selFePort ? `http://${window.location.hostname}:${selFePort}` : null
+  // 접속 호스트 = 백엔드 DASH_ACCESS_HOST(.env). 미설정이면 브라우저 hostname 폴백.
+  const accessHost = data.access_host || window.location.hostname
+  const selAccess = selFePort ? `http://${accessHost}:${selFePort}` : null
   const selAccessUp = sel && sel.cells && sel.cells.FRONTEND_PORT && sel.cells.FRONTEND_PORT.up
 
 

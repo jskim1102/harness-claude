@@ -190,6 +190,25 @@ keep the `## Unknowns` entry until the user weighs in. Full pattern,
 why-it-matters, and the exact lead-side wording are in
 `references/downgrade-protocol.md`.
 
+### 9. 부재 주장은 패턴을 먼저 의심한다 (negative claim)
+
+`"X 는 N종뿐"` / `"그런 코드는 없다"` / `"그 엔드포인트는 미구현"` 처럼
+**없음을 주장**하는 것은 있음을 주장하는 것보다 증명 비용이 높다. 검색이
+0건인 이유가 "정말 없어서" 인지 "패턴이 못 잡아서" 인지 구분되지 않기 때문.
+이걸 스펙 불일치나 unknown 으로 올리기 전에 셋을 확인한다:
+
+1. **패턴이 대상을 포함할 수 있는 형태인가** — 이미 아는 이름만 나열한
+   `grep -E 'foo|bar|baz'` 는 모르는 넷째를 구조적으로 못 찾는다. 정의 지점
+   자체를 잡는 패턴(대입·선언·데코레이터)으로 바꿔라.
+2. **호출 형태 변형을 덮는가** — 키워드 인자 vs 위치 인자, 상수 vs 리터럴,
+   별칭 import, 문자열 분할. 한 형태만 매칭하면 나머지는 안 보인다.
+3. **정의부가 한 곳에 모이는 타입/enum/상수가 있는가** — 있으면 그게 정본이다.
+   호출부 grep 이 아니라 정의부를 세라.
+
+2026-08-05 실사고: designer 가 업로드 이슈 kind 를 "코드에 5종뿐" 이라 보고
+(근거 = 아는 이름으로 짠 grep + 키워드 인자만 매칭). 실제 7종. planner 실측 →
+CTO 릴레이로 3자가 움직였고, 위 체크가 있었으면 발신자 선에서 끝났다.
+
 ## Files in this skill
 
 - `SKILL.md` — this overview (always loaded when skill triggers).

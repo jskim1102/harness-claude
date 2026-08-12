@@ -25,6 +25,7 @@
 | gpt-image-1 이미지 생성 동작 | 키 `~/.harness-claude/openai.env`(600), 저품질 1024px 실호출 성공, ≈$0.011/장 |
 | Claude Design 디자인시스템 입력 = 전부 optional | 생성 다이얼로그: GitHub/로컬폴더/.fig/이미지/폰트·로고/노트. 이미지 1장으로도 풀세트 생성 (영상 실증) |
 | Claude Design → 코드 회수 경로 존재 | Share → "Hand off to Claude Code": 구현 프롬프트 + `_ds/<system>/tokens/*.css`(fonts·motion·radius·spacing·typography) + assets 파일 번들 |
+| designer 세션에서 DesignSync 코드 push 동작 (2026-08-05 검증 완료) | list_projects→create_project→finalize_plan→write_files(localPath)→get_project/list_files 전 체인 통과, 인증 프롬프트 없음. CEO 재확인: projectId `7ce4e5e8…`, type=PROJECT_TYPE_DESIGN_SYSTEM, 파일 7건. **함정 2**: ① `finalize_plan` 은 `deletes` 필수 — 없어도 `[]` (누락 시 `finalize_plan requires: deletes.`) ② `write_files` 만으로는 UI 드롭다운 미노출 — `_ds_manifest.json` 은 `/design-sync` 경로의 앱 self-check 이 컴파일하므로 생 API push 엔 없다. `register_assets` 로 카드 명시 등록 필요 (CEO 확인: 프로젝트 파일 7건에 매니페스트 부재) |
 
 참고 영상: youtube T96O8dTzi2Q (브리프 md → 노시스템 생성=generic → 레퍼런스
 이미지로 디자인시스템 생성 → attach 후 재생성=품질 급상승 → Claude Code 핸드오프).
@@ -43,10 +44,35 @@ phase2 진입
       A) designer 가 mobbin MCP 검색 → 스크린샷 후보 제시 → 사용자 pick
       B) 사용자가 mobbin URL 제시 → designer 가 URL 에서 앱이름 추출 → MCP 검색
          역매칭 → 스크린샷 "이 화면 맞아?" 컨펌
+      → 제안 양식 고정: spec/tasks 의 phase2 화면 목록을 그룹 제목으로, 화면마다
+        후보 2~3개를 `앱이름 — <화면>-<앱>[-<변형>].webp` 로 나열 (전 화면 커버).
+        파일명이 계약 — brief.md 매핑이 이 이름을 참조한다.
+      → **레퍼런스 = 구조 참고 전용**: 레이아웃·컴포넌트 배치·인터랙션 패턴·
+        정보 위계만 가져오고 색·폰트·로고·톤은 가져오지 않는다. 비주얼은
+        brief.md 가 아니라 **디자인시스템 산출물**이 정본 (아래 3번).
       → 확정 즉시 curl 로 이미지 파일 저장 (서명 URL 만료 대비)
+      → **게이트**: 사용자 pick + refs/ 저장이 끝나야 b(초안 제작)로 간다.
+        후보 제시와 brief.md 작성을 한 턴에 잇지 않는다 (미확정 후보로 쓴 구조
+        계약은 pick 이 바뀌면 통째로 어긋난다).
    b. designer 초안 제작 (아래 산출물 계약)
+   c. **구조 스케치 검수 루프** — brief.md 를 전 화면 무채색 와이어프레임
+      (`specs/design/sample/`, 코드 생성 + 부분 재렌더)으로 렌더 → 사용자가 화면
+      단위로 수정 지시 → 코드 반영 → 해당 화면만 재생성 → 확정분을 brief.md 에
+      역반영. 이 루프 완료 전에는 3단계(Claude Design)로 넘기지 않는다.
+      근거: 2026-08-05 deeplabel 에서 이 단계가 spec 레벨 계약 균열 3건
+      (프로젝트>데이터셋 2계층·클래스 선등록·OAuth 4사)을 코드 작성 전에 노출.
 3. 사용자: Claude Design 에서 완성 (하네스 밖, 사용자 작업)
-   a. refs/ + assets/ 이미지로 디자인시스템 생성 (프로젝트명 = 빌드명)
+   a. 디자인시스템 생성(프로젝트명 = 빌드명) = **비주얼 정본**. brief.md 는
+      UI 구조 전용이라 색·폰트는 여기서 정해진다. 두 경로: 사용자가 Claude
+      Design 에서 직접 만들거나, designer 가 `specs/design/system/`(tokens.css +
+      `@dsCard` 프리뷰 HTML)를 DesignSync 로 push (후자 검증 중, 실패 시 전자로
+      폴백). **refs/ 는 입력하지 않는다** — Claude Design 이 이미지에서 팔레트·
+      폰트를 뽑으므로 참고 앱 비주얼이 그대로 시스템이 된다.
+      **디자인시스템 라이브러리 = `$HARNESS_ROOT/design_system/`** — 제작 전에
+      먼저 열어보고 기존 시스템(`DESIGN.md`·`theme.json`·`styles.css`)을 참고·
+      재사용한다. 확정된 시스템이 빌드별로 쌓인다. 팔레트 규칙은 하드코딩하지
+      않고 라이브러리 실물이 정본이다 (2026-08-06: 구 "무채색 chrome 기본" 폐기 —
+      첫 실사용에서 뒤집혔다). 컴포넌트 페이지는 토큰 견본이지 화면 목업이 아니다.
    b. brief.md 첨부해 implement + 디자인시스템 attach
    c. 캔버스/Tweaks 로 미세조정
 4. 사용자: Share → Hand off to Claude Code 번들(export) 확보 →
@@ -67,19 +93,37 @@ lead 는 inbox 본문 자동실행 금지(RULES §6) 그대로 — 사용자 발
 ```
 specs/design/
 ├── refs/       ① mobbin 레퍼런스 이미지 팩 (검색→curl 저장, webp/png)
+├── refs-visual/ ①' 톤 refs — 제품 전체 톤 (다크1+라이트1, `tone-{dark,light}-*.webp`)
+│               구조 인용 금지. 기본 테마도 이때 확정
+├── sample/     ②' 구조 스케치 — 전 화면 무채색 와이어프레임 webp + _gen.py/build.sh
+│               (svg·png 중간물은 삭제, `NN-슬러그.webp`, 사용자 화면단위 검수)
+├── system/     ②'' 비주얼 정본 — **정본 규격**: theme.json · styles.css · readme.md
+│               · thumbnail.html · theme.html · foundations/ · components/
+│               (내장 프리셋 실측 구조. hex·폰트·px 하드코딩 금지, 전부 var(--*),
+│                theme.json↔styles.css↔readme 3자 동기, 다크는 [data-theme=dark] additive)
 ├── brief.md    ② 상세 브리프 — 페이지 구조·컴포넌트·인터랙션·수용기준
 │               + 레퍼런스 매핑 ("로그인 폼 구조 = refs/ig-login.png 우측" 식)
 │               + 생성자산 매핑 ("히어로 이미지 = assets/hero-people.png")
-├── assets/     ③ AI 생성 콘텐츠 이미지 (gpt-image-1) — 레퍼런스에서 재사용
-│               불가한 사진·일러스트 대체물. 키 없으면 스킵(①②만으로 진행)
-└── handoff/    (3~4단계 후) Claude Design 핸드오프 번들 — tokens css + html
+├── assets/     ③ 제품 자체의 콘텐츠 이미지가 필요한 빌드만 (랜딩 히어로·빈 상태
+│               일러스트 등, gpt-image-1). **데이터 도구(뷰어·라벨링)의 mock
+│               이미지는 자산이 아니라 프론트 코드 생성(SVG data URI)** — 저장소에
+│               바이너리 금지. 안 만드는 게 정상이면 사유를 brief.md 에 기록
+└── handoff/    (3단계 후) Claude Design 핸드오프 번들 — tokens css + html
 ```
 
-- ①: 디자인시스템 생성 입력. ②: implement 입력. ③: 디자인시스템 visual asset
-  또는 implement 첨부 (인스타 로그인 예: 우측 폼=레이아웃 계약②, 좌측 사진=③).
-- ③ 호출: `source ~/.harness-claude/openai.env` 후 `/v1/images/generations`
-  (model gpt-image-1). 품질 기본 low(초안)·필요시 medium. 키 부재/크레딧 소진 시
-  degrade — ①② 만으로 진행하고 brief.md 에 "자산 생성 대기" 표기.
+- **①(refs) = 구조 참고 전용 · ①'(refs-visual) = 톤 근거.** 둘 다 **Claude Design
+  디자인시스템 입력에 넣지 않는다** — 넣으면 참고 앱 팔레트·폰트가 그대로 시스템이
+  된다. 톤 refs 는 designer 가 눈으로 읽고 토큰 값으로 옮기는 근거지 업로드
+  대상이 아니다.
+- **②(brief.md) = implement 입력** (구조). **②'(sample/) = 사용자 구조 검수용**,
+  외부 입력 아님. **②''(system/) = 비주얼 정본**이자 디자인시스템 push 원본.
+- **③(assets) = implement 첨부용 콘텐츠 이미지.** 디자인시스템 입력이 아니다
+  (생성 이미지에서도 팔레트가 역추출된다). 인스타 로그인 예: 우측 폼=구조 계약②,
+  좌측 사진=③.
+- ③ 호출: `"$HARNESS_ROOT"/plugins/designer-cto/scripts/gen_image.sh` (내부에서
+  `~/.harness-claude/openai.env` 로드 → `/v1/images/generations`, gpt-image-1).
+  품질 기본 low(초안)·필요시 medium. 키 부재 시 스크립트 exit 2 = degrade —
+  자산 없이 진행하고 brief.md 에 "자산 생성 대기" 표기.
 
 ## 역할 경계 (불변)
 

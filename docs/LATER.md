@@ -371,7 +371,3 @@ pidfile + 포트대기)로 주 사망원인(터미널 회수 연사)이 제거�
 주의: phase1~2·의도적 down·docker 모드 프로젝트에 잔소리 금지 (dev/docker 판별은
 dashboard `_mock_listener_ports`/`docker ps` 로직 재사용).
 
-- **designer role.md 죽은 "Claude Design MCP push" 계약 정리** — role.md:43-56 의
-  미세조정 루프(DesignSync push→캔버스→export)는 2026-07-29 이후 실사용 0회 +
-  2026-08-05 실측으로 캔버스(Projects 탭)는 도구 접근 불가 확정. design-max 는
-  수동 왕복으로 대체 완료 — 일반 모드의 이 절을 실태에 맞게 재작성/폐기할지 판단.

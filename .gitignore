@@ -33,6 +33,10 @@ modules/*
 # Extraction plans written by /feature-extract.
 feature-extract/
 
+# 디자인시스템 라이브러리 — 빌드별 확정 시스템을 사용자가 모으는 곳
+# (designer-cto 가 제작 전에 참고한다). 로컬 자산이라 커밋하지 않는다.
+design_system/
+
 # ── Secrets ────────────────────────────────────────────────────────────────
 # DASH_TOKEN 등 로컬 비밀. 커밋 금지.
 .env
@@ -50,3 +54,6 @@ __pycache__/
 # caveman 모드 스킬 세트 — 응답 스타일 플러그인, harness-claude 시스템과 별개.
 .agents/
 skills-lock.json
+
+# --- 대시보드에서 제외 (harness) ---
+/견적서/

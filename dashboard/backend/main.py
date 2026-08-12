@@ -224,6 +224,37 @@ def _docker_image_repos() -> set[str]:
     return set(r.stdout.split()) if r.returncode == 0 else set()
 
 
+def _docker_port_owners() -> dict[str, str]:
+    """host 발행 포트 → 그 포트를 잡은 컨테이너의 compose project 이름.
+
+    2026-08-06 사고: deeplabel 이 자기 compose 에 `auth` 서비스를 두고 **auth-service
+    할당 포트 8003**(PORT.md offset 3)을 발행하고 있었다. 대시보드에서 auth-service
+    docker 종료를 눌러도 8003 은 계속 up — 그 컨테이너가 auth-service 소유가 아니라
+    내려갈 리 없는데, 화면은 "up" 만 보여줘서 사용자가 세 번 헛클릭했다.
+    포트가 떠 있으면 **누가 잡고 있는지**를 같이 실어 그 오해를 없앤다.
+    (best-effort — docker 부재/실패 시 빈 dict 라 표시만 생략된다)
+    """
+    try:
+        r = subprocess.run(
+            ["docker", "ps", "--format",
+             "{{.Ports}}\t{{.Label \"com.docker.compose.project\"}}"],
+            capture_output=True, text=True, timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return {}
+    if r.returncode != 0:
+        return {}
+    owners: dict[str, str] = {}
+    for line in r.stdout.splitlines():
+        ports, _, project = line.partition("\t")
+        project = project.strip()
+        if not project:
+            continue
+        for hp in re.findall(r":(\d+)->", ports):
+            owners.setdefault(hp, project)
+    return owners
+
+
 def _cto_pair_state(
     claude_alive: bool, codex_alive: bool, designer_alive: bool
 ) -> str:
@@ -304,6 +335,7 @@ def inbox_system_clear() -> dict:
 @app.get("/api/state", dependencies=[Depends(require_token)])
 def state() -> dict:
     pub = cli._docker_published_ports()
+    port_owners = _docker_port_owners()
     host = cli._host_listening_ports()
     # §4.1 목업 프리뷰(http.server, phase1~2 시안 게이트)가 FRONTEND_PORT 를 점유해도
     # "frontend dev 실행중" 이 아니다 — dev/docker 버튼 판정에서 제외 (2026-08-04).
@@ -345,6 +377,12 @@ def state() -> dict:
                         mode = "down"
                     up = mode in ("docker", "dev")
                     cells[var] = {"port": p, "up": up, "mode": mode}
+                    # 남의 compose 프로젝트가 이 포트를 잡고 있으면 표시한다.
+                    # compose 기본 project 이름 = 디렉토리명이라 d.name 과 대조.
+                    if mode == "docker":
+                        owner = port_owners.get(p, "")
+                        if owner and owner != d.name:
+                            cells[var]["owner"] = owner
                     running += 1 if up else 0
                 else:
                     # 공유 pg: 자기 POSTGRES_PORT 가 없어도 DATABASE_URL=postgres 면
@@ -449,7 +487,12 @@ def state() -> dict:
         else:
             links.append({"source": "CEO", "target": it["name"], "kind": "ceo"})
     # 허브(DEEP.INC)는 하네스 저장소 자신이다 — 노드와 같은 기준으로 commit 필요를 본다.
+    # 접속 URL 의 호스트. 대시보드를 어느 주소로 열었든(LAN 192.168.x, localhost)
+    # 프로젝트 접속 링크는 이 호스트로 만든다 — tailscale 주소가 내/외부 어디서나
+    # 닿는 유일한 주소라서(§ DASH_ACCESS_HOST, .env 유일소스). 미설정이면 빈 문자열
+    # → 프론트가 종전대로 브라우저 hostname 을 쓴다(하위호환).
     return {"columns": columns, "items": items, "links": links,
+            "access_host": os.environ.get("DASH_ACCESS_HOST", ""),
             "harness_dirty": _git_dirty(REPO)}
 
 

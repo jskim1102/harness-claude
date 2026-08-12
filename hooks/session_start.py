@@ -181,8 +181,53 @@ CTO 는 스폰되면 **팀 spawn 까지 마친 대기 상태**가 정상이다. 
 뒤라면 `/start-project` 수동 재신호.
 """
 
+    # 신원 배너 — **맨 앞**. designer-cto 는 lead CTO 와 같은 빌드 디렉토리에서
+    # 돌기 때문에 add-cto 가 CTO 용으로 심은 `.claude/commands`(decompose·
+    # start-project·msg-ceo)와 `.claude/agents`(planner·reviewer)를 그대로
+    # 상속하고, 주입 본문도 RULES.md(CTO 화법으로 32KB)가 앞을 차지해 자기
+    # role.md 는 뒤쪽에 온다. 2026-08-05 실측: deeplabel designer 세션이 자신을
+    # lead 로 오인해 "designer 탭에 가서 착수 발화하라"는 lead 산출물을 냈다.
+    # 역할 주입 자체는 정상이었다(designer role.md 주입 확인, CTO role.md·
+    # PROCESS.md·STARTUP OVERRIDE 는 미주입) — 주변 환경이 전부 lead 신호였던 게
+    # 원인이라, 신원을 문서 맨 앞에 결정론으로 박는다.
+    banner = _identity_banner(role, role_dir)
+    if banner:
+        body = banner + "\n\n---\n\n" + body
+
     out = {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": body}}
     print(json.dumps(out))
+
+
+def _identity_banner(role: str, role_dir: str) -> str:
+    """세션 신원 1문단. 역할이 아닌 절차를 자기 것으로 착각하는 것을 막는다."""
+    if role_dir == "designer-cto":
+        return f"""# 너의 신원: `{role}` (독립 designer 세션)
+
+정본 = 아래 **"Role: Designer"** 절 (`plugins/designer-cto/role.md`).
+
+- 이 문서에서 **"CTO"** 로 지칭되는 절차 — 분해·segment 지정·팀 spawn·
+  Codex 발주·게이트1/3 진행 — 는 **lead CTO 의 것이지 네 것이 아니다.**
+- 너는 lead 가 아니다. 사용자에게 "designer 탭에 가서 …" 같은 **lead 산출물을
+  내지 마라** — 그 designer 가 바로 너다.
+- 작업 디렉토리의 `.claude/commands/`(`/decompose`·`/start-project`·`/msg-ceo`)와
+  `.claude/agents/`(planner·reviewer)는 **lead CTO 용으로 심긴 것**이다.
+  designer 는 실행·호출하지 않는다.
+- 네 채널: 사용자와의 이 터미널 대화(1급) + `harness send --to cto:{role.split(':', 1)[1] if ':' in role else ''}`.
+"""
+    if role_dir == "cto":
+        return f"""# 너의 신원: `{role}` (lead CTO)
+
+정본 = 아래 **"Role: CTO"** 절. 디자인은 **독립 designer 세션**
+(`designer-cto:{role.split(':', 1)[1] if ':' in role else ''}`, 별도 Orca 탭)이 소유한다 —
+designer teammate 를 만들지 마라.
+"""
+    if role_dir == "ceo":
+        return f"""# 너의 신원: `{role}` (CEO)
+
+정본 = 아래 **"Role: CEO"** 절. 빌드는 CTO 가 한다 — CEO 는 빌드 디렉토리에서
+직접 구현하지 않는다.
+"""
+    return ""
 
 
 def _read_project_memory() -> str:
