@@ -24,6 +24,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from team_hook_common import read_payload, allow, block  # noqa: E402
+from planner_dispatch_gate import TOKEN as PLANNER_TOKEN  # noqa: E402
+from planner_dispatch_gate import _tasks_md_exists  # noqa: E402
 
 ROLES = ("planner", "reviewer")
 CLAIMS_DIR = os.path.expanduser("~/.harness-claude/orca-team-spawn-claims")
@@ -90,6 +92,15 @@ def main():
 
     if st not in ROLES:
         allow()  # 팀 역할 아님 → 허용
+
+    # planner_dispatch_gate 가 어차피 차단할 호출은 claim 하지 않는다. PreToolUse
+    # 훅 둘이 같은 호출에 각각 돌아서, 여기서 claim 을 먼저 쓴 뒤 저쪽이 block
+    # 하면 planner.claimed 유령이 남는다 — 이후 사용자 승인(HARNESS_USER_OK=planner)
+    # 스폰까지 "중복" 으로 막는 결정론 웨지 (2026-08-20 annodock 실측).
+    if st == "planner":
+        text = _tool_input(p).get("prompt") or ""
+        if _tasks_md_exists(p) is True and PLANNER_TOKEN not in str(text).lower():
+            allow()
 
     claimed = _claim_role(_cto_name(p), st)
     if claimed is False:

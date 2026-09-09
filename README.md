@@ -92,6 +92,10 @@
 ./run.sh netbind [<name>]     # 웹서버 외부접속 바인딩 정적검사 (RULES §5.3, 읽기전용)
 ./run.sh regress <name> --baseline|--check [--segment A~B]   # 완료 task 의 Run: 재실행 → 회귀만 보고
 ./run.sh install-services     # Orca 런타임 + harnessd systemd user 서비스 (부팅 자동시작)
+./run.sh update-orca [VERSION]   # Orca AppImage 갱신 — checksum 검증 → stop/start → 실패 시 자동 롤백
+                                 #   VERSION 생략 = GitHub 최신 stable, --check = 버전만 확인,
+                                 #   --from FILE = 미리 받은 AppImage 사용
+                                 #   ★반드시 Orca 밖 터미널(SSH 등)에서 — 재기동이 CEO·전 CTO 탭을 끊는다
 ./run.sh prune-ghosts         # Orca 사이드바 Unknown 유령 정리 — Orca 정지→고아수거→정리→재시작→CEO 복원
                               #   ★반드시 Orca 밖 터미널(SSH 등)에서
 

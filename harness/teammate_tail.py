@@ -20,6 +20,7 @@ from datetime import datetime
 
 POLL_SEC = 2.0
 TAIL_BYTES = 20_000  # 새 파일에 붙을 때 마지막 이 정도만 되감아 보여준다.
+STATUS_TICK_SEC = 0.5  # 하단 상태줄 갱신 주기 (시계가 돌면 뷰어 생존 증거)
 
 COLORS = {"planner": "34", "designer": "35", "reviewer": "33"}
 RESET = "\x1b[0m"
@@ -127,6 +128,16 @@ def _session_label(path: str) -> str:
     return stem[:8]
 
 
+def _ts_epoch(rec: dict) -> float | None:
+    raw = rec.get("timestamp")
+    if isinstance(raw, str) and "T" in raw:
+        try:
+            return datetime.fromisoformat(raw.replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            return None
+    return None
+
+
 def _ts(rec: dict) -> str:
     raw = rec.get("timestamp")
     if isinstance(raw, str) and "T" in raw:
@@ -150,6 +161,67 @@ def _tool_summary(block: dict) -> str:
         content = " ".join(str(inp.get("content") or inp.get("message") or "").split())[:70]
         return f"SendMessage →{to} {content}"
     return name
+
+
+def record_kind(rec: dict) -> str | None:
+    """상태 판정용 레코드 분류. 뷰어가 이미 파싱하는 전사를 그대로 쓴다.
+
+    mtime 으로 판정하면 안 된다 — 15분짜리 code-review Agent 처럼 **오래 걸리는
+    도구 하나**를 도는 동안 전사에 아무것도 안 붙어 '작업중'이 '죽음'으로 보인다
+    (2026-08-18 사용자 지적). 마지막 레코드의 종류가 진짜 상태다:
+      tool_use  = 도구 실행 중        (assistant 가 도구를 부르고 결과 대기)
+      user      = 응답 생성 중        (도구 결과가 들어와 모델이 생각 중)
+      text      = 완료/대기           (텍스트만 있는 assistant = 턴을 마쳤다)
+    """
+    rtype = rec.get("type")
+    if rtype == "assistant":
+        content = (rec.get("message") or {}).get("content")
+        if not isinstance(content, list):
+            return None
+        if any(isinstance(b, dict) and b.get("type") == "tool_use" for b in content):
+            return "tool_use"
+        if any(isinstance(b, dict) and b.get("type") == "text" and b.get("text", "").strip()
+               for b in content):
+            return "text"
+        return None
+    if rtype == "user":
+        return "user"
+    return None
+
+
+def _age(sec: float) -> str:
+    sec = max(0, int(sec))
+    if sec < 60:
+        return f"{sec}s"
+    if sec < 3600:
+        return f"{sec // 60}m{sec % 60}s"
+    return f"{sec // 3600}h{(sec % 3600) // 60}m"
+
+
+def status_text(role: str, kind: str | None, age_sec: float, session: str | None) -> str:
+    """상태줄 본문 (색 코드 없는 순수 문자열 — 테스트가 이 함수를 고정한다)."""
+    if session is None:
+        return f"·  {role} 전사 없음 (미배치)"
+    tail = f" · sess {session}"
+    if kind == "tool_use":
+        return f"▶ {role} WORKING · 도구 실행 중 {_age(age_sec)}{tail}"
+    if kind == "user":
+        return f"▶ {role} WORKING · 응답 생성 중 {_age(age_sec)}{tail}"
+    if kind == "text":
+        return f"⏸ {role} 대기 · 마지막 응답 {_age(age_sec)} 전{tail}"
+    return f"·  {role} 상태 미상{tail}"
+
+
+def _draw_status(text: str, color: str) -> None:
+    clock = datetime.now().strftime("%H:%M:%S")
+    line = f"{text} · {clock}"[:200]
+    sys.stdout.write(f"\r\x1b[K{DIM}\x1b[{color}m{line}{RESET}")
+    sys.stdout.flush()
+
+
+def _clear_status() -> None:
+    sys.stdout.write("\r\x1b[K")
+    sys.stdout.flush()
 
 
 def render(rec: dict, color: str) -> None:
@@ -186,6 +258,8 @@ def follow(name: str, role: str) -> None:
 
     current, offset, buf = None, 0, ""
     last_scan = 0.0
+    kind: str | None = None          # 마지막 레코드 종류 = 현재 상태
+    kind_at = time.time()            # 그 레코드 시각 (경과 표시용)
     while True:
         now = time.time()
         if now - last_scan >= POLL_SEC:
@@ -196,12 +270,15 @@ def follow(name: str, role: str) -> None:
                 size = os.path.getsize(current) if os.path.exists(current) else 0
                 offset = max(0, size - TAIL_BYTES)
                 buf = ""
+                kind, kind_at = None, now
+                _clear_status()
                 print(
                     f"\x1b[1;{color}m── session {_session_label(current)} ──{RESET}",
                     flush=True,
                 )
         if current is None:
-            time.sleep(POLL_SEC)
+            _draw_status(status_text(role, None, 0, None), color)
+            time.sleep(STATUS_TICK_SEC)
             continue
         try:
             size = os.path.getsize(current)
@@ -214,17 +291,30 @@ def follow(name: str, role: str) -> None:
                     offset = fh.tell()
                 buf += chunk
                 *lines, buf = buf.split("\n")
+                if lines:
+                    _clear_status()   # 상태줄 지우고 본문을 그 자리부터 흘린다
                 for line in lines:
                     line = line.strip()
                     if not line:
                         continue
                     try:
-                        render(json.loads(line), color)
+                        rec = json.loads(line)
+                    except Exception:
+                        continue
+                    k = record_kind(rec)
+                    if k:
+                        kind, kind_at = k, (_ts_epoch(rec) or time.time())
+                    try:
+                        render(rec, color)
                     except Exception:
                         continue
         except OSError:
             pass
-        time.sleep(0.5)
+        _draw_status(
+            status_text(role, kind, time.time() - kind_at, _session_label(current)),
+            color,
+        )
+        time.sleep(STATUS_TICK_SEC)
 
 
 def main() -> int:
@@ -234,7 +324,7 @@ def main() -> int:
     try:
         follow(sys.argv[1], sys.argv[2])
     except KeyboardInterrupt:
-        pass
+        print()   # 상태줄 뒤에 개행 — 종료 후 프롬프트가 겹치지 않게
     return 0
 
 

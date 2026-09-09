@@ -57,3 +57,4 @@ skills-lock.json
 
 # --- 대시보드에서 제외 (harness) ---
 /견적서/
+/tools/

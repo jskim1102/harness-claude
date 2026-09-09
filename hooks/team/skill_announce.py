@@ -59,7 +59,10 @@ def _extract_agent(payload):
     """어느 에이전트가 이 스킬을 쓰는지 best-effort 로 알아낸다.
     표기 규칙 (PROCESS.md §6): `<에이전트> ★ <스킬>`.
     소스 우선순위: hook payload 의 에이전트 키 → 환경변수 →
-    transcript 경로 힌트 → 'cto' (lead 폴백). fail-open."""
+    transcript 경로 힌트 → 세션 role 기반 폴백. fail-open.
+
+    폴백 이름은 RULES §18 정본 호칭이다 (2026-08-25). 예전엔 role 과 무관하게
+    'cto' 를 박아서 CEO 세션의 스킬 사용까지 lead 로 집계됐다."""
     if isinstance(payload, dict):
         for key in ("agent_type", "agent_name", "agentName", "teammate_name",
                     "teammateName", "subagent_type", "agent"):
@@ -80,7 +83,19 @@ def _extract_agent(payload):
             # agent-<id>.jsonl 같은 비식별 이름은 버림
             if name and not name.startswith(("agent-", "wf_")):
                 return name
-    return "cto"
+    return _role_fallback_agent()
+
+
+def _role_fallback_agent():
+    """단서가 없을 때 = 세션 본인이 호출한 것. RULES §18 호칭으로 돌려준다."""
+    role = os.environ.get("HARNESS_ROLE", "")
+    if role == "ceo":
+        return "ceo"
+    if role.startswith("codex-cto:"):
+        return "cto-developer"
+    if role.startswith("designer-cto:"):
+        return "cto-designer"
+    return "cto-lead"
 
 
 def _repo_root():
@@ -144,7 +159,13 @@ def main():
     # 의존 X — 2026-06-30 teammate 스킬이 [?] 로 찍혀 skill-pane 필터·reviewer 완료게이트에서
     # 누락되던 버그). 아래 소비처(code-review 마커 / 로그 태그)가 이 값을 쓴다.
     role = os.environ.get("HARNESS_ROLE", "")
-    if not role.startswith("cto:"):
+    # 아래 역산(transcript 경로 → 빌드 이름)은 **teammate 전용** 이다. teammate 는
+    # 별도 프로세스라 env 를 못 물려받아 role 이 비어 오지만, 자기 role 을 이미
+    # 들고 있는 세션까지 덮으면 신원이 뭉개진다:
+    #   - CEO   : cwd 가 claude-project/ceo → [cto:ceo] 로 둔갑
+    #   - designer/codex : cwd 가 빌드 dir → [cto:<build>] 로 둔갑해 lead 집계에 흡수
+    # (2026-08-25 실측. designer 스킬 사용이 lead 것으로 섞여 있었다.)
+    if role != "ceo" and not role.startswith(("cto:", "designer-cto:", "codex-cto:")):
         proj = _project_from_transcript(p)
         if proj:
             role = f"cto:{proj}"
@@ -194,9 +215,20 @@ def main():
         log_dir = os.path.expanduser("~/.harness-claude")
         os.makedirs(log_dir, exist_ok=True)
         log_path = os.path.join(log_dir, "skill-activity.log")
-        ts = time.strftime("%H:%M:%S")
+        # 날짜 포함 — HH:MM:SS 만 찍으면 rail 의 `tail -n 30` 창에 어제 줄과 오늘
+        # 줄이 섞여 시간이 거꾸로 가는 것처럼 보인다 (2026-08-18 실측: 1292줄 중
+        # 23건이 자정 경계).
+        ts = time.strftime("%m-%d %H:%M:%S")
+        line = f"{ts} [{role}] \033[36m{agent}\033[0m \033[33m★\033[0m \033[1m{skill}\033[0m\n"
         with open(log_path, "a", encoding="utf-8") as fp:
-            fp.write(f"{ts} [{role}] \033[36m{agent}\033[0m \033[33m★\033[0m \033[1m{skill}\033[0m\n")
+            fp.write(line)
+        # 아카이브 = 랭킹 집계 원천. rail 용 skill-activity.log 는 --fresh /
+        # delete-cto 가 해당 CTO 줄을 sed 로 지우지만(기억 소멸 일관성),
+        # 누적 통계까지 사라지면 안 된다 (2026-08-25: 225회 중 131회 소실 실측).
+        # 이 파일은 어떤 퍼지 대상도 아니다.
+        with open(os.path.join(log_dir, "skill-activity.archive.log"),
+                  "a", encoding="utf-8") as fp:
+            fp.write(line)
     except Exception:
         pass  # fail-open per hook contract
 

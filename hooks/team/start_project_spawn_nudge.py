@@ -8,8 +8,11 @@ start_project_gate 가 /start-project 프롬프트에서 마커(LOG_DIR/started/
 
 이 Stop 훅(=CTO 턴 종료마다)이 결정론 압박을 건다:
   - 마커 없음 → allow (start-project 턴 아님).
-  - 마커 있음 & in-process team config에 planner/reviewer 2명 + Codex tab 존재
-    → 완료: 마커+카운터 청소.
+  - 마커 있음 & in-process team config에 필수 역할 전원 + Codex tab 존재
+    → 완료: 마커+카운터 청소. 필수 역할 = planner+reviewer, 단
+    specs/tasks.md 가 이미 있으면(=분해 완료, 재시작 회차) reviewer 만 —
+    분해 후 planner 는 planner_dispatch_gate 가 하드룰로 차단하므로
+    여기서 요구하면 훅 모순 교착이 된다 (2026-08-20 annodock 실측).
   - 그 외 → LOOP-GUARD block: 세션별 block 카운터(~/.harness-claude/)를
     올리며 최대 3번까지 block("Stop", ...) 으로 "나머지 지금 spawn" 압박. 3번 이후엔
     FAIL-OPEN(allow) + giveup 로그 — 절대 무한 block 하지 않는다.
@@ -61,8 +64,21 @@ def _session_from_cwd(cwd):
     return f"cto-{name}" if name else None
 
 
-def _native_teammate_count(name):
-    """Count the two required in-process roster entries for this CTO."""
+def _decomposed(name):
+    """빌드 dir 에 specs/tasks.md 존재 = 최초 분해 완료 (planner_dispatch_gate 와
+    같은 정의). 분해 완료 프로젝트에선 planner 스폰이 하드룰로 금지되므로
+    (2026-08-11), 이 훅이 planner 를 요구하면 훅끼리 모순 명령이 된다
+    (2026-08-20 annodock 실측: planner 요구→dispatch_gate 차단→Stop block 루프)."""
+    if not name:
+        return False
+    for base in ("claude-project", "modules"):
+        if os.path.isfile(os.path.join(REPO, base, name, "specs", "tasks.md")):
+            return True
+    return False
+
+
+def _roster_satisfied(name, required):
+    """required 역할이 in-process roster 에 전부 있으면 True. Orca 부재=None."""
     # In-process mode keeps teammates in the lead view; Claude's team config is
     # the authoritative spawn roster instead of Orca leaf count.
     cwd = os.environ.get("HARNESS_CTO_DIR", "")
@@ -75,8 +91,8 @@ def _native_teammate_count(name):
             members = data.get("members", [])
             if cwd and any(m.get("cwd") == cwd for m in members if isinstance(m, dict)):
                 roles = {m.get("agentType") for m in members if isinstance(m, dict)}
-                if {"planner", "reviewer"}.issubset(roles):
-                    return 2
+                if required.issubset(roles):
+                    return True
     except (OSError, ValueError, TypeError):
         pass
     leaves = orca_runtime.tab_leaf_count(f"cto:{name}")
@@ -87,7 +103,7 @@ def _native_teammate_count(name):
     # 달아 lead 의 durable title 과 안 겹치고, tab_records 는 title 매치라
     # leaves 는 사실상 lead 1개다 — 이 fallback 은 0 을 돌려주고 정본은 위의
     # team config roster 경로다.
-    return max(0, leaves - 2)
+    return max(0, leaves - 2) >= len(required)
 
 
 def _counter_path(session):
@@ -123,12 +139,12 @@ def _codex_alive(name):
     return bool(name) and orca_runtime.role_alive(f"codex-cto:{name}")
 
 
-def _log_giveup(session, count, codex_alive):
+def _log_giveup(session, roster, codex_alive):
     try:
         os.makedirs(STATE_DIR, exist_ok=True)
         with open(os.path.join(STATE_DIR, "giveup.log"), "a") as fh:
             fh.write(
-                f"{session}\torca_splits={count}/2\tcodex={int(codex_alive)}"
+                f"{session}\troster={roster}\tcodex={int(codex_alive)}"
                 f"\tgave_up_after={MAX_BLOCKS}\n"
             )
     except Exception:
@@ -170,34 +186,44 @@ def main():
     session = _session_from_cwd(p.get("cwd") or p.get("workingDirectory") or os.getcwd())
     if not session:
         allow()
-    count = _native_teammate_count(name)
-    if count is None:
+    # 분해 완료 프로젝트(재시작 회차)는 planner 스폰이 금지라 reviewer 만 요구한다
+    # — planner 까지 요구하면 planner_dispatch_gate 와 모순 명령 (2026-08-20).
+    required = {"reviewer"} if _decomposed(name) else {"planner", "reviewer"}
+    want = "+".join(sorted(required))
+    sat = _roster_satisfied(name, required)
+    if sat is None:
         allow()  # Orca 없음(--print/test-cto) 또는 tab 없음 → fail-open
     codex_alive = _codex_alive(name)
 
-    # 3) in-process Claude roster 2명 + 외부 Codex → 완료.
-    if count >= 2 and codex_alive:
+    # 3) in-process Claude 필수 역할 전원 + 외부 Codex → 완료.
+    if sat and codex_alive:
         _clear(marker)
         _clear(_counter_path(session))
-        allow("Stop", p, reason=f"spawn 완료 Claude roster {count}/2 + Codex — 마커 청소")
+        allow("Stop", p, reason=f"spawn 완료 Claude roster {want} + Codex — 마커 청소")
 
     # 4) 미완 → 루프가드 block (최대 MAX_BLOCKS), 그 뒤 fail-open.
     c = _read_counter(session)
     if c < MAX_BLOCKS:
         _write_counter(session, c + 1)
+        note = (
+            " planner 는 spawn 하지 마라 — specs/tasks.md 존재=분해 완료, "
+            "planner_dispatch_gate 가 차단한다 (2026-08-11 하드룰)."
+            if required == {"reviewer"} else ""
+        )
         block(
             "Stop", p,
-            f"hybrid spawn 미완 — Claude roster {count}/2, Codex tab "
-            f"{'alive' if codex_alive else 'missing'}. planner→reviewer를 upfront "
+            f"hybrid spawn 미완 — Claude roster({want}) "
+            f"{'충족' if sat else '미충족'}, Codex tab "
+            f"{'alive' if codex_alive else 'missing'}. {want}를 upfront "
             "spawn하고 codex-cto-<name>은 add-cto로 준비되어 있어야 한다. "
-            "Codex를 여기서 자동 시작하지 마라.",
+            f"Codex를 여기서 자동 시작하지 마라.{note}",
         )
 
     # 3번 압박했는데도 미완 → 무한 block 금지, fail-open + giveup 로그.
-    _log_giveup(session, count, codex_alive)
+    _log_giveup(session, f"{want}:{int(bool(sat))}", codex_alive)
     allow(
         "Stop", p,
-        reason=f"loop-guard 소진({MAX_BLOCKS}) Claude roster {count}/2 "
+        reason=f"loop-guard 소진({MAX_BLOCKS}) Claude roster {want}:{int(bool(sat))} "
         f"codex={int(codex_alive)} — fail-open",
     )
 

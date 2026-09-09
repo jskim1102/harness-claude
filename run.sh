@@ -131,10 +131,22 @@ print(handle)
 
 _orca_create_terminal() {
     local role="${1:?role required}" command="${2:?command required}"
-    local worktree="${3:-$REPO}"
+    local worktree="${3:-$REPO}" keeper_role="${4:-}"
     local title handle response rc
     title=$(_orca_role_title "$role") || return $?
     if handle=$(_orca_terminal_handle "$role" 2>/dev/null); then
+        # ★프로세스-사망 소생 (2026-08-20 실측): 전체 재시작 직후 codex 가 stale
+        # thread-lock 으로 즉사하면 터미널엔 bash 만 남는데, 이 가드는 터미널
+        # 존재만 보고 재사용해 죽은 half 가 영구 no-op 였다. keeper sock =
+        # 프로세스 생존 정본 — 없으면 그 터미널에 시작 명령을 다시 흘린다.
+        if [[ -n "$keeper_role" && ! -S "$(_keeper_sock "$keeper_role")" ]]; then
+            if _orca_cli terminal send --terminal "$handle" \
+                   --text "$command" --enter --json >/dev/null 2>&1; then
+                echo "  revive: $role — 터미널 생존·프로세스 사망 → 재기동" >&2
+            else
+                echo "warn: $role revive send 실패 — 수동 확인 필요" >&2
+            fi
+        fi
         printf '%s\n' "$handle"
         return 0
     else
@@ -814,6 +826,24 @@ JSON
         ]
       },
       {
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 $REPO/hooks/team/skill_announce.py"
+          }
+        ]
+      },
+      {
+        "matcher": "Workflow",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 $REPO/hooks/team/skill_announce.py"
+          }
+        ]
+      },
+      {
         "matcher": "*",
         "hooks": [
           {
@@ -858,7 +888,7 @@ start_session() {
     printf -v inner 'cd %q && exec env HARNESS_ROOT=%q HARNESS_ROLE=%q HARNESS_CTO_DIR=%q claude %s--dangerously-skip-permissions' \
         "$cwd" "$REPO" "$role" "$cwd" "$resume_str"
     command=$(_keeper_wrap "cto-${role#cto:}-lead" "$inner")
-    handle=$(_orca_create_terminal "$orca_role" "$command" "$cwd") || return 1
+    handle=$(_orca_create_terminal "$orca_role" "$command" "$cwd" "cto-${role#cto:}-lead") || return 1
     if [[ -n "$resume_str" ]]; then
         echo "  lead 이전 대화 복원 (${resume_str% }) — 팀원은 복원 안 됨, 첫 지시 턴에 자동 재spawn (마커 시딩)"
     fi
@@ -1267,7 +1297,7 @@ _start_designer_cto_session() {
     printf -v inner 'cd %q && exec env HARNESS_ROOT=%q HARNESS_ROLE=%q HARNESS_CTO_DIR=%q claude %s--dangerously-skip-permissions' \
         "$dir" "$REPO" "designer-cto:$name" "$dir" "$resume_str"
     command=$(_keeper_wrap "cto-$name-designer" "$inner")
-    handle=$(_orca_create_terminal "cto:$name:designer" "$command" "$dir") || return 1
+    handle=$(_orca_create_terminal "cto:$name:designer" "$command" "$dir" "cto-$name-designer") || return 1
     if [[ -n "$resume_str" ]]; then
         echo "  designer 이전 대화 복원 (${resume_str% })"
     fi
@@ -1345,7 +1375,7 @@ _start_codex_cto_session() {
         "$dir" "$REPO/harness/codex_hooks.py" "$REPO" "$REPO" \
         "codex-cto:$name" "$resume_str" "$HOME/.harness-claude" "$instruction_arg"
     codex_cmd=$(_keeper_wrap "cto-$name-codex" "$inner")
-    handle=$(_orca_create_terminal "cto:$name:codex" "$codex_cmd" "$dir") || return 1
+    handle=$(_orca_create_terminal "cto:$name:codex" "$codex_cmd" "$dir" "cto-$name-codex") || return 1
     echo "Orca Codex terminal ready: cto:$name:codex handle=$handle cwd=$dir"
     if [[ -n "$resume_str" ]]; then
         echo "  codex 이전 세션 복원 (${resume_str% })"
@@ -2288,6 +2318,7 @@ mental model:
 ── 점검 ──
   ./run.sh doctor                # 정합 검사 (하네스 수정 후 무조건)
   ./run.sh install-services      # Orca 런타임+harnessd systemd user 서비스 설치/갱신 (부팅 자동시작; infra/systemd/*.tmpl 정본)
+  ./run.sh update-orca [VERSION] # Ubuntu Orca AppImage 업데이트 (checksum·자동 rollback; Orca 밖 터미널에서 실행)
   ./run.sh smoke                 # 결정론 스모크 (tests/smoke.sh)
   ./run.sh netbind [<name>]      # 웹서버 외부접속 바인딩 정적 검사 (0.0.0.0, RULES §5.3, 읽기전용). 인자 없으면 전체
   ./run.sh prune-ghosts          # 사이드바 Unknown 유령 정리 — Orca 정지→고아수거→정리→재시작→CEO 복원 (Orca 밖 터미널에서!)
@@ -2322,6 +2353,7 @@ case "${1:-}" in
     attach-designer-cto) shift; cmd_attach_designer_cto "$@" ;;
     doctor)    cmd_doctor ;;
     install-services) shift; cmd_install_services "$@" ;;
+    update-orca) shift; exec bash "$REPO/scripts/orca-update.sh" "$@" ;;
     smoke)     bash "$REPO/tests/smoke.sh" ;;
     prune-ghosts) shift; exec bash "$REPO/scripts/orca-restart-clean.sh" "$@" ;;
     schema)    shift; python3 "$REPO/harness/schema_scan.py" "$@" ;;

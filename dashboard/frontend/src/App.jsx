@@ -346,10 +346,14 @@ class GraphBoundary extends React.Component {
 // Memory Core — 옵시디언 brain 글로우 연결도 (캔버스 블룸, 라이브 데이터, 클릭→모달)
 const NODE_COLORS = ['#ff8c3b', '#39d98a', '#4d9bff', '#e25bd0', '#b07bff', '#ffd23b', '#22d3ee', '#f472b6']
 
-function BrainGraph({ items, links, onNode, onHub, harnessDirty }) {
+function BrainGraph({ items, links, onNode, onHub, harnessDirty, layout, edit, onMoveNode }) {
   const wrapRef = useRef(null)
   const canvasRef = useRef(null)
   const stateRef = useRef({ nodes: [], W: 900, H: 460 })
+  const editRef = useRef(edit); editRef.current = edit
+  const onMoveRef = useRef(onMoveNode); onMoveRef.current = onMoveNode
+  const dragRef = useRef(null)   // 드래그 중 {id, pos}
+  const drawRef = useRef(null)   // reduce-motion 시 수동 redraw 용
 
   const model = useMemo(() => {
     const n = items.length
@@ -387,6 +391,15 @@ function BrainGraph({ items, links, onNode, onHub, harnessDirty }) {
         pos[it.name] = { x: 0.5 + 0.34 * Math.cos(ang), y: 0.5 + 0.37 * Math.sin(ang) }
       }
     })
+    // 수동 배치 오버라이드 (수정 모드 드래그 저장분) — 자동배치 위에 덮고,
+    // 아래 충돌 완화에서 manual 노드는 고정(안 밀림). 이름이 사라진 항목은 무시.
+    const manual = new Set()
+    Object.entries(layout || {}).forEach(([mn, mp]) => {
+      if (pos[mn] && mp && typeof mp.x === 'number' && typeof mp.y === 'number') {
+        pos[mn] = { x: mp.x, y: mp.y }
+        manual.add(mn)
+      }
+    })
     // 겹침 방지 — 계보 체인(streaming→detection→keypoint)이 우측 클램프로 쌓이면
     // rtsp-detection↔rtsp-keypoint 가 포개진다. 충돌 완화: 너무 가까운 노드는 서로
     // 밀어내고, CEO(중심)에서도 최소거리 확보. 정적 배치라 1회 수렴이면 충분.
@@ -398,14 +411,23 @@ function BrainGraph({ items, links, onNode, onHub, harnessDirty }) {
       for (let a = 0; a < nm.length; a++) {
         const pc = pos[nm[a]]
         let cdx = pc.x - 0.5, cdy = pc.y - 0.5, cd = Math.hypot(cdx, cdy) || 0.0001
-        if (cd < 0.15) { cdx /= cd; cdy /= cd; pc.x = cl(0.5 + cdx * 0.15); pc.y = cl(0.5 + cdy * 0.15); moved = true }
+        if (cd < 0.15 && !manual.has(nm[a])) { cdx /= cd; cdy /= cd; pc.x = cl(0.5 + cdx * 0.15); pc.y = cl(0.5 + cdy * 0.15); moved = true }
         for (let b = a + 1; b < nm.length; b++) {
           const pa = pos[nm[a]], pb = pos[nm[b]]
+          const am = manual.has(nm[a]), bm = manual.has(nm[b])
+          if (am && bm) continue                       // 둘 다 수동 = 사용자 뜻대로
           let dx = pb.x - pa.x, dy = pb.y - pa.y, d = Math.hypot(dx, dy) || 0.0001
           if (d < MIND) {
-            const push = (MIND - d) / 2; dx /= d; dy /= d
-            pa.x = cl(pa.x - dx * push); pa.y = cl(pa.y - dy * push)
-            pb.x = cl(pb.x + dx * push); pb.y = cl(pb.y + dy * push)
+            dx /= d; dy /= d
+            if (am) {                                  // 수동 고정 — 상대만 밀림
+              pb.x = cl(pb.x + dx * (MIND - d)); pb.y = cl(pb.y + dy * (MIND - d))
+            } else if (bm) {
+              pa.x = cl(pa.x - dx * (MIND - d)); pa.y = cl(pa.y - dy * (MIND - d))
+            } else {
+              const push = (MIND - d) / 2
+              pa.x = cl(pa.x - dx * push); pa.y = cl(pa.y - dy * push)
+              pb.x = cl(pb.x + dx * push); pb.y = cl(pb.y + dy * push)
+            }
             moved = true
           }
         }
@@ -430,22 +452,51 @@ function BrainGraph({ items, links, onNode, onHub, harnessDirty }) {
     const ls = (links || []).filter((l) => byId[l.source] && byId[l.target])
       .map((l) => ({ a: l.source, b: l.target, lineage: l.kind === 'lineage' }))
     return { nodes, byId, links: ls }
-  }, [items, links, harnessDirty])
+  }, [items, links, harnessDirty, layout])
   const modelRef = useRef(model)
   modelRef.current = model
 
-  const onClick = (e) => {
-    const cv = canvasRef.current; if (!cv) return
+  const hitNode = (e) => {
+    const cv = canvasRef.current; if (!cv) return null
     const rect = cv.getBoundingClientRect()
     const mx = e.clientX - rect.left, my = e.clientY - rect.top
     const { nodes, W, H } = stateRef.current
     for (const nd of nodes) {
       const dx = mx - nd.x * W, dy = my - nd.y * H
-      if (dx * dx + dy * dy <= (nd.r + 11) * (nd.r + 11)) {
-        if (nd.hub) { if (onHub) onHub(); return }
-        if (nd.item) { onNode(nd.item); return }
-      }
+      if (dx * dx + dy * dy <= (nd.r + 11) * (nd.r + 11)) return nd
     }
+    return null
+  }
+  const onClick = (e) => {
+    if (editRef.current) return               // 수정 모드 = 드래그 전용, 네비 차단
+    const nd = hitNode(e)
+    if (!nd) return
+    if (nd.hub) { if (onHub) onHub(); return }
+    if (nd.item) onNode(nd.item)
+  }
+  // 수정 모드 드래그 — down 에서 잡고, move 는 모델 좌표를 직접 갱신(rAF 루프가
+  // 다음 프레임에 그대로 그림), up 에서 부모로 커밋(저장).
+  const onPointerDown = (e) => {
+    if (!editRef.current) return
+    const nd = hitNode(e)
+    if (!nd || nd.hub) return                 // 허브(DEEP.INC)는 중심 고정
+    dragRef.current = { id: nd.id, pos: null }
+    try { e.currentTarget.setPointerCapture(e.pointerId) } catch { /* 미지원 무시 */ }
+  }
+  const onPointerMove = (e) => {
+    const dr = dragRef.current; if (!dr) return
+    const cv = canvasRef.current; if (!cv) return
+    const rect = cv.getBoundingClientRect()
+    const { W, H } = stateRef.current
+    const nx = Math.max(0.03, Math.min(0.97, (e.clientX - rect.left) / W))
+    const ny = Math.max(0.05, Math.min(0.95, (e.clientY - rect.top) / H))
+    const nd = modelRef.current.byId[dr.id]
+    if (nd) { nd.x = nx; nd.y = ny; dr.pos = { x: nx, y: ny } }
+    if (drawRef.current) drawRef.current()    // reduce-motion(정지화면)일 때 즉시 반영
+  }
+  const onPointerUp = () => {
+    const dr = dragRef.current; dragRef.current = null
+    if (dr && dr.pos && onMoveRef.current) onMoveRef.current(dr.id, dr.pos)
   }
 
   useEffect(() => {
@@ -596,16 +647,20 @@ function BrainGraph({ items, links, onNode, onHub, harnessDirty }) {
     }
     const frame = (ts) => { if (start === null) start = ts; draw((ts - start) / 1000); if (!reduce) raf = requestAnimationFrame(frame) }
     resize()
+    drawRef.current = reduce ? () => draw(0) : null   // rAF 루프 없을 때만 수동 redraw 필요
     const ro = new ResizeObserver(() => { resize(); if (reduce) draw(0) })
     ro.observe(wrap)
     if (reduce) draw(0); else raf = requestAnimationFrame(frame)
-    return () => { cancelAnimationFrame(raf); ro.disconnect() }
+    return () => { cancelAnimationFrame(raf); ro.disconnect(); drawRef.current = null }
   }, [])
 
   return (
     <div ref={wrapRef} style={{ width: '100%' }}>
       <canvas ref={canvasRef} onClick={onClick}
-              style={{ display: 'block', width: '100%', height: 460, borderRadius: 14, cursor: 'pointer' }} />
+              onPointerDown={onPointerDown} onPointerMove={onPointerMove}
+              onPointerUp={onPointerUp} onPointerCancel={onPointerUp}
+              style={{ display: 'block', width: '100%', height: 460, borderRadius: 14,
+                       cursor: edit ? 'grab' : 'pointer', touchAction: edit ? 'none' : 'auto' }} />
     </div>
   )
 }
@@ -645,9 +700,13 @@ const mcCss = `
 .mc-cell span { font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: #b4b9d0; }
 .mc-cell b { font-size: 14px; font-family: ui-monospace, monospace; }
 .mc-open { font-size: 11px; font-weight: 700; letter-spacing: 1.2px; color: var(--a); }
+.mc-editbtn { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.14); border-radius: 13px; padding: 9px 15px; color: #b4b9d0; font-family: inherit; font-size: 11px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; cursor: pointer; transition: border-color .15s, color .15s, box-shadow .15s; }
+.mc-editbtn:hover { border-color: #67e8f9; color: #67e8f9; }
+.mc-editbtn.on { border-color: #34d399; color: #34d399; box-shadow: 0 0 14px -4px #34d399; }
+.mc-edithint { font-size: 11px; letter-spacing: 1px; color: #67e8f9; margin: 0 0 8px 2px; }
 `
 
-function MissionControl({ items, links, onPick, onNode, updated, onHub, harnessDirty }) {
+function MissionControl({ items, links, onPick, onNode, updated, onHub, harnessDirty, layout, edit, onEditToggle, onResetLayout, onMoveNode }) {
   const accents = ['#fb923c', '#ec4899', '#38bdf8', '#34d399', '#a78bfa', '#22d3ee', '#f59e0b', '#f472b6']
   const mods = items.filter((i) => i.type === 'module')
   const projs = items.filter((i) => i.type === 'project')
@@ -694,9 +753,13 @@ function MissionControl({ items, links, onPick, onNode, updated, onHub, harnessD
           <div className="mc-chip"><b style={{ color: '#34d399' }}>{active}</b><span>live cto</span></div>
           <div className="mc-chip"><b style={{ color: partial ? '#fbbf24' : '#8891aa' }}>{partial}</b><span>partial</span></div>
           <div className="mc-chip"><b style={{ fontSize: 13 }}>{updated || '—'}</b><span>sync</span></div>
+          <button className={'mc-editbtn' + (edit ? ' on' : '')} onClick={onEditToggle}
+                  title="노드 드래그 배치 수정">{edit ? '✓ 완료' : '✎ 수정'}</button>
+          {edit && <button className="mc-editbtn" onClick={onResetLayout} title="자동배치로 복귀">↺ 리셋</button>}
         </div>
       </div>
-      <div className="mc-core"><BrainGraph items={items} links={links} onNode={onNode} onHub={onHub} harnessDirty={harnessDirty} /></div>
+      {edit && <div className="mc-edithint">수정 모드 — 노드를 드래그해 원하는 위치로. 놓는 즉시 저장, ✓ 완료로 종료.</div>}
+      <div className="mc-core"><BrainGraph items={items} links={links} onNode={onNode} onHub={onHub} harnessDirty={harnessDirty} layout={layout} edit={edit} onMoveNode={onMoveNode} /></div>
       <div className="mc-split">
         <section className="mc-col">
           <div className="mc-col-head" style={{ color: '#a78bfa' }}><span className="mc-dot" style={{ background: '#a78bfa' }} />MODULES <em>{mods.length}</em></div>
@@ -1392,6 +1455,31 @@ function GitStatusView({ base }) {
     setBusy('')
   }
 
+  // 안 올라감 → 올라감. 그 항목을 막고 있는 `.gitignore` 줄을 지운다(어느 줄인지는
+  // 서버가 `git check-ignore -v` 로 판정 — 클라이언트는 항목 이름만 보낸다).
+  // 인덱스는 안 건드린다: 규칙이 빠지면 untracked 로 왼쪽에 다시 뜨고, stage 는 그 다음.
+  const include = async (path) => {
+    setBusy(path); setMsg(null)
+    try {
+      const t = localStorage.getItem('dashToken') || ''
+      const r = await fetch(`${base}/gitignore/remove`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(t ? { 'X-Dash-Token': t } : {}) },
+        body: JSON.stringify({ path }),
+      })
+      const d = await r.json().catch(() => ({}))
+      if (!r.ok || d.ok === false) {
+        setMsg({ err: true, text: d.error || `HTTP ${r.status}` })
+      } else {
+        // 넓은 패턴(`*.log`·`__pycache__/`)은 클릭한 항목만 못 푼다 — 같이 풀린 걸 적는다.
+        setMsg({ err: false, text: `.gitignore 에서 ${d.removed.join(', ')} 삭제 — ${path} 올라감으로`
+          + (d.freed?.length ? ` (같은 줄에 걸려 있던 ${d.freed.join(', ')} 도 같이 풀림)` : '') })
+        await load()
+      }
+    } catch (e) { setMsg({ err: true, text: String(e) }) }
+    setBusy('')
+  }
+
   if (err) return <div style={S.field}><style>{ibCss}</style><div className="ib-err">⚠ {err}</div></div>
   if (g === null) return <div style={S.field}><style>{ibCss}</style><div className="ib-empty">불러오는 중…</div></div>
   if (!g.is_repo) {
@@ -1554,6 +1642,9 @@ function GitStatusView({ base }) {
               {g.ignored.entries.map((e, i) => (
                 <div className="gs-row" key={i}>
                   <span className={'gs-path' + (e.path.endsWith('/') ? ' gs-off-t' : '')}>{e.path}</span>
+                  <button className="gs-move" disabled={busy === e.path}
+                          title={`.gitignore 규칙 삭제 — 올라감으로 (${e.files} 파일)`}
+                          onClick={() => include(e.path)}>←</button>
                   <span className="gs-n">{e.files} 파일</span>
                 </div>
               ))}
@@ -1703,7 +1794,34 @@ export default function App() {
   const [tasks, setTasks] = useState([])    // 우측상단 작업 toast
   const [hubInbox, setHubInbox] = useState(false) // 허브(DEEP.INC) 클릭 → 모달
   const [hubTab, setHubTab] = useState('git')     // 'git'(기본, 하네스 저장소) | 'inbox'
+  const [layout, setLayout] = useState({})        // Mission Control 수동 노드 배치 {name:{x,y}}
+  const [layoutEdit, setLayoutEdit] = useState(false)
   const taskId = useRef(0)
+
+  // 저장된 노드 배치 1회 로드 (실패 = 자동배치 그대로)
+  useEffect(() => {
+    apiGet('/api/layout')
+      .then((r) => (r.ok ? r.json() : {}))
+      .then((d) => { if (d && typeof d === 'object') setLayout(d) })
+      .catch(() => { /* 자동배치 폴백 */ })
+  }, [])
+  const saveLayout = async (next) => {
+    const t = dashToken()
+    try {
+      await fetch('/api/layout', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...(t ? { 'X-Dash-Token': t } : {}) },
+        body: JSON.stringify(next),
+      })
+    } catch { /* 다음 드롭 때 전체 상태 재저장되므로 유실 없음 */ }
+  }
+  const onMoveNode = (name, p) => {
+    setLayout((prev) => { const next = { ...prev, [name]: p }; saveLayout(next); return next })
+  }
+  const resetLayout = () => {
+    if (!window.confirm('노드 배치 리셋 — 자동배치로 복귀?')) return
+    setLayout({}); saveLayout({})
+  }
 
   useEffect(() => {
     let alive = true
@@ -1922,11 +2040,14 @@ export default function App() {
   }
 
   const selUrl = sel && safeUrl(sel.git_url)
-  const selFePort = sel && sel.cells && sel.cells.FRONTEND_PORT && sel.cells.FRONTEND_PORT.port
+  // 접속 포트 = FRONTEND_PORT, 없으면 BACKEND_PORT 폴백. 정적 프론트를 backend 가
+  // 직접 서빙하는 프로젝트(dev.sh 템플릿의 "백엔드 단독" 형태)는 FRONTEND_PORT 를
+  // 아예 안 쓴다 — FE 포트만 보면 접속 URL 이 영영 '—' 로 뜬다 (2026-08-18).
+  const selAccessCell = sel && sel.cells && ((sel.cells.FRONTEND_PORT && sel.cells.FRONTEND_PORT.port && sel.cells.FRONTEND_PORT) || (sel.cells.BACKEND_PORT && sel.cells.BACKEND_PORT.port && sel.cells.BACKEND_PORT)) || null
   // 접속 호스트 = 백엔드 DASH_ACCESS_HOST(.env). 미설정이면 브라우저 hostname 폴백.
   const accessHost = data.access_host || window.location.hostname
-  const selAccess = selFePort ? `http://${accessHost}:${selFePort}` : null
-  const selAccessUp = sel && sel.cells && sel.cells.FRONTEND_PORT && sel.cells.FRONTEND_PORT.up
+  const selAccess = selAccessCell ? `http://${accessHost}:${selAccessCell.port}` : null
+  const selAccessUp = !!(selAccessCell && selAccessCell.up)
 
 
   return (
@@ -1968,7 +2089,7 @@ export default function App() {
       <section style={S.section}>
         {/* type='cto' = 산출물 없는 논의 전용 세션. Port Registry 에는 포트를 갖고
             뜨지만 여기서는 뺀다 — Mission Control 은 모듈·프로젝트 계보 그래프다. */}
-        <MissionControl items={items.filter((it) => it.type !== 'cto')} links={data.links} harnessDirty={data.harness_dirty} onPick={(it) => { setSelMode('schema'); setSel(it) }} onNode={(it) => { setSelMode('inbox'); setNodeTab('git'); setSel(it) }} updated={updated} onHub={() => { setHubTab('git'); setHubInbox(true) }} />
+        <MissionControl items={items.filter((it) => it.type !== 'cto')} links={data.links} harnessDirty={data.harness_dirty} onPick={(it) => { setSelMode('schema'); setSel(it) }} onNode={(it) => { setSelMode('inbox'); setNodeTab('git'); setSel(it) }} updated={updated} onHub={() => { setHubTab('git'); setHubInbox(true) }} layout={layout} edit={layoutEdit} onEditToggle={() => setLayoutEdit((v) => !v)} onResetLayout={resetLayout} onMoveNode={onMoveNode} />
       </section>
 
       {/* ── 상세 모달 ── */}

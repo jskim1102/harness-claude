@@ -8,7 +8,7 @@ quoting is fully robust. Instead the `!`-line feeds `$ARGUMENTS` to this
 helper over a quoted heredoc on stdin, and ALL parsing/validation happens
 here in Python:
 
-  - args = shlex.split(sys.stdin.read())  (raw text, never re-evaluated)
+  - args = shlex.split(_read_stdin_args())  (raw text, never re-evaluated)
   - project / spec-slug re-validated against ^[a-z0-9]+(-[a-z0-9]+)*$
   - run-review.sh is launched via subprocess with shell=False (argv list,
     no shell string), so quotes / ; / $() / backticks in the heredoc body
@@ -40,6 +40,26 @@ KEBAB_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 USAGE = "Usage: /codex-review <project> [--consume]"
 SEARCH_BASES = ("claude-project", "modules")
 
+
+
+def _read_stdin_args(timeout_sec: float = 5.0) -> str:
+    """heredoc 인자를 읽되 **절대 블록하지 않는다.** 정상 호출(슬래시커맨드
+    heredoc)은 즉시 EOF 라 전량 읽히고, stdin 이 EOF 없는 소켓/tty 인 호출
+    (백그라운드 셸 등)은 timeout 후 빈 인자로 간주한다 — sys.stdin.read() 가
+    영원히 매달리던 hang 클래스 차단 (2026-08-20 smoke 백그라운드 2회 재현)."""
+    import select
+    fd = sys.stdin.fileno()
+    chunks: list[bytes] = []
+    while True:
+        ready, _, _ = select.select([fd], [], [], timeout_sec)
+        if not ready:
+            break
+        chunk = os.read(fd, 65536)
+        if not chunk:
+            break
+        chunks.append(chunk)
+        timeout_sec = 0.2   # 도착분 소진용 — 후속 대기는 짧게
+    return b"".join(chunks).decode("utf-8", "replace")
 
 def fail(message: str) -> int:
     print(message)
@@ -104,7 +124,7 @@ def consume(reviews_dir: Path, project: str) -> int:
 
 def main() -> int:
     try:
-        args = shlex.split(sys.stdin.read())
+        args = shlex.split(_read_stdin_args())
     except ValueError as exc:
         return fail(f"error: could not parse arguments ({exc}). {USAGE}")
 

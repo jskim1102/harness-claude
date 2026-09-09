@@ -519,6 +519,30 @@ else
   bad "★gate: rail 프로세스 생존 — 재스폰 lead 가 rail 없이 뜬다 (ensure_rail 가드 오판)"
   kill "$RAIL_GREP" "$RAIL_TAIL" 2>/dev/null || true
 fi
+# teammate 상태줄 (2026-08-18 사용자 지적: reviewer 가 일하는지 죽었는지 화면으로
+# 구별 불가). 판정은 **마지막 레코드 종류** — mtime 이면 15분짜리 도구 하나 도는
+# 동안 '작업중'이 '죽음'으로 보인다. 순수함수 4분기 고정.
+if python3 - <<'PY' 2>/dev/null
+import sys; sys.path.insert(0,'.')
+from harness.teammate_tail import record_kind as k, status_text as s
+assert k({"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash"}]}})=="tool_use"
+assert k({"type":"assistant","message":{"content":[{"type":"text","text":"끝"}]}})=="text"
+assert k({"type":"user","message":{"content":"x"}})=="user"
+assert k({"type":"system"}) is None
+assert "WORKING" in s("reviewer","tool_use",900,"abc12345")      # 긴 도구 = 여전히 작업중
+assert "도구 실행 중 15m0s" in s("reviewer","tool_use",900,"abc12345")
+assert "WORKING" in s("reviewer","user",3,"abc12345")
+assert "대기" in s("reviewer","text",60,"abc12345") and "WORKING" not in s("reviewer","text",60,"abc12345")
+assert "미배치" in s("reviewer",None,0,None)
+PY
+then ok "teammate 상태줄: 도구실행/응답생성/대기/미배치 4분기 (긴 도구도 WORKING)"
+else bad "teammate 상태줄 판정 회귀 — reviewer 작업여부가 다시 안 보인다"; fi
+
+# skill-activity 로그는 날짜를 포함해야 한다 — HH:MM:SS 만이면 rail tail 창에서
+# 어제/오늘 줄이 섞여 시간이 거꾸로 간다 (실측 1292줄 중 23건).
+check "skill-activity 로그 타임스탬프에 날짜 포함" 0 \
+  grep -q 'strftime("%m-%d %H:%M:%S")' hooks/team/skill_announce.py
+
 echo "== [fresh-respawn] 탭 close 실패가 --fresh 재기동을 죽이면 안 된다 =="
 CF_TMP="$CODEX_TMP/close-fail"
 mkdir -p "$CF_TMP/repo/claude-project/cf-smoke" "$CF_TMP/repo/harness" \
@@ -676,8 +700,47 @@ o=$(echo '{"tool_name":"Skill","tool_input":{"skill":"verify"},"agent_name":"dev
 [[ "$o" == *"developer"* && "$o" == *"verify"* ]] && ok "agent_name 표기" || bad "agent_name :: $o"
 o=$(echo '{"tool_name":"Skill","tool_input":{"skill":"x"}}' | HARNESS_ROLE=ceo CLAUDE_AGENT_NAME=reviewer python3 $SA 2>&1)
 [[ "$o" == *"reviewer"* ]] && ok "env 폴백" || bad "env 폴백 :: $o"
-o=$(echo '{"tool_name":"Skill","tool_input":{"skill":"x"}}' | HARNESS_ROLE=ceo python3 $SA 2>&1)
-[[ "$o" == *"cto"* ]] && ok "단서 없음 → cto 폴백" || bad "cto 폴백 :: $o"
+# 단서 없음 = 세션 본인 호출 → RULES §18 정본 호칭으로 폴백 (role 별로 다르다).
+# 예전엔 role 무관하게 'cto' 라 CEO 스킬 사용이 lead 로 오집계됐다 (2026-08-25).
+fb_fail=""
+for pair in "ceo:ceo" "cto:alpha:cto-lead" "codex-cto:alpha:cto-developer" \
+            "designer-cto:alpha:cto-designer"; do
+  fb_want="${pair##*:}"; fb_role="${pair%:*}"
+  o=$(echo '{"tool_name":"Skill","tool_input":{"skill":"x"}}' \
+      | HARNESS_ROLE="$fb_role" python3 $SA 2>&1)
+  o=$(printf '%s' "$o" | sed 's/\x1b\[[0-9;]*m//g')
+  [[ "$o" == "$fb_want ★ x"* ]] || fb_fail="$fb_fail [$fb_role→$o]"
+done
+[[ -z "$fb_fail" ]] && ok "단서 없음 → role 별 정본 호칭 폴백" \
+                    || bad "role 폴백 ::$fb_fail"
+
+# role 태그 보존 — transcript 역산은 **teammate(role env 없음)** 전용이다.
+# 자기 role 을 든 세션까지 덮으면 designer/codex 사용분이 lead 로 흡수된다
+# (2026-08-25 실측: designer 스킬이 [cto:<build>] 로 찍히고 있었다).
+RT_TP="$HOME/.claude/projects/-home-kim-3090-dev-harness-claude-modules-dataset-viewer/x.jsonl"
+rt_tag() {  # $1=role(빈값이면 미설정) → 로그에 찍힌 [role] 태그
+  local h; h=$(mktemp -d); local out
+  if [[ -n "$1" ]]; then
+    echo "{\"tool_name\":\"Skill\",\"tool_input\":{\"skill\":\"x\"},\"transcript_path\":\"$RT_TP\"}" \
+      | env -u HARNESS_ROLE HOME="$h" HARNESS_ROLE="$1" python3 $SA >/dev/null 2>&1
+  else
+    echo "{\"tool_name\":\"Skill\",\"tool_input\":{\"skill\":\"x\"},\"transcript_path\":\"$RT_TP\"}" \
+      | env -u HARNESS_ROLE HOME="$h" python3 $SA >/dev/null 2>&1
+  fi
+  out=$(sed 's/\x1b\[[0-9;]*m//g' "$h/.harness-claude/skill-activity.log" 2>/dev/null \
+        | sed -E 's/.*\[([^]]+)\].*/\1/')
+  printf '%s' "$out"
+}
+rt_fail=""
+for pair in "designer-cto:dataset-viewer" "codex-cto:dataset-viewer" \
+            "cto:dataset-viewer" "ceo"; do
+  got=$(rt_tag "$pair"); [[ "$got" == "$pair" ]] || rt_fail="$rt_fail [$pair→$got]"
+done
+# role 미설정(teammate) 은 역산이 살아 있어야 한다
+got=$(rt_tag ""); [[ "$got" == "cto:dataset-viewer" ]] \
+  || rt_fail="$rt_fail [teammate역산→$got]"
+[[ -z "$rt_fail" ]] && ok "role 태그 보존 (역산은 teammate 전용)" \
+                   || bad "role 태그 ::$rt_fail"
 check "tool_name=Bash 무시"      0 bash -c "echo '{\"tool_name\":\"Bash\"}' | python3 $SA"
 check "깨진 JSON fail-open"      0 bash -c "echo 'not-json' | python3 $SA"
 # Workflow 도구도 announce — 워크플로로 도는 스킬이 스킬창에 뜨게 (2026-06-24 갭)
@@ -1402,8 +1465,9 @@ check "inbox pair: Codex CTO → CEO 차단" 2 env HOME="$PAIR_TMP/home" HARNESS
 check "inbox pair: Codex CTO끼리 차단" 2 env HOME="$PAIR_TMP/home" HARNESS_ROLE=codex-cto:alpha python3 -m harness.cli send --to codex-cto:alpha --to-unknown --body "x"
 pair_codex=$(HOME="$PAIR_TMP/home" HARNESS_ROLE=codex-cto:alpha python3 -m harness.cli inbox --peek 2>&1)
 pair_claude=$(HOME="$PAIR_TMP/home" HARNESS_ROLE=cto:alpha python3 -m harness.cli inbox --peek 2>&1)
-[[ "$pair_codex" == *"from=cto:alpha"* && "$pair_codex" == *"segment ready"* \
-   && "$pair_claude" == *"from=codex-cto:alpha"* && "$pair_claude" == *"evidence ready"* ]] \
+# from= 표기는 RULES §18 정본 호칭 (내부 식별자 cto:/codex-cto: 는 불변)
+[[ "$pair_codex" == *"from=cto-lead(alpha)"* && "$pair_codex" == *"segment ready"* \
+   && "$pair_claude" == *"from=cto-developer(alpha)"* && "$pair_claude" == *"evidence ready"* ]] \
   && ok "inbox pair: 양쪽 role로 큐 읽기" || bad "inbox pair: 양쪽 큐 읽기 실패"
 rm -rf "$PAIR_TMP"
 tmp=/tmp/smoke-codex-protocol-review
@@ -1469,8 +1533,7 @@ assert calls[-1][-4:] == ['--text', d.CODEX_INBOX_PROMPT, '--enter', '--json']
 o=$(grep -c "observe 화면" harness/daemon.py)
 [[ "$o" == "0" ]] && ok "daemon 메시지에 observe 없음" || bad "daemon observe 잔재"
 check "stall: tasks 미완 카운트" 0 python3 -c "import sys; sys.path.insert(0,'.'); from harness.daemon import _parse_tasks_incomplete as f; assert f('- [ ] a\n- [✅] b\n- [!] c\n- [x] d')==2, f('got %d' % f('- [ ] a\n- [✅] b\n- [!] c\n- [x] d'))"
-check "stall: verdict 결정론" 0 python3 -c "import sys; sys.path.insert(0,'.'); from harness.daemon import _stall_verdict as v, STALL_SEC as S; over=S+100; under=S-100; assert v(True,False,2,over) is True; assert v(False,False,2,over) is False; assert v(True,True,2,over) is False; assert v(True,False,0,over) is False; assert v(True,False,2,under) is False; assert v(True,False,2,over,True) is False; assert v(True,False,2,over,False) is True"
-check "stall: backoff 상한 > 임계" 0 python3 -c "import sys; sys.path.insert(0,'.'); from harness.daemon import STALL_SEC as S, STALL_BACKOFF_MAX_SEC as B; assert B > S, 'backoff cap %s must exceed threshold %s' % (B, S)"
+check "stall 탐지기 부재 고정 (2026-08-20 사용자 지시 제거 — 복원=회귀)" 0 python3 -c "import sys; sys.path.insert(0,'.'); import harness.daemon as d; assert not hasattr(d,'_stall_verdict'); assert not hasattr(d,'STALL_SEC'); assert not hasattr(d,'detect_stalls'); assert not hasattr(d,'_detect_one_stall'); assert hasattr(d,'detect_pair_issues')"
 check "stall: hybrid pair 4상태" 0 python3 -c "from harness.daemon import _pair_status as s; assert s(True,True)=='healthy'; assert s(True,False)=='claude-only'; assert s(False,True)=='codex-only'; assert s(False,False)=='both-down'"
 pair_stall_out=$(python3 - <<'PY' 2>&1
 import logging
@@ -1551,15 +1614,7 @@ with tempfile.TemporaryDirectory() as tmp:
     assert d._detect_pair_degradations(0, state, log, pair(True, True)) == set()
     assert d._detect_pair_degradations(1, state, log, pair(False, False)) == set()
 
-    with test_connect() as conn:
-        conn.execute(
-            "INSERT INTO msg (from_role, to_role, body) "
-            "VALUES ('harnessd', 'ceo', ?)",
-            ("[system] cto:alpha 무진행 의심\nold generic alert",),
-        )
-
     assert d._detect_pair_degradations(100, state, log, pair(True, False)) == {"alpha"}
-    assert rows()[0]["read_at"] is not None
     assert d._detect_pair_degradations(109, state, log, pair(True, False)) == {"alpha"}
     assert not [r for r in rows() if "pair degraded:" in r["body"]]
 
@@ -1594,14 +1649,11 @@ with tempfile.TemporaryDirectory() as tmp:
         if "pair degraded:" in r["body"] and r["read_at"] is None
     ]
 
+    # 무진행 의심 축 제거(2026-08-20) 후 남은 유일한 진입점 — pair 감지만 구동한다.
     calls = []
-    d._detect_pair_degradations = lambda now, pair_state, log: {"alpha"}
-    d._list_cto_sessions = lambda: {"cto-alpha", "cto-beta"}
-    d._detect_one_stall = lambda session, now, state, log: calls.append(session)
-    generic_state = {"cto-alpha": {"old": True}, "cto-gone": {"old": True}}
-    d.detect_stalls(log, generic_state, {})
-    assert calls == ["cto-beta"]
-    assert "cto-alpha" not in generic_state and "cto-gone" not in generic_state
+    d._detect_pair_degradations = lambda now, pair_state, log: calls.append("hit") or set()
+    d.detect_pair_issues(log, {})
+    assert calls == ["hit"], "detect_pair_issues must drive pair degradation check"
 PY
 )
 pair_stall_got=$?
@@ -2069,6 +2121,24 @@ echo '{"hook_event_name":"UserPromptSubmit","prompt":"/start-project"}' \
   | HOME="$RGHOME" HARNESS_ROLE=cto:smokegate python3 "$GH" >/dev/null 2>&1
 echo "$ev_plan" | HOME="$RGHOME" HARNESS_ROLE=cto:smokegate python3 "$OH" >/dev/null 2>&1; [[ $? -eq 0 ]] \
   && ok "role gate: /start-project resets role claims" || bad "role gate: claim reset failed"
+# ★claim 누수 게이트 (2026-08-20 annodock 실사고): planner_dispatch_gate 가
+# 차단할 호출(tasks.md 존재+무토큰)을 role gate 가 먼저 claim 하면, 호출은
+# 죽는데 planner.claimed 유령이 남아 이후 사용자 승인 스폰까지 "중복" 차단.
+# → 그런 호출은 claim 없이 통과시켜야 한다 (차단은 dispatch_gate 몫).
+RLPROJ="$REPO/claude-project/zz-smoke-roleleak"
+mkdir -p "$RLPROJ/specs"; echo "- [ ] p1" > "$RLPROJ/specs/tasks.md"
+ev_leak="{\"tool_name\":\"Agent\",\"cwd\":\"$RLPROJ\",\"tool_input\":{\"subagent_type\":\"planner\",\"prompt\":\"팀 스폰\"}}"
+echo "$ev_leak" | HOME="$RGHOME" HARNESS_ROLE=cto:zz-smoke-roleleak python3 "$OH" >/dev/null 2>&1; [[ $? -eq 0 ]] \
+  && ok "role gate: 분해완료+무토큰 planner → 무claim 통과" || bad "role gate: 분해완료 planner 처리 실패"
+[[ ! -f "$RGHOME/.harness-claude/orca-team-spawn-claims/zz-smoke-roleleak/planner.claimed" ]] \
+  && ok "★gate: dispatch_gate 가 차단할 호출에 claim 안 남김 (유령 claim 방지)" \
+  || bad "claim 누수 회귀 — planner.claimed 유령 생성됨"
+ev_leak_ok="{\"tool_name\":\"Agent\",\"cwd\":\"$RLPROJ\",\"tool_input\":{\"subagent_type\":\"planner\",\"prompt\":\"사용자 지시 HARNESS_USER_OK=planner 재분해\"}}"
+echo "$ev_leak_ok" | HOME="$RGHOME" HARNESS_ROLE=cto:zz-smoke-roleleak python3 "$OH" >/dev/null 2>&1; [[ $? -eq 0 ]] \
+  && ok "role gate: 사용자 토큰 planner → claim+allow" || bad "role gate: 토큰 planner claim 실패"
+[[ -f "$RGHOME/.harness-claude/orca-team-spawn-claims/zz-smoke-roleleak/planner.claimed" ]] \
+  && ok "role gate: 토큰 경로는 claim 정상 기록" || bad "role gate: 토큰 경로 claim 누락"
+rm -rf "$RLPROJ"
 rm -rf "$RGHOME"
 rm -rf "$GT"
 
@@ -2336,6 +2406,26 @@ touch "$NGM/nudgesmoke.started"; rm -f "$NGSTATE/${NGSESS}.count"
 echo "$ngpay" | ORCA_CLI_COMMAND="$NGORCA/orca-ide" ORCA_FAIL=1 \
   HARNESS_ROLE=cto:nudgesmoke python3 "$NG" >/dev/null 2>&1; [[ $? -eq 0 ]] \
   && ok "nudge: Orca unavailable → fail-open" || bad "nudge: Orca fail-open failed"
+# ★훅 모순 게이트 (2026-08-20 annodock 실사고): 분해 완료(specs/tasks.md 존재)
+# 프로젝트의 재시작 회차에선 planner 스폰이 planner_dispatch_gate 하드룰로 금지다.
+# nudge 가 그대로 planner+reviewer 2명을 요구하면 "한 훅이 명령한 걸 다른 훅이
+# 차단"하는 교착 — reviewer 만 요구해야 한다.
+NGDEC="$REPO/claude-project/nudgesmoke"
+mkdir -p "$NGDEC/specs"; echo "- [ ] p1" > "$NGDEC/specs/tasks.md"
+touch "$NGM/nudgesmoke.started"; rm -f "$NGSTATE/${NGSESS}.count"
+echo "$ngpay" | ORCA_CLI_COMMAND="$NGORCA/orca-ide" ORCA_LEAVES=3 ORCA_CODEX=1 \
+  HARNESS_ROLE=cto:nudgesmoke python3 "$NG" >/dev/null 2>&1; [[ $? -eq 0 ]] \
+  && ok "★gate: 분해완료 재시작 = reviewer 만으로 완료 (planner 요구 안 함)" \
+  || bad "훅 모순 회귀 — 분해완료 프로젝트에 planner 까지 요구 (dispatch_gate 와 교착)"
+[[ ! -f "$NGM/nudgesmoke.started" ]] \
+  && ok "nudge: 분해완료 완료판정 → 마커 청소" || bad "nudge: 분해완료 마커 잔존"
+touch "$NGM/nudgesmoke.started"; rm -f "$NGSTATE/${NGSESS}.count"
+ngdec_err=$(echo "$ngpay" | ORCA_CLI_COMMAND="$NGORCA/orca-ide" ORCA_LEAVES=2 ORCA_CODEX=1 \
+  HARNESS_ROLE=cto:nudgesmoke python3 "$NG" 2>&1 >/dev/null); ngdec_rc=$?
+[[ $ngdec_rc -eq 2 ]] && echo "$ngdec_err" | grep -q "planner 는 spawn 하지 마라" \
+  && ok "★gate: 분해완료 block 문구가 planner 금지를 명시" \
+  || bad "분해완료 block 문구 회귀 (exit=$ngdec_rc) :: $ngdec_err"
+rm -rf "$NGDEC"
 rm -rf "$NGORCA"; unset HARNESS_KEEPER_DIR
 rm -f "$NGM/nudgesmoke.started" "$NGSTATE/${NGSESS}.count"
 # settings.json 템플릿이 Stop 훅을 실제 배선하는지 (run.sh)
@@ -2398,32 +2488,75 @@ else bad "session_start 주입 스코프 위반"; fi
 
 # Case C — 실 CEO를 건드리지 않는 fake-Orca lifecycle 검증은 [1]에서 수행.
 # 여기서는 public lifecycle 함수가 legacy-multiplexer 실행문을 다시 들이지 않는지 고정한다.
+# 프로세스-사망 소생 가드 (2026-08-20): create 가드가 터미널 재사용 시 keeper sock
+# 부재(=안의 프로세스 사망)를 감지해 명령 재주입해야 한다. 3 keeper call site 전달 핀.
+check "terminal revive: keeper_role 전달 3곳 + sock 검사" 0 bash -c '
+  grep -q "keeper_role=\"\${4:-}\"" run.sh &&
+  grep -q "cto-\${role#cto:}-lead\") || return 1" run.sh &&
+  grep -q "\"cto-\$name-designer\") || return 1" run.sh &&
+  grep -q "\"cto-\$name-codex\") || return 1" run.sh &&
+  grep -q "_keeper_sock \"\$keeper_role\"" run.sh'
+
 check "CEO/CTO lifecycle: run.sh legacy-multiplexer 실행문 0" 0 \
   bash -c '! grep -Eq "^[[:space:]]*legacy-multiplexer[[:space:]]" run.sh'
 
-# Case D — inbox-ceo.pause 데몬 CEO wake 억제. temp HOME 으로 DB+플래그 격리,
-# legacy-multiplexer/claude 접촉 헬퍼 몽키패치 후 tick() 반환 wake 수를 flag 유무로 비교.
+# Case D — 하네스 다이어트(2026-08-20): CEO 는 미읽음이 있어도 **무조건** wake 0
+# (pull-only 승격 — 구 inbox-ceo.pause 조건부 폐지). CTO wake 는 발주 통로라 유지.
 DPH="$(mktemp -d)"
-if HOME="$DPH" python3 - <<'PY' 2>/dev/null
-import sys; sys.path.insert(0,'.')
+if HOME="$DPH" python3 - <<'CASED' 2>/dev/null
+import sys, time; sys.path.insert(0,'.')
 import logging, harness.daemon as d
+from harness.db import connect
+log=logging.getLogger('t')
+d._target_alive=lambda t:True
+d._resolve_target=lambda r: r
+d._pane_idle=lambda t:True
+d._send_inbox=lambda t,l,r:True
+d.orca_runtime.role_alive=lambda r:True
+with connect() as c:
+    c.execute("INSERT INTO msg(from_role,to_role,body) VALUES('harnessd','ceo','hi')")
+    c.execute("INSERT INTO msg(from_role,to_role,body) VALUES('ceo','cto:alpha','go')"); c.commit()
+seed=lambda: {'ceo': time.monotonic()-d.IDLE_CONFIRM_SEC-1, 'cto:alpha': time.monotonic()-d.IDLE_CONFIRM_SEC-1}
+assert d.tick(log,{},{},{},seed())==1, 'CTO must wake, CEO must not (diet)'
+assert not hasattr(d, 'CEO_INBOX_PAUSE_FLAG'), 'pause flag must be gone'
+d.orca_runtime.role_alive=lambda r:False   # 터미널 생존·프로세스 사망(bash 잔존)
+assert d.tick(log,{},{},{},seed())==0, 'dead-process role must NOT be woken (bash 오염 방지)'
+CASED
+then ok "daemon: CEO wake 영구 0 (다이어트) + CTO wake 유지"
+else bad "daemon CEO pull-only 다이어트 회귀"; fi
+rm -rf "$DPH"
+
+# Case D2 — 순간 idle 오판 디바운스 (2026-08-18 사고: bounded preview 단일 샘플로
+# 작업 중 pane 이 idle 로 보여 nudge 가 꿂혀 developer 진행이 끊김). 연속 idle 이
+# IDLE_CONFIRM_SEC 를 넘어야만 깨운다 — busy 샘플 하나면 타이머 리셋.
+DPH2="$(mktemp -d)"
+if HOME="$DPH2" python3 - <<'PY' 2>/dev/null
+import sys; sys.path.insert(0,'.')
+import logging, time, harness.daemon as d
 from harness.db import connect
 log=logging.getLogger('t')
 d._ceo_target_alive=lambda:True
 d._target_alive=lambda t:True
-d._resolve_target=lambda r:'ceo'
-d._pane_idle=lambda t:True
+d._resolve_target=lambda r: r
 d._send_inbox=lambda t,l,r:True
 with connect() as c:
-    c.execute("INSERT INTO msg(from_role,to_role,body) VALUES('harnessd','ceo','hi')"); c.commit()
-assert not d.CEO_INBOX_PAUSE_FLAG.exists()
-assert d.tick(log,{},{},{})==1, 'wake expected without pause'
-d.CEO_INBOX_PAUSE_FLAG.parent.mkdir(parents=True,exist_ok=True); d.CEO_INBOX_PAUSE_FLAG.touch()
-assert d.tick(log,{},{},{})==0, 'wake suppressed with pause'
+    c.execute("INSERT INTO msg(from_role,to_role,body) VALUES('ceo','cto:alpha','go')"); c.commit()
+st={}
+d._pane_idle=lambda t:True
+d.orca_runtime.role_alive=lambda r:True
+assert d.tick(log,{},{},{},st)==0, 'first idle sample must NOT wake (unconfirmed)'
+st['cto:alpha']=time.monotonic()-d.IDLE_CONFIRM_SEC-1        # 연속 idle 임계 초과
+assert d.tick(log,{},{},{},st)==1, 'sustained idle must wake'
+st['cto:alpha']=time.monotonic()-d.IDLE_CONFIRM_SEC-1
+d._pane_idle=lambda t:False                            # 작업 재개(busy)
+assert d.tick(log,{},{},{},st)==0, 'busy must suppress'
+assert 'cto:alpha' not in st, 'busy sample must reset idle timer'
+d._pane_idle=lambda t:True                             # busy 직후 idle = 재확인 필요
+assert d.tick(log,{},{},{},st)==0, 'post-busy idle must re-confirm, not wake'
 PY
-then ok "daemon: inbox-ceo.pause → CEO wake 억제(1→0)"
-else bad "daemon inbox-ceo.pause 억제 실패"; fi
-rm -rf "$DPH"
+then ok "daemon: 연속 idle 확인 게이트 — 작업중 nudge 차단(미확인/busy/재확인 3분기)"
+else bad "daemon idle 디바운스 게이트 실패"; fi
+rm -rf "$DPH2"
 
 # Case E — CEO staleness verdict 순수함수 결정론 (statusline/doctor 공용 로직).
 check "staleness verdict: 3분기 결정론" 0 python3 -c "
@@ -2758,9 +2891,10 @@ with tempfile.TemporaryDirectory() as tmp:
     m._resolve_project = lambda name: project if name in ("alpha", "beta") else None
 
     ceo = m.inbox()
+    # from/to = 표시값 (RULES §18 정본 호칭). db 의 role 문자열은 안 바뀐다.
     assert {(x["from"], x["to"], x["body"]) for x in ceo["messages"]} == {
-        ("cto:alpha", "ceo", "cto-to-ceo"),
-        ("ceo", "cto:alpha", "ceo-to-cto"),
+        ("cto-lead(alpha)", "ceo", "cto-to-ceo"),
+        ("ceo", "cto-lead(alpha)", "ceo-to-cto"),
     }
     assert {x["body"] for x in ceo["system"]} == {"system-one", "system-two"}
     assert m.inbox_delete(ids["ceo-to-cto"])["deleted"] == 1
@@ -2841,6 +2975,193 @@ check "install-services --port 만 → 거부(pairing 필수)" 1 ./run.sh instal
 # systemctl 있는 머신 = env-file 게이트에서, 없는 머신 = systemctl 게이트에서 — 어느 쪽이든 exit 1.
 # XDG_RUNTIME_DIR 오염은 진짜 user manager 를 건드리는 사고 방지용 이중 안전벨트.
 check "install-services env 파일 없이 → 거부" 1 env XDG_RUNTIME_DIR=/nonexistent-smoke ./run.sh install-services
+
+echo "== [update-orca] AppImage 원클릭 갱신 + 자동 롤백 =="
+_make_fake_appimage() { # <path> <version>
+  printf '#!/usr/bin/env bash\nprintf '\''%%s\\n'\'' '\''%s'\''\n' "$2" > "$1"
+  chmod +x "$1"
+}
+_setup_update_fixture() { # <root>
+  local root="$1"
+  mkdir -p "$root/home/apps/orca" "$root/home/.local/bin" "$root/bin"
+  _make_fake_appimage "$root/home/apps/orca/orca-linux.AppImage" 1.4.162
+  cat > "$root/home/.local/bin/orca" <<'SH'
+#!/usr/bin/env bash
+version=$("$HOME/apps/orca/orca-linux.AppImage")
+reported=${ORCA_UPDATE_REPORTED_VERSION:-$version}
+printf '{"ok":true,"result":{"runtime":{"state":"ready","reachable":true,"appVersion":"%s"}}}\n' "$reported"
+SH
+  chmod +x "$root/home/.local/bin/orca"
+  cat > "$root/bin/systemctl" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$ORCA_UPDATE_SYSTEMCTL_LOG"
+case "$*" in
+  "--user is-active --quiet orca-harness.service"|\
+  "--user stop orca-harness.service"|\
+  "--user start orca-harness.service") exit 0 ;;
+  *) exit 1 ;;
+esac
+SH
+  chmod +x "$root/bin/systemctl"
+}
+
+UPD_OK="$SMOKE_HOME/update-orca-ok"
+_setup_update_fixture "$UPD_OK"
+_make_fake_appimage "$UPD_OK/orca-linux.AppImage.new" 1.4.193
+check "update-orca: staged AppImage 교체 성공" 0 \
+  env -u ORCA_APP_VERSION -u ORCA_AGENT_HOOK_ENDPOINT \
+      HOME="$UPD_OK/home" PATH="$UPD_OK/bin:$PATH" \
+      ORCA_UPDATE_SYSTEMCTL_LOG="$UPD_OK/systemctl.log" \
+      ./run.sh update-orca --from "$UPD_OK/orca-linux.AppImage.new" --yes
+[[ "$("$UPD_OK/home/apps/orca/orca-linux.AppImage")" == "1.4.193" \
+   && "$("$UPD_OK/home/apps/orca/orca-linux.AppImage.1.4.162.bak")" == "1.4.162" ]] \
+  && ok "update-orca: 고정 경로 교체 + 버전명 backup 보존" \
+  || bad "update-orca: 교체/backup 결과 불일치"
+[[ "$(grep -c '^--user stop orca-harness.service$' "$UPD_OK/systemctl.log")" == 1 \
+   && "$(grep -c '^--user start orca-harness.service$' "$UPD_OK/systemctl.log")" == 1 ]] \
+  && ok "update-orca: 검증 후 service stop/start 각 1회" \
+  || bad "update-orca: service lifecycle 불일치"
+
+UPD_RB="$SMOKE_HOME/update-orca-rollback"
+_setup_update_fixture "$UPD_RB"
+_make_fake_appimage "$UPD_RB/orca-linux.AppImage.new" 1.4.193
+check "update-orca: 새 runtime health 실패 → 명령 실패" 1 \
+  env -u ORCA_APP_VERSION -u ORCA_AGENT_HOOK_ENDPOINT \
+      HOME="$UPD_RB/home" PATH="$UPD_RB/bin:$PATH" \
+      ORCA_UPDATE_SYSTEMCTL_LOG="$UPD_RB/systemctl.log" \
+      ORCA_UPDATE_REPORTED_VERSION=0.0.0 ORCA_UPDATE_WAIT_SECONDS=1 \
+      ./run.sh update-orca --from "$UPD_RB/orca-linux.AppImage.new" --yes
+[[ "$("$UPD_RB/home/apps/orca/orca-linux.AppImage")" == "1.4.162" \
+   && "$(grep -c '^--user start orca-harness.service$' "$UPD_RB/systemctl.log")" == 2 \
+   && -n "$(compgen -G "$UPD_RB/home/apps/orca/orca-linux.AppImage.1.4.193.failed.*")" ]] \
+  && ok "update-orca: 이전 image 자동복원 + 실패 image 격리 + service 재기동" \
+  || bad "update-orca: rollback 결과 불일치"
+
+check "update-orca: checksum·공식 release URL·Orca 실행위치 가드 존재" 0 bash -c '
+  grep -q "sha256sum" scripts/orca-update.sh &&
+  grep -q "https://github.com/stablyai/orca/releases/download" scripts/orca-update.sh &&
+  grep -q "ORCA_AGENT_HOOK_ENDPOINT" scripts/orca-update.sh'
+
+# ── GitHub 다운로드 경로 (2026-09-01 추가) ──────────────────────────────────
+# 여기까지는 `--from` 만 돌려서, **보안 핵심인 release metadata 검증·checksum·
+# URL 핀**이 `grep -q sha256sum` 정적 3줄로만 지켜지고 있었다. 검증을 떨어뜨리는
+# 리팩터가 초록으로 통과한다 = 리터럴만 핀 스모크. curl 을 PATH 에서 갈아끼워
+# 실제 경로를 태운다.
+_setup_update_curl() { # <root> — release metadata/asset 를 파일에서 내주는 가짜 curl
+  cat > "$1/bin/curl" <<'SH'
+#!/usr/bin/env bash
+out=""; url=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --output) out="$2"; shift 2 ;;
+    -H) shift 2 ;;
+    http*) url="$1"; shift ;;
+    *) shift ;;
+  esac
+done
+case "$url" in
+  */releases/latest|*/releases/tags/*) cat "$FAKE_RELEASE_JSON" > "$out" ;;
+  */download/*) cp "$FAKE_ASSET" "$out" ;;
+  *) exit 22 ;;
+esac
+SH
+  chmod +x "$1/bin/curl"
+}
+_write_release_json() { # <root> <mode> — mode 별로 한 군데씩 변조한 release 응답
+  python3 - "$1" "$2" <<'PY'
+import hashlib, json, os, sys
+root, mode = sys.argv[1], sys.argv[2]
+data = open(os.path.join(root, "asset"), "rb").read()
+url = "https://github.com/stablyai/orca/releases/download/v1.4.193/orca-linux.AppImage"
+asset = {"name": "orca-linux.AppImage", "browser_download_url": url,
+         "size": len(data), "digest": "sha256:" + hashlib.sha256(data).hexdigest()}
+release = {"tag_name": "v1.4.193", "draft": False, "prerelease": False, "assets": [asset]}
+if mode == "tamper_sha":     asset["digest"] = "sha256:" + "0" * 64
+elif mode == "tamper_size":  asset["size"] = len(data) + 1
+elif mode == "no_digest":    asset["digest"] = None
+elif mode == "evil_url":     asset["browser_download_url"] = "https://evil.example.com/x.AppImage"
+elif mode == "prerelease":   release["prerelease"] = True
+elif mode == "draft":        release["draft"] = True
+elif mode == "tag_mismatch": release["tag_name"] = "v1.4.999"
+json.dump(release, open(os.path.join(root, "release.json"), "w"))
+PY
+}
+_upd_env() { # <root> — 가짜 curl/systemctl/orca + Orca 밖 재현
+  printf '%s\n' env -u ORCA_APP_VERSION -u ORCA_AGENT_HOOK_ENDPOINT \
+    "HOME=$1/home" "PATH=$1/bin:$PATH" \
+    "ORCA_UPDATE_SYSTEMCTL_LOG=$1/systemctl.log" \
+    "FAKE_RELEASE_JSON=$1/release.json" "FAKE_ASSET=$1/asset"
+}
+_upd_prep() { # <root> <mode>
+  _setup_update_fixture "$1"; _setup_update_curl "$1"
+  _make_fake_appimage "$1/asset" 1.4.193
+  _write_release_json "$1" "$2"
+  : > "$1/systemctl.log"
+}
+
+UPD_DL="$SMOKE_HOME/update-orca-download"
+_upd_prep "$UPD_DL" happy
+mapfile -t UPD_DL_ENV < <(_upd_env "$UPD_DL")
+check "update-orca: release 다운로드 → checksum 통과 → 설치" 0 \
+  "${UPD_DL_ENV[@]}" ORCA_UPDATE_WAIT_SECONDS=2 ./run.sh update-orca --yes
+[[ "$("$UPD_DL/home/apps/orca/orca-linux.AppImage")" == "1.4.193" ]] \
+  && ok "update-orca: 다운로드 경로 설치 결과 = 1.4.193" \
+  || bad "update-orca: 다운로드 경로 설치 실패"
+
+# 변조 6종 + tag 불일치 — 공통 불변식은 "**서비스를 내리기 전에** 막힌다".
+# (metadata 변조는 is-active 전에, checksum 변조는 is-active 후 download 에서
+#  걸리므로 stop 유무가 두 부류를 함께 덮는 유일한 앵커다.)
+for _mode in tamper_sha tamper_size no_digest evil_url prerelease draft; do
+  _root="$SMOKE_HOME/update-orca-dl-$_mode"
+  _upd_prep "$_root" "$_mode"
+  mapfile -t _dlenv < <(_upd_env "$_root")
+  "${_dlenv[@]}" ORCA_UPDATE_WAIT_SECONDS=2 ./run.sh update-orca --yes >/dev/null 2>&1
+  _rc=$?
+  [[ "$_rc" -ne 0 \
+     && "$("$_root/home/apps/orca/orca-linux.AppImage")" == "1.4.162" \
+     && "$(grep -c 'stop orca-harness' "$_root/systemctl.log")" == 0 ]] \
+    && ok "update-orca: release 변조($_mode) → 중지 전 차단·AppImage 무변경" \
+    || bad "update-orca: release 변조($_mode) 가 통과했다 (rc=$_rc)"
+done
+
+_root="$SMOKE_HOME/update-orca-dl-tagmismatch"
+_upd_prep "$_root" tag_mismatch
+mapfile -t _dlenv < <(_upd_env "$_root")
+check "update-orca: 요청 버전 ≠ release 버전 → 거부" 1 \
+  "${_dlenv[@]}" ./run.sh update-orca 1.4.193 --yes
+[[ "$(grep -c 'stop orca-harness' "$_root/systemctl.log")" == 0 ]] \
+  && ok "update-orca: tag 불일치도 중지 전 차단" \
+  || bad "update-orca: tag 불일치인데 서비스를 내렸다"
+
+# ── Orca 안 실행 가드 (2026-09-01: tty → ORCA env 로 판정 변경) ────────────
+# 예전 가드는 `[[ -t 0 ]] && ORCA env` 라 **에이전트 도구 셸이 그냥 통과**했다.
+# 그 셸이야말로 Orca 안이고, 재기동의 ExecStartPre 수거기가 유닛 밖 Orca
+# 프로세스(=CEO·전 CTO 탭)를 죽인다 → 에이전트 한 줄로 하네스 전체 정지.
+UPD_GUARD="$SMOKE_HOME/update-orca-guard"
+_upd_prep "$UPD_GUARD" happy
+_GUARD_BASE=(env "HOME=$UPD_GUARD/home" "PATH=$UPD_GUARD/bin:$PATH" \
+             "ORCA_UPDATE_SYSTEMCTL_LOG=$UPD_GUARD/systemctl.log" \
+             "FAKE_RELEASE_JSON=$UPD_GUARD/release.json" "FAKE_ASSET=$UPD_GUARD/asset" \
+             ORCA_APP_VERSION=1.4.162)
+check "update-orca: Orca 안 비대화 셸 → 마커 없으면 거부" 1 \
+  "${_GUARD_BASE[@]}" ./run.sh update-orca --check
+check "update-orca: 사용자 마커(HARNESS_USER_OK=orca)면 통과" 0 \
+  "${_GUARD_BASE[@]}" HARNESS_USER_OK=orca ./run.sh update-orca --check
+check "update-orca: 무관한 마커는 안 열린다" 1 \
+  "${_GUARD_BASE[@]}" HARNESS_USER_OK=git ./run.sh update-orca --check
+if command -v script >/dev/null 2>&1; then
+  # 대화형 Orca 터미널은 마커로도 열지 않는다 — updater 자신의 셸이 죽어 롤백조차 못 돈다.
+  check "update-orca: 대화형 tty 는 마커가 있어도 거부" 1 \
+    script -qec "HARNESS_USER_OK=orca ORCA_APP_VERSION=1.4.162 HOME=$UPD_GUARD/home PATH=$UPD_GUARD/bin:$PATH ORCA_UPDATE_SYSTEMCTL_LOG=$UPD_GUARD/systemctl.log FAKE_RELEASE_JSON=$UPD_GUARD/release.json FAKE_ASSET=$UPD_GUARD/asset ./run.sh update-orca --check" /dev/null
+else
+  ok "update-orca: tty 케이스 건너뜀 (script 없음)"
+fi
+
+# 기본 대기값 — 재기동 경로에 수거기(TERM→10s→KILL)가 끼어 45초는 멀쩡한
+# 업데이트를 롤백시킬 수 있었다.
+grep -q 'ORCA_UPDATE_WAIT_SECONDS:-120' scripts/orca-update.sh \
+  && ok "update-orca: runtime ready 기본 대기 120초" \
+  || bad "update-orca: 기본 대기값이 120초가 아니다"
 
 echo "== [orca-ghost] delete-cto 가 Orca 유령을 만들지 않는다 =="
 # 2026-07-23 실측: 앱 구동 중 프로젝트 등록을 외부에서 지우면 worktreeMeta 가 남아

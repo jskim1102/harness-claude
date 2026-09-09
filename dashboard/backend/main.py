@@ -20,6 +20,7 @@ docker compose 를 호출한다.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import secrets
@@ -155,6 +156,40 @@ def health() -> dict:
     return {"status": "ok"}
 
 
+# ── Mission Control 노드 레이아웃 (수정 모드 드래그 배치) ────────────────
+# {name: {x,y}} (0~1 정규화 좌표) 를 파일로 영속 — 어느 브라우저든 동일 배치.
+# 빈 dict PUT = 리셋(자동배치 복귀).
+LAYOUT_FILE = Path.home() / ".harness-claude" / "dashboard-layout.json"
+
+
+@app.get("/api/layout", dependencies=[Depends(require_token)])
+def layout_get() -> dict:
+    try:
+        d = json.loads(LAYOUT_FILE.read_text(encoding="utf-8"))
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+@app.put("/api/layout", dependencies=[Depends(require_token)])
+def layout_put(positions: dict = Body(...)) -> dict:
+    clean: dict = {}
+    for k, v in positions.items():
+        if not isinstance(k, str) or not isinstance(v, dict):
+            continue
+        try:
+            x, y = float(v["x"]), float(v["y"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if 0.0 <= x <= 1.0 and 0.0 <= y <= 1.0:
+            clean[k] = {"x": round(x, 4), "y": round(y, 4)}
+    LAYOUT_FILE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = LAYOUT_FILE.with_suffix(".json.tmp")  # 원자적 교체 — 폴링 GET 과 겹쳐도 half-write 없음
+    tmp.write_text(json.dumps(clean, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(LAYOUT_FILE)
+    return {"ok": True, "count": len(clean)}
+
+
 @app.get("/api/readme", dependencies=[Depends(require_token)])
 def readme() -> dict:
     """레포 루트 README.md 원문 — 대시보드가 웹에서 렌더한다. 읽기 전용.
@@ -169,6 +204,17 @@ def readme() -> dict:
         return {"ok": False, "error": str(e)}
     return {"ok": True, "markdown": text,
             "mtime": time.strftime("%Y-%m-%d %H:%M", time.localtime(f.stat().st_mtime))}
+
+
+# 정본 호칭 표시 (RULES §18) — 내부 식별자는 그대로 두고 사람이 읽는 값만 바꾼다.
+# harness/cli.py 의 _display_role 과 같은 규칙.
+def _display_role(role: str) -> str:
+    for prefix, label in (("codex-cto:", "cto-developer"),
+                          ("designer-cto:", "cto-designer"),
+                          ("cto:", "cto-lead")):
+        if role.startswith(prefix):
+            return f"{label}({role[len(prefix):]})"
+    return role
 
 
 @app.get("/api/inbox", dependencies=[Depends(require_token)])
@@ -192,7 +238,8 @@ def inbox() -> dict:
         ).fetchall()
 
     def _fmt(r):
-        return {"id": r["id"], "from": r["from_role"], "to": r["to_role"], "body": r["body"],
+        return {"id": r["id"], "from": _display_role(r["from_role"]),
+                "to": _display_role(r["to_role"]), "body": r["body"],
                 "created": r["created"], "read": r["read_at"] is not None}
 
     return {
@@ -1280,6 +1327,105 @@ def _gitignore_add(d: Path, path: str) -> dict:
     return {"ok": True, "added": line, "already": False, "removed_cached": removed_cached}
 
 
+def _check_ignore(d: Path, paths: list[str]) -> dict[str, tuple[str, int, str]]:
+    """경로별로 **어느 ignore 규칙이 걸었는지** — `git check-ignore -v` 1회.
+
+    반환: path -> (source, lineno, pattern). 규칙이 없으면 키가 없다.
+    `source` 는 저장소 루트 기준 상대경로(`.gitignore`, `web/.gitignore` …) 또는
+    저장소 밖 규칙의 절대경로(전역 core.excludesFile, `.git/info/exclude`).
+    한 번에 전부 물어보려고 `--stdin -z` 를 쓴다 — `_git` 은 stdin 을 안 넘겨서
+    여기만 subprocess 를 직접 부른다. 출력은 4필드(`source·lineno·pattern·path`)
+    반복이고, 아무것도 안 걸리면 rc=1 이지만 stdout 은 그대로 파싱하면 된다.
+    """
+    if not paths:
+        return {}
+    try:
+        r = subprocess.run(
+            ["git", "-C", str(d), "check-ignore", "-v", "--stdin", "-z"],
+            input="\0".join(paths) + "\0",
+            capture_output=True, text=True, timeout=_GIT_TIMEOUT,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return {}
+    f = _z(r.stdout)
+    out: dict[str, tuple[str, int, str]] = {}
+    for i in range(0, len(f) - 3, 4):
+        source, lineno, pattern, path = f[i], f[i + 1], f[i + 2], f[i + 3]
+        if lineno.isdigit():
+            out[path] = (source, int(lineno), pattern)
+    return out
+
+
+def _gitignore_remove(d: Path, path: str) -> dict:
+    """`.gitignore` 줄 삭제 — 안 올라감 항목을 올라감으로 되돌린다 (`_gitignore_add` 의 역).
+
+    **git 쓰기가 아니다** — 인덱스도 커밋도 안 건드린다. 규칙이 빠지면 그 항목은
+    untracked 가 되어 왼쪽 "올라감"(`ls-files --others`)에 다시 나타나고, 그때부터
+    기존 stage 버튼이 집어간다.
+
+    되돌리는 줄은 **`git check-ignore -v` 가 지목한 줄**이다 — 클라이언트가 보낸
+    문자열로 규칙을 추측하지 않는다(`runs/`·`/runs`·`*.log` 가 다 같은 항목을 막을
+    수 있다). 안전장치:
+      · `path` 는 **지금 이 저장소가 실제로 무시 중인 항목**이어야 한다 (add 의
+        "올라감 목록에 있어야 한다" 검사와 대칭). 임의 줄 삭제 방지.
+      · 규칙이 프로젝트 루트 `.gitignore` 밖(하위 디렉토리 파일·전역 exclude)에
+        있으면 **거부**한다 — add 가 루트에만 쓰므로 지우는 쪽도 루트로 한정.
+      · 줄 번호로 지우기 전에 그 줄 내용이 git 이 보고한 패턴과 같은지 확인한다.
+      · 한 항목을 여러 줄이 겹쳐 막을 수 있어(`.venv` + `.venv/`) 안 걸릴 때까지
+        반복한다. 상한 10.
+
+    넓은 패턴(`*.log`, `__pycache__/`)은 클릭한 항목만 푸는 게 불가능하다 — 같은
+    줄에 걸려 있던 다른 항목도 같이 풀린다. 감추지 않고 `freed` 로 돌려준다.
+    """
+    if not (d / ".git").exists():
+        return {"ok": False, "error": "git repo 아님"}
+
+    entry = (path or "").strip()
+    if not entry:
+        return {"ok": False, "error": "path 가 비었다"}
+
+    rc, iraw = _git(d, "ls-files", "--others", "--ignored", "--exclude-standard",
+                    "--directory", "-z")
+    entries = _z(iraw) if rc == 0 else []
+    if entry not in entries:
+        return {"ok": False, "error": f"'{entry}' 는 현재 안 올라감 목록에 없다"}
+
+    gi = d / ".gitignore"
+    removed: list[str] = []
+    freed: set[str] = set()
+    for _ in range(10):
+        rules = _check_ignore(d, entries)
+        hit = rules.get(entry)
+        if hit is None:
+            break
+        source, lineno, pattern = hit
+        if source != ".gitignore":
+            return {"ok": False, "removed": removed,
+                    "error": f"규칙 '{pattern}' 이 {source} 에 있다 — "
+                             f"대시보드는 프로젝트 루트 .gitignore 만 고친다"}
+        try:
+            lines = gi.read_text(encoding="utf-8").splitlines()
+        except OSError as exc:
+            return {"ok": False, "removed": removed, "error": f".gitignore 읽기 실패: {exc}"}
+        if not (1 <= lineno <= len(lines)) or lines[lineno - 1].strip() != pattern:
+            return {"ok": False, "removed": removed,
+                    "error": f".gitignore:{lineno} 내용이 규칙 '{pattern}' 과 달라 안 지웠다"}
+        freed |= {p for p, r in rules.items() if r == hit and p != entry}
+        del lines[lineno - 1]
+        try:
+            gi.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+        except OSError as exc:
+            return {"ok": False, "removed": removed, "error": f".gitignore 쓰기 실패: {exc}"}
+        removed.append(pattern)
+    else:
+        return {"ok": False, "removed": removed,
+                "error": f"'{entry}' 가 10줄을 지워도 계속 무시된다 — .gitignore 를 직접 봐라"}
+
+    if not removed:
+        return {"ok": True, "removed": [], "freed": [], "already": True}
+    return {"ok": True, "removed": removed, "freed": sorted(freed), "already": False}
+
+
 def _stage(d: Path) -> dict:
     """`git add -A` — 인덱스에만 쓴다. 커밋·push 는 하지 않는다.
 
@@ -1539,6 +1685,17 @@ def cto_gitignore_add(name: str, path: str = Body(..., embed=True)) -> dict:
 @app.post("/api/harness/gitignore/add", dependencies=[Depends(require_token)])
 def harness_gitignore_add(path: str = Body(..., embed=True)) -> dict:
     return _gitignore_add(REPO, path)
+
+
+@app.post("/api/cto/{name}/gitignore/remove", dependencies=[Depends(require_token)])
+def cto_gitignore_remove(name: str, path: str = Body(..., embed=True)) -> dict:
+    d = _proj(name)
+    return _gitignore_remove(d, path) if d else {"ok": False, "error": "unknown project"}
+
+
+@app.post("/api/harness/gitignore/remove", dependencies=[Depends(require_token)])
+def harness_gitignore_remove(path: str = Body(..., embed=True)) -> dict:
+    return _gitignore_remove(REPO, path)
 
 
 @app.post("/api/cto/{name}/stage", dependencies=[Depends(require_token)])

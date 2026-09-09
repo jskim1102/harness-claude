@@ -124,39 +124,24 @@ offset−1 보정) 과 같은 규칙이다. CTO 는 자기 `.env` 의 `PORT_OFFS
 이 §4 표 + §4.1 `.env`/`.env.example` 패턴에 반영한다. (offset 자동배정은
 표에 **이미 있는** 서비스에만 적용 — 새 서비스 자체의 시작 포트는 사람 결정.)
 
-### 4.0 포트 확인 프로토콜 (CEO 조율 — 충돌 2차 방어)
+### 4.0 포트 확인 프로토콜 (결정론 self-check — 충돌 2차 방어)
 
 `add-cto` 자동배정(+flock)이 1차 방어다. 수동 `.env` 편집·동시 spawn 잔여
-race 같은 **표(§4) 서비스 offset 충돌**을 CEO 가 2차로 잡는다. (표밖 서비스
-포트는 애초에 §4 대로 **사용자 결정**이고 `PORT.md` 레지스트리가 추적하지
-않으므로 이 confirm 범위 밖이다.) **공유 pg** 도 offset 무관 인프라라 이
-표-서비스 offset confirm 범위 밖이다 — db-per-project 로만 격리되고 포트 충돌
-개념 자체가 없다(전 프로젝트가 같은 5435/컨테이너망 하나를 공유). 반면 **`mediamtx`
-는 이제 offset 파생 self-host** 라 backend/frontend 와 동일하게 이 confirm 범위
-**안**이다: MEDIAMTX_API/RTSP/WEBRTC/ICE = base+offset 로 `docs/PORT.md` 레지스트리가
-추적하므로 offset 충돌 검사에 mtx 4포트도 함께 걸린다.
+race 같은 **표(§4) 서비스 offset 충돌**은 CTO 부팅 시 **결정론 self-check** 가
+2차로 잡는다 (2026-08-20 다이어트: CEO confirm 왕복 폐지 — 구 CEO-less 예외
+절차를 유일 경로로 승격. 표밖 서비스 포트는 §4 대로 사용자 결정이라 범위 밖,
+**공유 pg** 는 offset 무관 인프라라 범위 밖, **`mediamtx`** 는 offset 파생
+self-host 라 backend/frontend 와 동일하게 범위 **안** — MEDIAMTX_API/RTSP/WEBRTC/ICE
+4포트도 `docs/PORT.md` 레지스트리로 함께 검사).
 
-- **CTO**: 부팅 시 — **team 을 spawn 하기 전, 어떤 서비스 바인딩 전** — 자기
-  `.env` 의 `PORT_OFFSET` + 파생 포트를 CEO 에 보고하고 확인받는다:
-  `포트 확인: offset=1, backend=8001, frontend=5174 (+다른 서비스) — 적용해도 될까요?`
-  confirm 을 boot 에서 끝내면 이후 developer/autopilot 가 바인딩할 땐 이미
-  확정된 offset 을 물려받으므로 bind 단계엔 별도 게이트가 필요 없다.
-- **CEO**: `harness ports`(= `docs/PORT.md` 레지스트리)로 다른 CTO 의 표-서비스
-  offset 과 충돌 검사 → 충돌 없으면 `진행`, 충돌이면 규칙(표 + `시작포트 +
-  (offset−1)` 식)대로 빈 offset 을 골라 `offset M (backend X / frontend Y) 로
-  변경` 명령.
-- **CTO**: CEO 가 변경 명령하면 `.env` + `.env.example` (+ compose/config) 를
-  그 값으로 갱신한 뒤 team spawn / 서비스 기동.
-- **CEO-less 예외**: CEO 가 등록 안 된 모드(`harness roles` 에 ceo 없음, 또는
-  bounded wait 후 무응답)면 confirm 메시지가 영원히 안 읽히므로 **기다리지
-  않는다**. 단 flock 비충돌 보장은 **`add-cto` 가 배정한 offset 에만** 적용된다
-  (수동 `.env` 편집은 flock 을 우회하므로 보장 밖). 따라서 진행 전 self-check:
+- **CTO 부팅 시** — team spawn 전, 어떤 서비스 바인딩 전 — self-check:
   `.env` 의 `PORT_OFFSET`/`BACKEND_PORT` 가 add-cto 공식
   (`BACKEND_PORT = 8000 + offset`, 파생 포트 = `시작포트 + (offset−1)`)과
-  일치하면 → add-cto 배정 offset 으로 보고 그대로 진행 + "unconfirmed 진행" 기록.
-  공식에서 유도 안 되거나 `docs/PORT.md` 레지스트리의 다른 CTO offset 과 충돌하면
-  → **손편집 의심**이므로 그대로 바인딩 X, `docs/PORT.md` 와 대조해 자가검증하고
-  불일치/충돌을 사용자에게 flag 한다.
+  일치하고 `docs/PORT.md`(= `harness ports`) 레지스트리의 다른 CTO offset 과
+  충돌하지 않으면 → 그 offset 으로 진행 (flock 배정분은 비충돌 보장).
+- 공식에서 유도 안 되거나 레지스트리와 충돌하면 → **손편집 의심**. 그대로
+  바인딩 X, `docs/PORT.md` 와 대조해 자가검증하고 불일치/충돌을 **사용자에게
+  flag** 한다 (임의 포트 변경 금지 — §4 포트 결정권은 사용자).
 
 ### 4.1 포트 값 보관 (.env 패턴)
 
@@ -705,3 +690,24 @@ CTO 가 직접 판단해 `[dev]` 로 발주하고, 판단이 안 서면 planner 
 
 판정 기준은 결정론이다: `specs/tasks.md` 부재 = 1번(허용) · 존재 = 2번(사용자
 명시 지시 + 토큰) 외 전부 차단.
+
+## 18. 에이전트 호칭 정본 (2026-08-25 사용자 확정)
+
+세션끼리 메시지를 주고받을 때 **아래 이름만 쓴다.** lead 와 developer 가 서로를
+"CTO" 라고 부르면 수신자가 누가 누군지 구별할 수 없다 — 그게 이 규칙이 생긴 이유다.
+
+| 호칭 | 정체 | 내부 식별자 |
+|---|---|---|
+| `ceo` | CEO (1명) | `ceo` |
+| `cto-lead` | 빌드를 총괄하는 Claude 세션 | `cto:<name>` |
+| `cto-developer` | 프로덕션 코드를 쓰는 외부 Codex 세션 | `codex-cto:<name>` |
+| `cto-designer` | 프론트 디자인 담당 독립 Claude 세션 | `designer-cto:<name>` |
+
+- 빌드를 밝혀야 하면 괄호를 붙인다: `cto-lead(auth-service)`.
+- 메시지 본문에서 자기 자신을 가리킬 때도 이 이름을 쓴다. "CTO 가 …" 처럼
+  뭉뚱그리지 않는다.
+- `cto-lead` 의 팀원(`planner`, `reviewer`)은 subagent 라 세션 간 통신 주체가
+  아니다 — 이름 그대로 쓴다.
+- **내부 식별자는 바꾸지 않는다.** `harness msg send --from/--to`, db `msg` 행,
+  훅·게이트는 전부 위 표 오른쪽 값을 계속 쓴다. 바뀌는 것은 사람이 읽는 표기뿐
+  (`harness/cli.py` 의 `_display_role`).
