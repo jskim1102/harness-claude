@@ -142,7 +142,9 @@ def main():
                     f"SendMessage 차단 — {', '.join(missing)} 는 현 세션 팀 "
                     "roster 에 없다. in-process 팀원은 lead 재시작 시 프로세스와 "
                     "함께 소멸한다 — 이전 대화에 팀이 있었어도 지금은 없다.\n"
-                    "`/start-project` 로 재스폰한 뒤 다시 보내라. "
+                    "재스폰이 필요하다 — 사용자에게 /start-project 를 치라고 하지 말고 "
+                    "'reviewer 스폰할까요?' 로 묻고 턴을 끝내라. 승인 답이 시작 신호다 "
+                    "(start_project_gate); 그 턴에 Agent 로 재스폰한 뒤 다시 보내라. "
                     f"(현 roster: {sorted(roster) or '없음'})",
                 )
     allow()

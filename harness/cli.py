@@ -11,6 +11,7 @@ from pathlib import Path
 
 from harness import orca_runtime
 from harness.db import connect
+from harness.regression_gate import BOX_RE as _TASK_BOX_RE, DONE_MARKS as _DONE_MARKS
 
 # Directories under the repo root that may contain CTO project directories.
 # Each direct subdirectory with a .claude/settings.json that references our
@@ -406,11 +407,14 @@ def cmd_roles(args: argparse.Namespace) -> int:
 
 # ── status: cross-CTO operator rollup ─────────────────────────────────────────
 # Per CTO: 현재 ckpt (specs/tasks.md 의 첫 미완료 ### phaseN.ckptN 헤딩 —
-# cto_statusline.py 와 동일 규칙), task counts ([x]/[!]/[ ]), 최근 msg 타임라인.
+# cto_statusline.py 와 동일 규칙), task counts ([✅]/[❓]/[ ]), 최근 msg 타임라인.
 # Everything best-effort: a missing/garbled file yields "unknown", never an
 # exception — an operator view must never crash on a half-written specs dir.
 _CKPT_RE = re.compile(r"^###\s+(phase\d+\.ckpt\d+)\s*(.*)$")
-_BOX_RE = re.compile(r"^\s*[-*]\s*\[(✅| |x|X|!)\]")
+# 체크박스 파서 정본 = regression_gate.BOX_RE (완료 ✅/x/X · 블로커 ❓/! · 미완 [ ]).
+# 2026-09-10 Astra 감사 F1: 여기만 v1.0 정규식(❓ 없음)이라 ✅+❓ ckpt 가 DONE 으로
+# 보이고 막힌 ckpt 를 건너뛰었다. 복사본 금지 — smoke 가 패턴 동일성을 핀한다.
+_BOX_RE = _TASK_BOX_RE
 
 
 def _current_ckpt(tasks_path: Path) -> dict:
@@ -432,7 +436,7 @@ def _current_ckpt(tasks_path: Path) -> dict:
         if cur is not None:
             b = _BOX_RE.match(line)
             if b:
-                cur["boxes"].append(b.group(1) in ("x", "X", "✅"))
+                cur["boxes"].append(b.group(1) in _DONE_MARKS)
     for s in sections:
         if not s["boxes"] or not all(s["boxes"]):
             out["ckpt"], out["title"] = s["id"], s["title"]
@@ -443,8 +447,8 @@ def _current_ckpt(tasks_path: Path) -> dict:
 
 
 def _task_counts(specs_dir: Path) -> dict:
-    """Count `- [x]` / `- [!]` / `- [ ]` task lines in specs/tasks.md.
-    Returns done/blocked/open/total."""
+    """Count `- [✅]` / `- [❓]` / `- [ ]` task lines in specs/tasks.md (레거시
+    x/X/! 포함, 파서 = _BOX_RE 정본). Returns done/blocked/open/total."""
     f = specs_dir / "tasks.md"
     counts = {"done": 0, "blocked": 0, "open": 0, "total": 0}
     if not f.is_file():
@@ -454,13 +458,13 @@ def _task_counts(specs_dir: Path) -> dict:
     except (OSError, UnicodeDecodeError):
         return counts
     for line in text.splitlines():
-        m = re.match(r"\s*-\s*\[(✅| |x|!)\]", line)
+        m = _BOX_RE.match(line)
         if not m:
             continue
         box = m.group(1)
-        if box in ("x", "✅"):
+        if box in _DONE_MARKS:
             counts["done"] += 1
-        elif box == "!":
+        elif box in ("❓", "!"):
             counts["blocked"] += 1
         else:
             counts["open"] += 1

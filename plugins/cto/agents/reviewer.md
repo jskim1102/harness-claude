@@ -171,7 +171,9 @@ echo "<Run cmd> PASSED" > ~/.claude/logs/verified/<team>/task-<id>.verified
 `[review]` task 에서 `[skip-verify]` 토큰은 무시된다 (모델이 tasks.md 에 써넣어
 리뷰 게이트를 self-면제하는 걸 막기 위함). 면제는 tasks.md 밖의 per-segment
 waiver 파일로만 가능하다 — CTO 가 사용자의 명시 waive 시에만 기록한다:
-`~/.harness-claude/review-waivers/<team>/task-<id>.waiver` (그 외엔 항상 리뷰 + code-review).
+`~/.harness-claude/review-waivers/<project>/<ckpt-id>.waiver` — 닫히는 `[review]`
+줄이 속한 ckpt 단위, 예 `phase3.ckpt1.waiver` (작업목록 TaskCompleted 경로는
+`task-<id>.waiver`). 그 외엔 항상 리뷰 + code-review.
 
 ## Flexible (your judgment)
 

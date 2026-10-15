@@ -29,14 +29,30 @@ elif [[ -n "$cg" ]]; then
 fi
 unit_pids=" $(systemctl --user show orca-harness -p MainPID --value 2>/dev/null) "
 
+# Orca 판정은 argv 가 아니라 **실행 파일(/proc/<pid>/exe)** 로 한다. 예전의
+# `pgrep -f 'orca-ide|orca-linux\.AppImage'` 는 argv 부분문자열 매치라, 2026-10-06
+# `update-orca --from …/orca-linux.AppImage…` 를 돌리던 업데이터 셸(과 그 부모 도구 셸)을
+# Orca 로 오판해 SIGKILL 했다 — 롤백 트랩도 못 돈 채 죽어 결과가 운에 맡겨졌다.
+# 파일명만 언급한 셸·에디터·grep 은 exe 가 bash/python 이라 여기서 걸러진다.
+_is_orca_exe() {
+    case "$1" in
+        */orca-ide) return 0 ;;              # Electron 본체·zygote·renderer·CLI(RUN_AS_NODE)
+        */orca-linux.AppImage*) return 0 ;;  # AppImage 런타임 부모 (.bak/.failed 로 개명돼도)
+        /tmp/.mount_orca-*/*) return 0 ;;    # 마운트에서 뜬 헬퍼 (chrome_crashpad_handler 등)
+    esac
+    return 1
+}
+
 targets=()
-while read -r pid args; do
-    [[ -z "$pid" ]] && continue
+for d in /proc/[0-9]*; do
+    pid=${d#/proc/}
     [[ "$pid" == "$$" || "$pid" == "$PPID" ]] && continue
+    exe=$(readlink "$d/exe" 2>/dev/null) || continue   # 남의 프로세스·커널스레드는 못 읽음 → 스킵
+    exe=${exe% (deleted)}
+    _is_orca_exe "$exe" || continue
     [[ "$in_unit$unit_pids" == *" $pid "* ]] && continue
     targets+=("$pid")
-done < <(pgrep -a -f 'orca-ide|orca-linux\.AppImage' 2>/dev/null \
-         | grep -v 'orca-reap-orphans')
+done
 
 if [[ ${#targets[@]} -eq 0 ]]; then
     echo "고아 Orca 프로세스 없음."

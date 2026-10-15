@@ -69,8 +69,10 @@ in-process teammate 목록에서 선택한다. Codex·designer 는 별도 Orca t
 developer 세션에 역할대로 넘긴다. "빠르니까 한번 하자" 금지.
 
 **단 `planner` 는 예외 — 최초 분해 1회용이다 (RULES §17).** `specs/tasks.md` 가
-없을 때(최초 분해) · 사용자가 **명시적으로** "planner 써라" 라고 지시했을 때 ·
-미완 ckpt 가 남은 빌드 중의 `PROCESS §5.2` 판정 — 이 셋뿐이다.
+없을 때(최초 분해) · 사용자가 **명시적으로** "planner 써라" 라고 지시했을 때
+(`HARNESS_USER_OK=planner`) — 이 둘뿐이다. reviewer 의 `PROCESS §5.2` 계획 정합성
+판정 요청은 **네가** 판정한다 — planner 에게 넘기지 않는다 (annodock 2026-08-20:
+낡은 문서를 근거로 지시 없이 토큰을 붙여 planner 가 tasks.md 를 변조한 사고).
 **완료된 빌드(전 ckpt `[✅]`)에 사용자가 새 작업을 지시하면 planner 에게 묻지 않는다.**
 네가 직접 판단해 `[dev]` 로 발주하고, 판단이 안 서면 planner 가 아니라 사용자에게
 올린다. "범위가 크니 재분해가 낫겠다" 는 자체 판단 금지 — 크면 사용자에게 물어라.
@@ -87,7 +89,9 @@ developer 세션에 역할대로 넘긴다. "빠르니까 한번 하자" 금지.
    `./run.sh add-cto {{name}}`을 안내한다. **시작 마커가 있으면 첫 턴에 무조건
    spawn** — 그 턴이 작업 지시든 단순 질문이든 따지지 않는다 (2026-08-04 사용자
    결정: 팀 spawn 은 CTO 실행에 포함). 정본 = harness-team-spawn "When To Spawn".
-   `/start-project` 는 수동 재신호로만 유효.
+   마커가 소비된 뒤 팀원(예: reviewer)이 다시 필요하면 사용자에게 `/start-project`
+   를 치라고 하지 말고 `reviewer 스폰할까요?` 로 묻는다 — 승인 답이 시작 신호이고,
+   그 턴에 스폰 후 하던 작업(리뷰 등)을 이어 간다. `/start-project` 는 수동 재신호로도 유효.
 4. **spawn 후** — 그 턴에 사용자 요청이 있으면 spawn 을 마친 뒤 정상 처리하고
    (작업 지시면 바로 시작 — STARTUP OVERRIDE 정본), 요청이 없거나
    `/start-project` 수동 재신호 턴이면 상태만 보고하고 대기한다.

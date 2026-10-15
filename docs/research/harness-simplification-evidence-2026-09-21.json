@@ -1,0 +1,1101 @@
+{
+  "captured_at": "2026-09-21T01:46:19.067656+00:00",
+  "commit": "74f1207d37881aa4eddfa56e97d534bdb39a3930",
+  "scope": "current working tree including 24 pre-existing tracked modifications; RULES text excluded; generated build files and runtime state read-only",
+  "initial_status": [
+    " M docs/PORT.md",
+    " M harness/cli.py",
+    " M harness/daemon.py",
+    " M hooks/session_start.py",
+    " M hooks/team/plan_readonly_gate.py",
+    " M hooks/team/start_project_gate.py",
+    " M hooks/team/task_completed_verify_gate.py",
+    " M hooks/team/tasks_md_review_gate.py",
+    " M plugins/_shared/PROCESS.md",
+    " M plugins/codex-cto/role.md",
+    " M plugins/cto/agents/planner.md",
+    " M plugins/cto/agents/reviewer.md",
+    " M plugins/cto/commands/inbox.md",
+    " M plugins/cto/commands/start-project.md",
+    " M plugins/cto/role.md",
+    " M plugins/cto/rules/agent-team-protocol.md",
+    " M plugins/cto/skills/harness-task-format/SKILL.md",
+    " M plugins/cto/skills/harness-task-format/references/bypass-tokens.md",
+    " M plugins/cto/skills/harness-team-spawn/SKILL.md",
+    " M plugins/cto/skills/harness-team-spawn/references/spawn-prompt.md",
+    " M plugins/cto/skills/harness-unknowns-check/references/resolution-gates.md",
+    " M plugins/cto/skills/harness-unknowns-check/references/resolution-paths.md",
+    " M run.sh",
+    " M tests/smoke.sh",
+    "?? docs/research/"
+  ],
+  "source_manifest": {
+    "AGENTS.md": {
+      "bytes": 7667,
+      "lines": 106,
+      "sha256": "bac07a4992dd81e3593531ef4f54fb11fbb08e3bd8b809b781ff39d2c96c274c"
+    },
+    "README.md": {
+      "bytes": 12355,
+      "lines": 262,
+      "sha256": "5798d53297dbd2c56f02be2d96188f8c6ba5ced415dff2ddafea77d0bcbd85ea"
+    },
+    "dashboard/backend/main.py": {
+      "bytes": 96169,
+      "lines": 1972,
+      "sha256": "b1a974b8a572c0a46dba9b711255192f8138111a0628ef68f804de0f41a1f7a6"
+    },
+    "dashboard/backend/requirements.txt": {
+      "bytes": 26,
+      "lines": 2,
+      "sha256": "72b7dd981782e40c30a580b5bc5233a96ece788ba1e69d7686917830d40ee106"
+    },
+    "dashboard/frontend/package-lock.json": {
+      "bytes": 71570,
+      "lines": 2130,
+      "sha256": "59433dd6de050f68dcdea021da94712311107c59299a4954aa7a481067f5c1ee"
+    },
+    "dashboard/frontend/package.json": {
+      "bytes": 398,
+      "lines": 19,
+      "sha256": "a103d9b80a9ef96db8e64eacc07f20d535db8d9610937079a0368c89848a48f8"
+    },
+    "dashboard/frontend/src/App.jsx": {
+      "bytes": 135412,
+      "lines": 2436,
+      "sha256": "7c5627265e899c66a78f11d8d9c79769d78f4abec503f1e856ff471d0eaefa36"
+    },
+    "dashboard/frontend/src/main.jsx": {
+      "bytes": 161,
+      "lines": 5,
+      "sha256": "95b5c219578f860dd562028edd8da1168dc2f5fb5e7bba323be29e8e6c0dab25"
+    },
+    "dashboard/frontend/vite.config.js": {
+      "bytes": 499,
+      "lines": 14,
+      "sha256": "855de29fd956ea15cb06c17d596852813107baa3d67174199ec5601316d78d34"
+    },
+    "docs/LATER.md": {
+      "bytes": 25317,
+      "lines": 373,
+      "sha256": "8e5704b9b3e23e9922f2a7154a18c6ccf7528327c2ffe8f1de9339ee2c4ff179"
+    },
+    "docs/PORT.md": {
+      "bytes": 6149,
+      "lines": 46,
+      "sha256": "35924be87412e2034ef5b092f028d1c51130cbfffbab3797f02721e9fa0e8b91"
+    },
+    "docs/RUNSH-COMMANDS.txt": {
+      "bytes": 807,
+      "lines": 34,
+      "sha256": "0e1ae56092b8048e5d7530c99caa71f41005896095baf21b8ec82b93d8e3269c"
+    },
+    "docs/agent-teams-mapping.md": {
+      "bytes": 7573,
+      "lines": 101,
+      "sha256": "2177d54c0ee3e0ef75121f255c2a87cf382021f0d2e8af17e618e95f922d7b9a"
+    },
+    "docs/instruction-authority.md": {
+      "bytes": 9126,
+      "lines": 59,
+      "sha256": "a5a0d8dc93ac42c3925e065115ed77645b63129e76d57eaaa735ad5b8abb4a94"
+    },
+    "docs/superpowers/plans/2026-08-05-decompose-design-mode.md": {
+      "bytes": 15854,
+      "lines": 334,
+      "sha256": "6167562589fccae734ff29cb4b5b6e3972feb6972b7646e766f62d5c18add9f5"
+    },
+    "docs/superpowers/specs/2026-06-08-module-library-design.md": {
+      "bytes": 6286,
+      "lines": 152,
+      "sha256": "1b255bc3fae1c0460f3141e1c9f568cc57d9a97da804f2c390ed34d0afb8695a"
+    },
+    "docs/superpowers/specs/2026-06-09-codex-review-agent-design.md": {
+      "bytes": 7473,
+      "lines": 160,
+      "sha256": "dd2ea1de42223d4c7318d222f56bbebcac8856b04ab4ed4ca36e8676a1786781"
+    },
+    "docs/superpowers/specs/2026-06-19-harnessd-stall-detector-design.md": {
+      "bytes": 7161,
+      "lines": 147,
+      "sha256": "adef14f922ead01830ede2c8d4b38aa614c362608c38d70ca02c5add57a7ddcf"
+    },
+    "docs/superpowers/specs/2026-06-25-dashboard-control-reliability-design.md": {
+      "bytes": 8354,
+      "lines": 141,
+      "sha256": "1eb83a1fd1e95b8beea7c20815b7d9169b61e844e01c6bb109a050300a3f3876"
+    },
+    "docs/superpowers/specs/2026-07-28-ceo-session-continuity-design.md": {
+      "bytes": 7804,
+      "lines": 143,
+      "sha256": "cd923c1efd28f1525ffe48b364d41fc427a1425ece74cbb10854c586bfa3a81b"
+    },
+    "docs/superpowers/specs/2026-07-29-cto-cockpit-rail-design.md": {
+      "bytes": 6234,
+      "lines": 101,
+      "sha256": "7d63b46a1b79ed7f6836be26d00c8f53c578291b485cfaefabe70c4f911e831a"
+    },
+    "docs/superpowers/specs/2026-07-29-designer-cto-split-design.md": {
+      "bytes": 5008,
+      "lines": 75,
+      "sha256": "a8588fcd4fc3f5d5b3926b6da66cbbc336924dcd0ad99a601babf852e7fe4488"
+    },
+    "docs/superpowers/specs/2026-08-05-decompose-design-mode-design.md": {
+      "bytes": 12836,
+      "lines": 163,
+      "sha256": "7a77324c4ac851650f015ddee8dbe141a4f3fc3cf9e49a141a18b349cb3543e2"
+    },
+    "harness/__init__.py": {
+      "bytes": 0,
+      "lines": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "harness/cli.py": {
+      "bytes": 54053,
+      "lines": 1284,
+      "sha256": "54e899e089527e8aaf83ea09bdc8256d8df9e9443745e9126defebb01b6015cf"
+    },
+    "harness/codex_hooks.py": {
+      "bytes": 19169,
+      "lines": 551,
+      "sha256": "43f465153229295b1e4047e8607a49200fb24095441f1a443cbf38bd4be99104"
+    },
+    "harness/daemon.py": {
+      "bytes": 33405,
+      "lines": 795,
+      "sha256": "ac8ba805621883028a8bae76e761f4b4f353d941c948ab95b4868f9aec9da553"
+    },
+    "harness/db.py": {
+      "bytes": 859,
+      "lines": 28,
+      "sha256": "cfaa565f9d7f6af822efbf94db68806540766e9b91fe3c74f9a6402d29124310"
+    },
+    "harness/gitignore_scan.py": {
+      "bytes": 6009,
+      "lines": 136,
+      "sha256": "3698ec8a198d377ff17dd9bdd696d88e081d1715386cd40e4b498afece7cca86"
+    },
+    "harness/lineage_parity_scan.py": {
+      "bytes": 6810,
+      "lines": 170,
+      "sha256": "20e0dfff328450c43a43b72a7e5cc98d9c89cc13fd4afefbebdc98577ff4fcb6"
+    },
+    "harness/netbind_scan.py": {
+      "bytes": 7619,
+      "lines": 172,
+      "sha256": "8b88fa379a2c94919ae8f71a3188099662c343b835519e9dc0b288d56246b95f"
+    },
+    "harness/orca_rpc.py": {
+      "bytes": 3992,
+      "lines": 102,
+      "sha256": "b573b080ac7e0f4d7ca6959ff315f35e88e241d2d45afea549bef56a4af7419c"
+    },
+    "harness/orca_runtime.py": {
+      "bytes": 13744,
+      "lines": 369,
+      "sha256": "63130154b90dfc640e6cce8a8e26d980770753aabedf4ab8caa5c62929b0504a"
+    },
+    "harness/regression_gate.py": {
+      "bytes": 14275,
+      "lines": 345,
+      "sha256": "4a7549357cd2e11f4e4ee7d424e6236da1a041773606439e04d062f17c8bff69"
+    },
+    "harness/schema_scan.py": {
+      "bytes": 7634,
+      "lines": 212,
+      "sha256": "e5f5b827099f68be8fa36f0e327008246044ba2bdcfe35c141aa2b48effc1578"
+    },
+    "harness/teammate_tail.py": {
+      "bytes": 12100,
+      "lines": 332,
+      "sha256": "97a50f93d826008627e73765cae5381baae0a7f5447567235f33ca86cd1d1dfb"
+    },
+    "harness/templates/dev.sh": {
+      "bytes": 4213,
+      "lines": 94,
+      "sha256": "82d25d4f347456362dee3e5cee0aa9cc029d69c600799c36963ff8b481f18076"
+    },
+    "hooks/cto_statusline.py": {
+      "bytes": 6195,
+      "lines": 170,
+      "sha256": "0e4638efc95c7d9518fdb588e871d27fd99aae31733b443c9892512642fa7c7f"
+    },
+    "hooks/git_guard.py": {
+      "bytes": 37835,
+      "lines": 694,
+      "sha256": "a6204d9d0468e457f5accbeea7b96bed87fac96d1347ff408d62f1f1bc4b162a"
+    },
+    "hooks/inbox_isolation_clear.py": {
+      "bytes": 1129,
+      "lines": 34,
+      "sha256": "1b3475f03d8b9a2eeebc89552eccea2618c5a793418dabb3739cd27eb4dc676e"
+    },
+    "hooks/inbox_isolation_guard.py": {
+      "bytes": 4515,
+      "lines": 95,
+      "sha256": "08349055ad962d7c6246a3884b4d7fedf2cf8f32b530e6e4a16df686b0e725b9"
+    },
+    "hooks/project_memory.py": {
+      "bytes": 13546,
+      "lines": 369,
+      "sha256": "bd04de076ea90e652c8e55b6710d66c94ed56b5c0d7a651f8205b51fd68b9331"
+    },
+    "hooks/session_start.py": {
+      "bytes": 12382,
+      "lines": 270,
+      "sha256": "f58c56ea7a8779120ef3ab51327a1153890f3d6e68cead1ca80e1f40f0f3f0a8"
+    },
+    "hooks/team/one_teammate_per_role_gate.py": {
+      "bytes": 4893,
+      "lines": 118,
+      "sha256": "a6d94ef558da7ccac27d9f68e4c049b1df83b0829a48044a20e420b8bb19516d"
+    },
+    "hooks/team/phase2_viewable_gate.py": {
+      "bytes": 5628,
+      "lines": 121,
+      "sha256": "64929658e9c9094795877b5cdad6add20bafba049da41b8c816f16c0ed80cc41"
+    },
+    "hooks/team/plan_readonly_gate.py": {
+      "bytes": 3741,
+      "lines": 82,
+      "sha256": "23cf2289b26eb5a17a7ab6eaa702a91e35cf242e45ab7c1ef078a5683c3425ca"
+    },
+    "hooks/team/planner_dispatch_gate.py": {
+      "bytes": 3714,
+      "lines": 94,
+      "sha256": "f7e1d512137cec102647a33a430ee898ebbf4f988bd721b2b5fdf70dd23cd95f"
+    },
+    "hooks/team/sendmessage_recipient_gate.py": {
+      "bytes": 7020,
+      "lines": 152,
+      "sha256": "907c7621d710b1e2ee074a8390a31b3666d5450354f89a7816c4ea8fc1f3ebe9"
+    },
+    "hooks/team/skill_announce.py": {
+      "bytes": 10634,
+      "lines": 244,
+      "sha256": "3ffa28f4791b1098d6366ced4c0102282c2147a99b3eb10bc9f4b3364a0a3c57"
+    },
+    "hooks/team/spec_overwrite_gate.py": {
+      "bytes": 6455,
+      "lines": 133,
+      "sha256": "c6590fd59641cf3be33a414ca169312801ba4e9214b926a9751ae041d1a6968e"
+    },
+    "hooks/team/start_project_gate.py": {
+      "bytes": 7904,
+      "lines": 146,
+      "sha256": "871c4c2281baa54fbe65cea22d544fc59ab6a2e7fc95faa9e4d6f3ade6d9153b"
+    },
+    "hooks/team/start_project_spawn_nudge.py": {
+      "bytes": 9720,
+      "lines": 232,
+      "sha256": "d3d9ff6672ea5aad6407781e64f2fa10a6a954da2f9dd3fbd55a7a9777340917"
+    },
+    "hooks/team/task_completed_verify_gate.py": {
+      "bytes": 11376,
+      "lines": 241,
+      "sha256": "0f7d1b6511ab08b3e94d68c305b9213097674b769bcfa325d555f89f27ce77d0"
+    },
+    "hooks/team/task_created_format_check.py": {
+      "bytes": 2918,
+      "lines": 73,
+      "sha256": "4069543e3322a1436ab6588f2b9196ed78a96aa5a7fa14c86739fe4effb26472"
+    },
+    "hooks/team/tasks_md_review_gate.py": {
+      "bytes": 11698,
+      "lines": 247,
+      "sha256": "ad4b43e4fef62eae8409e1e0b31350c9de537abd472a3844aef1075fdaca68d8"
+    },
+    "hooks/team/team_hook_common.py": {
+      "bytes": 12637,
+      "lines": 293,
+      "sha256": "4dde33d22aec58a45ae25ed83b5ad479a27a58d8ef411e515fa30712877e1225"
+    },
+    "hooks/team/teammate_idle_workcheck.py": {
+      "bytes": 3718,
+      "lines": 111,
+      "sha256": "e2ea05f9958ee4848322798774b42750ef89f36cfb35a76acaa58ae957140210"
+    },
+    "hooks/user_prompt_inbox_check.py": {
+      "bytes": 6036,
+      "lines": 137,
+      "sha256": "3fa949b3c73b8ea4e386e7e7a5e5da63b3f8d1249b223a6fc3cbc634ebfdadc7"
+    },
+    "infra/docker-compose.postgres.yml": {
+      "bytes": 2220,
+      "lines": 46,
+      "sha256": "7555ae979b8c68f95c5d3a132176e183fef3a39202d7075a5c2a38e42eb2d640"
+    },
+    "infra/systemd/harnessd.service.tmpl": {
+      "bytes": 627,
+      "lines": 23,
+      "sha256": "09f3717d03822baa4028a7ac9c57bca976ef6e65c155483d8030bf7071137854"
+    },
+    "infra/systemd/orca-harness.service.tmpl": {
+      "bytes": 1900,
+      "lines": 37,
+      "sha256": "6aaa8bd467f345b194f7b02fadbcacf15e25535cf0d04ed3672abb75d4e704b9"
+    },
+    "plugins/_shared/CODE_QUALITY.md": {
+      "bytes": 1402,
+      "lines": 34,
+      "sha256": "616d6e93eaa16d90be664226a35dcce542729ca594dc29c85503a3c85c2088fb"
+    },
+    "plugins/_shared/PROCESS.md": {
+      "bytes": 31065,
+      "lines": 364,
+      "sha256": "421bb562ea773c608a0c90acacecb0d93d43a41bfadb5410c771891d2d7859a7"
+    },
+    "plugins/_shared/RULES.md": {
+      "bytes": 51574,
+      "content_not_inspected": true
+    },
+    "plugins/ceo/commands/build-module.md": {
+      "bytes": 4769,
+      "lines": 82,
+      "sha256": "f78308517af151a531c7c677df76e27fb6a00cbb73a135dbcd59aa7287ff0c54"
+    },
+    "plugins/ceo/commands/build-project.md": {
+      "bytes": 5068,
+      "lines": 85,
+      "sha256": "2941f8ca2c333d9536969c757fac6cbcefcdab641cdae91723b3d8fea28fe83f"
+    },
+    "plugins/ceo/commands/codex-protocol-review.md": {
+      "bytes": 1573,
+      "lines": 34,
+      "sha256": "f425611ac033faf7a6eca32638c074534bb1fe8156b651bd40f109e091acf4ca"
+    },
+    "plugins/ceo/commands/codex-review.md": {
+      "bytes": 2554,
+      "lines": 42,
+      "sha256": "e00dad2853a22f26846dca0e2ded89a87c1baa0e9cebb98abdbd4476ddd198b6"
+    },
+    "plugins/ceo/commands/git.md": {
+      "bytes": 2923,
+      "lines": 45,
+      "sha256": "74214a93b2452f279dffa31bef364b9d8109e35dd394b8061aff4f60c9837653"
+    },
+    "plugins/ceo/commands/harness-audit.md": {
+      "bytes": 2583,
+      "lines": 42,
+      "sha256": "61988ac9dbd339de2ddafee2d7b95e824d19aba306f6fddb35eba9429267484b"
+    },
+    "plugins/ceo/commands/inbox.md": {
+      "bytes": 218,
+      "lines": 10,
+      "sha256": "1c66fc9970d6232ef1f6471f3d743df08776694bb4c76b452b7124cae2613529"
+    },
+    "plugins/ceo/commands/modules.md": {
+      "bytes": 1020,
+      "lines": 13,
+      "sha256": "943ce72f3c43c6b4094e3484d0f4fe82e58ccf7e3c9bfa535a964566e2231ef8"
+    },
+    "plugins/ceo/commands/msg-cto.md": {
+      "bytes": 404,
+      "lines": 8,
+      "sha256": "a239a72d53e2efb405d6ae9efdc29fb78f9bf2c1831a822dbfd2290a33260510"
+    },
+    "plugins/ceo/role.md": {
+      "bytes": 11676,
+      "lines": 197,
+      "sha256": "72de9a5982c260c682435367ea0f761b747fdcd7c22d0d9a14d89eff39dafdf9"
+    },
+    "plugins/ceo/scripts/codex_protocol_review_launch.py": {
+      "bytes": 6546,
+      "lines": 187,
+      "sha256": "9b7d04af59b23a0c05040d7931c6ea871fd9a5add4de7fcc3b80cc2560f593a7"
+    },
+    "plugins/ceo/scripts/codex_review_launch.py": {
+      "bytes": 9879,
+      "lines": 252,
+      "sha256": "e6f08bde657d0c10e20db938b9032323d1416496124e71c4c5f3130e77e4dd09"
+    },
+    "plugins/ceo/workflows/harness-audit.js": {
+      "bytes": 10899,
+      "lines": 229,
+      "sha256": "29bc7507ef0b0ab87eecf6496a933b46cb42cf8ca80e8f7aaab6a3f32a245093"
+    },
+    "plugins/codex-cto/role.md": {
+      "bytes": 5502,
+      "lines": 111,
+      "sha256": "4b7a416ff93fbc08900496edfdbc25a8c9c792615e814b3c3e6341084fac17be"
+    },
+    "plugins/codex-protocol-review/AGENT.md": {
+      "bytes": 4815,
+      "lines": 124,
+      "sha256": "3e644139f52b777de4210554d4148598cabe99bbd0d5290742b5f75012f8e90d"
+    },
+    "plugins/codex-protocol-review/README.md": {
+      "bytes": 674,
+      "lines": 22,
+      "sha256": "d23eccb01231737cdbf00f7cc9cbea2a50ea5a1d7d29a3e499b381a64650a4c4"
+    },
+    "plugins/codex-protocol-review/run-review.sh": {
+      "bytes": 169,
+      "lines": 5,
+      "sha256": "9bc0076295500ca5f8fb1f1b82068a20ced7fc8f44c7d21218b5a30f2a647fb0"
+    },
+    "plugins/codex-protocol-review/scripts/report_writer.py": {
+      "bytes": 5289,
+      "lines": 172,
+      "sha256": "18e4a5731a2d960203f77b12359d90835c6038919963439c1296480be599bcfd"
+    },
+    "plugins/codex-protocol-review/scripts/review_runner.py": {
+      "bytes": 7896,
+      "lines": 239,
+      "sha256": "5343718070684666bca88c96a777586298103a60023e7f74c831e948654730c6"
+    },
+    "plugins/codex-review/AGENT.md": {
+      "bytes": 8994,
+      "lines": 194,
+      "sha256": "563efaf4b614c98df1bb50fe0e6f892adcb3ea548608ea2cb4c7d1fe03a44580"
+    },
+    "plugins/codex-review/README.md": {
+      "bytes": 4669,
+      "lines": 106,
+      "sha256": "a9188cc51e0ad3da6101da52c6933f32c8ff3a95b336228ae5cd2a35651f32f7"
+    },
+    "plugins/codex-review/run-review.sh": {
+      "bytes": 169,
+      "lines": 5,
+      "sha256": "9bc0076295500ca5f8fb1f1b82068a20ced7fc8f44c7d21218b5a30f2a647fb0"
+    },
+    "plugins/codex-review/scripts/report_writer.py": {
+      "bytes": 7129,
+      "lines": 202,
+      "sha256": "95c7d73a96589d9d7683c2681b0345f19ef1969d57161749099489c5f3472b9b"
+    },
+    "plugins/codex-review/scripts/review_runner.py": {
+      "bytes": 21512,
+      "lines": 519,
+      "sha256": "99203946a15641377090a927c1d750eb2ff362374e16da031515257f3d6f940b"
+    },
+    "plugins/cto/agents/designer.md": {
+      "bytes": 980,
+      "lines": 18,
+      "sha256": "5fc86874f72809a5dea986712eb2c460c043a68fe55e5c8f82503c944ac8aa59"
+    },
+    "plugins/cto/agents/developer.md": {
+      "bytes": 955,
+      "lines": 18,
+      "sha256": "7a2c5ce7446fbba1ebd0d63acf51c7c72d84599de8a4846583ff6d5e9b3afadf"
+    },
+    "plugins/cto/agents/planner.md": {
+      "bytes": 15936,
+      "lines": 261,
+      "sha256": "ef69ef5af4c0cc92e4e4d144b87eecffca35e4c7ba0d5621cd035278a22b5e0e"
+    },
+    "plugins/cto/agents/reviewer.md": {
+      "bytes": 20313,
+      "lines": 354,
+      "sha256": "dc674e6783b5750d6ce5f9d00ee428182bd5fb789a3477b68295fd937d6d73a8"
+    },
+    "plugins/cto/commands/decompose.md": {
+      "bytes": 4440,
+      "lines": 65,
+      "sha256": "2bc3f904a1aee1c20e2c532c7d09322aabd5262a38d6f537f7732b260e390341"
+    },
+    "plugins/cto/commands/inbox.md": {
+      "bytes": 826,
+      "lines": 17,
+      "sha256": "452f3f1769bcdaf203f7cefd936b5ff03c6dbeeadcfb4dad0498a4aa29509456"
+    },
+    "plugins/cto/commands/modules.md": {
+      "bytes": 1043,
+      "lines": 12,
+      "sha256": "badbd732e91f5f997bea9f8ee2e20ae087d202e454f1d6b0051894d9c94bbb84"
+    },
+    "plugins/cto/commands/msg-ceo.md": {
+      "bytes": 487,
+      "lines": 11,
+      "sha256": "6b598ced95cf7f10c855758c2af4b360d34ffd38459446bc07c684cdf5c66ab6"
+    },
+    "plugins/cto/commands/start-project.md": {
+      "bytes": 2444,
+      "lines": 63,
+      "sha256": "0eedc4eb28758aeb23cb15840718d5da0a321304089ec188bc038d929f9bd045"
+    },
+    "plugins/cto/role.md": {
+      "bytes": 9823,
+      "lines": 149,
+      "sha256": "96e5dcb44dd175c62ef2f7d25e47c8969960366270a5186b59cdc0357fea22d0"
+    },
+    "plugins/cto/rules/agent-team-protocol.md": {
+      "bytes": 14060,
+      "lines": 275,
+      "sha256": "6e3f2c484e0577f31d778c5749fab18d54fc485e640f0326e38ba75aba66530a"
+    },
+    "plugins/cto/skills/harness-relay-qa/SKILL.md": {
+      "bytes": 7981,
+      "lines": 185,
+      "sha256": "53db8499be7677e22458019aacbac71fd487c4f01119e8cef5ba7e1750b2a8af"
+    },
+    "plugins/cto/skills/harness-relay-qa/references/lead-surfacing.md": {
+      "bytes": 3694,
+      "lines": 116,
+      "sha256": "fe05137538f126372a9e985d7b7da1837f03a49e37aef6b5844aec462993fa10"
+    },
+    "plugins/cto/skills/harness-relay-qa/references/lead-unavailable.md": {
+      "bytes": 3100,
+      "lines": 82,
+      "sha256": "8d0e840a303904edd1e43c659d6e30fcde2a967bf3ebd7b92793296305b20e22"
+    },
+    "plugins/cto/skills/harness-relay-qa/references/skill-batching.md": {
+      "bytes": 3639,
+      "lines": 89,
+      "sha256": "f740dc8e79f2f0e25fd853f282e331ddb25c42e211442d83e001d81965ca4b4c"
+    },
+    "plugins/cto/skills/harness-relay-qa/references/when-to-skip-relay.md": {
+      "bytes": 3287,
+      "lines": 80,
+      "sha256": "a174798c48a3dbc37c57ae70c5c7dc13c9161b4a0cd5bd41d99400a8ce145eb2"
+    },
+    "plugins/cto/skills/harness-relay-qa/scripts/check_relay_prefix.sh": {
+      "bytes": 2607,
+      "lines": 77,
+      "sha256": "c6410ad8bb7c1bb095465730811873dbef383c2b2a2a8819e72dea3f0b485d60"
+    },
+    "plugins/cto/skills/harness-remember/SKILL.md": {
+      "bytes": 8434,
+      "lines": 147,
+      "sha256": "00d2101ff455d06df9a45112effa73375b6ed615b5357d696e66f85b50a08ab8"
+    },
+    "plugins/cto/skills/harness-self-improve/SKILL.md": {
+      "bytes": 5756,
+      "lines": 106,
+      "sha256": "0f05696a227427514d0d6d40c761583dfcfff14e58d226cee5dfbc6aac77c45d"
+    },
+    "plugins/cto/skills/harness-self-improve/scripts/scan_recurrence.sh": {
+      "bytes": 3781,
+      "lines": 96,
+      "sha256": "f461f353fe24abd5ae98bbd68930ee726b3fc53b4072cf0e27880d19feef154e"
+    },
+    "plugins/cto/skills/harness-task-format/SKILL.md": {
+      "bytes": 15925,
+      "lines": 319,
+      "sha256": "b83d5db88c6d69923f56516440019299bac5075e66ac600253794b837fae6739"
+    },
+    "plugins/cto/skills/harness-task-format/references/bypass-tokens.md": {
+      "bytes": 5874,
+      "lines": 134,
+      "sha256": "86f5429136a9975c3ce63a4f7d6ca50c5e50321ee57ac7bc7fc460caf1f552d6"
+    },
+    "plugins/cto/skills/harness-task-format/references/format-anatomy.md": {
+      "bytes": 5064,
+      "lines": 125,
+      "sha256": "ee76a769b32f0afc014bc9c1fcca87092369b605d57fc5002929db4150f7d575"
+    },
+    "plugins/cto/skills/harness-task-format/references/grouping-and-contracts.md": {
+      "bytes": 6611,
+      "lines": 145,
+      "sha256": "8d4c3ee567307388c48217409ac37b30f752b674010f240ee4a70986a42b57af"
+    },
+    "plugins/cto/skills/harness-task-format/scripts/scan_spec_coverage.sh": {
+      "bytes": 5343,
+      "lines": 108,
+      "sha256": "19a79886b75e92940b275267659ea37356cfbf56531baefb2983464d12c22aaf"
+    },
+    "plugins/cto/skills/harness-task-format/scripts/validate_task_line.sh": {
+      "bytes": 2788,
+      "lines": 75,
+      "sha256": "66e3f212ac52ba20c5261d7f6d7aed9ac09d11252649432bd80da4479fd0f96f"
+    },
+    "plugins/cto/skills/harness-team-spawn/SKILL.md": {
+      "bytes": 5289,
+      "lines": 121,
+      "sha256": "06dd28d4104d82809a1a394d00b62d2280ea78ef240880d9f90adce2d56f4959"
+    },
+    "plugins/cto/skills/harness-team-spawn/references/plan-approval-default.md": {
+      "bytes": 4105,
+      "lines": 93,
+      "sha256": "619fd64e827c71881ad41785203395aae805c7f14b11c46f4c5859a13f2f39ec"
+    },
+    "plugins/cto/skills/harness-team-spawn/references/spawn-prompt.md": {
+      "bytes": 3375,
+      "lines": 62,
+      "sha256": "39ec643a34eb26d7a60440659ff832b8ff43476ffbba30e68e3f8117ff5de70e"
+    },
+    "plugins/cto/skills/harness-unknowns-check/SKILL.md": {
+      "bytes": 12343,
+      "lines": 242,
+      "sha256": "a352ead4eb379d380d54613fd75ce7f744e834306726afc1ff7e14c8138ad372"
+    },
+    "plugins/cto/skills/harness-unknowns-check/references/anti-pattern-phrases.md": {
+      "bytes": 5996,
+      "lines": 161,
+      "sha256": "e39c74886da690fd718e9194b88de2295bd778fc1033fbee4dac14f89ee8185f"
+    },
+    "plugins/cto/skills/harness-unknowns-check/references/confidence-rule.md": {
+      "bytes": 4925,
+      "lines": 127,
+      "sha256": "52b251fe61331f7d341ebd15d6e632aae80f1f2b16222b1515fb18c549677a9a"
+    },
+    "plugins/cto/skills/harness-unknowns-check/references/downgrade-protocol.md": {
+      "bytes": 5955,
+      "lines": 140,
+      "sha256": "5e5895c284777fed811e19dffc8119703aa8930cf0bbfb9829c6b771354bc32b"
+    },
+    "plugins/cto/skills/harness-unknowns-check/references/implicit-answers.md": {
+      "bytes": 1865,
+      "lines": 44,
+      "sha256": "cc4dad2f85c6b6c8145992e577bef3015cce683c3e7137c91f70fdd65616260c"
+    },
+    "plugins/cto/skills/harness-unknowns-check/references/resolution-gates.md": {
+      "bytes": 6385,
+      "lines": 143,
+      "sha256": "637868ed7b97bb691897b4c1cd051b3549eb5ae4d8c092006e74b2985a48ac40"
+    },
+    "plugins/cto/skills/harness-unknowns-check/references/resolution-paths.md": {
+      "bytes": 5315,
+      "lines": 151,
+      "sha256": "4ede05ac65b0a01b4635b63ae7dc732401fb4a6cd107c2671f72a6c5979b402b"
+    },
+    "plugins/cto/skills/harness-unknowns-check/scripts/scan_for_hallucination_phrases.sh": {
+      "bytes": 3781,
+      "lines": 129,
+      "sha256": "bd10e3ef1f41595d3370ef79f80660884ef3d0c624482e0858e17867c69cd803"
+    },
+    "plugins/designer-cto/role.md": {
+      "bytes": 20705,
+      "lines": 297,
+      "sha256": "223c5267377a456f75caed790dbff1b557c7a74b2f2ab3c31498b8142f929855"
+    },
+    "plugins/designer-cto/scripts/gen_image.sh": {
+      "bytes": 1768,
+      "lines": 45,
+      "sha256": "43cdc033c9d186128129b7a091f9b4e609eb93baabe9b8f4ec80d9942fd893ff"
+    },
+    "pyproject.toml": {
+      "bytes": 330,
+      "lines": 15,
+      "sha256": "b3c1889d5db66ffa509ac639e6db4f695cb2fb5eec6c5087387a516db5bb429a"
+    },
+    "run.sh": {
+      "bytes": 117200,
+      "lines": 2391,
+      "sha256": "fcc7e4b971f3c4de25eb8d21437cc48376e3671a0760ab7d05ec818569539f77"
+    },
+    "scripts/install-dtach.sh": {
+      "bytes": 900,
+      "lines": 17,
+      "sha256": "351e225e535c48c20da83c9160becfe450b3ebb9d63e0801bca00451896d8656"
+    },
+    "scripts/orca-prune-ghosts.py": {
+      "bytes": 9593,
+      "lines": 217,
+      "sha256": "c416fdb1d835462137f956bc7e040847292f9ac8f1a3fb5370b6dca3b8d61243"
+    },
+    "scripts/orca-reap-orphans.sh": {
+      "bytes": 2862,
+      "lines": 69,
+      "sha256": "849592694bc3fef3d27b0c1a1e3b935438dfd2389b28e8a735c4b3f7c7ba517b"
+    },
+    "scripts/orca-restart-clean.sh": {
+      "bytes": 5253,
+      "lines": 99,
+      "sha256": "02b6e078964651b2423d88010f1f1054350d926574ec356dd6061adbee1ad4b0"
+    },
+    "scripts/orca-update.sh": {
+      "bytes": 14440,
+      "lines": 368,
+      "sha256": "15ee4edb53316ce3ae85264d5636ba3e5fdae06b51d66751e62210688b56ca02"
+    },
+    "tests/smoke.sh": {
+      "bytes": 225340,
+      "lines": 3738,
+      "sha256": "b5b234abbf996a73ac7ff0bfae2b530ff37930cbc2135f8dde579739e0fb0d20"
+    }
+  },
+  "runtime_metadata": {
+    "captured_at": "2026-09-21T01:42:30.827754+00:00",
+    "queue": {
+      "count": 357,
+      "unread": 0,
+      "retained_dates": [
+        "2026-07-29 08:43:38",
+        "2026-08-28 07:10:51"
+      ],
+      "routes": [
+        {
+          "from": "codex-cto",
+          "to": "cto",
+          "n": 169
+        },
+        {
+          "from": "cto",
+          "to": "codex-cto",
+          "n": 118
+        },
+        {
+          "from": "cto",
+          "to": "designer-cto",
+          "n": 20
+        },
+        {
+          "from": "harnessd",
+          "to": "ceo",
+          "n": 19
+        },
+        {
+          "from": "ceo",
+          "to": "cto",
+          "n": 12
+        },
+        {
+          "from": "designer-cto",
+          "to": "cto",
+          "n": 11
+        },
+        {
+          "from": "cto",
+          "to": "ceo",
+          "n": 7
+        },
+        {
+          "from": "ceo",
+          "to": "ceo",
+          "n": 1
+        }
+      ],
+      "read_lag_seconds_not_execution_time": {
+        "n": 357,
+        "median": 10.0,
+        "p90": 240.0
+      }
+    },
+    "hook_log": {
+      "file_bytes": 8555746,
+      "rows": 8857,
+      "malformed": 0,
+      "all_events": {
+        "TeammateIdle": 3482,
+        "TaskCreated": 754,
+        "TaskCompleted": 2081,
+        "PreToolUse": 1127,
+        "Stop": 1413
+      },
+      "decisions": [
+        {
+          "event": "TeammateIdle",
+          "decision": "allow",
+          "n": 3403
+        },
+        {
+          "event": "TaskCompleted",
+          "decision": "block",
+          "n": 1052
+        },
+        {
+          "event": "TaskCompleted",
+          "decision": "allow",
+          "n": 1029
+        },
+        {
+          "event": "Stop",
+          "decision": "block",
+          "n": 779
+        },
+        {
+          "event": "PreToolUse",
+          "decision": "block",
+          "n": 682
+        },
+        {
+          "event": "TaskCreated",
+          "decision": "allow",
+          "n": 652
+        },
+        {
+          "event": "Stop",
+          "decision": "allow",
+          "n": 634
+        },
+        {
+          "event": "PreToolUse",
+          "decision": "allow",
+          "n": 445
+        },
+        {
+          "event": "TaskCreated",
+          "decision": "block",
+          "n": 102
+        },
+        {
+          "event": "TeammateIdle",
+          "decision": "block",
+          "n": 79
+        }
+      ],
+      "dated_rows": {
+        "2026-08-21": 11,
+        "2026-08-22": 36,
+        "2026-08-24": 3,
+        "2026-08-25": 8,
+        "2026-08-26": 64,
+        "2026-08-27": 60,
+        "2026-08-28": 2,
+        "2026-09-02": 6,
+        "2026-09-04": 12,
+        "2026-09-10": 11
+      },
+      "build_cwd_events": {
+        "TeammateIdle": 3238,
+        "TaskCreated": 504,
+        "TaskCompleted": 1098,
+        "PreToolUse": 350,
+        "Stop": 474
+      },
+      "caveat": "event rows are not logical attempts; duplicates and fixtures may remain; cwd subset may omit genuine events"
+    },
+    "build_artifacts": [
+      {
+        "kind": "modules",
+        "name": "auth-service",
+        "tasks": true,
+        "usage": true,
+        "design_max": false,
+        "memory": true,
+        "decisions": true,
+        "learnings": true
+      },
+      {
+        "kind": "modules",
+        "name": "cam-distance",
+        "tasks": true,
+        "usage": false,
+        "design_max": false,
+        "memory": true,
+        "decisions": true,
+        "learnings": true
+      },
+      {
+        "kind": "modules",
+        "name": "dataset-trainer",
+        "tasks": true,
+        "usage": true,
+        "design_max": false,
+        "memory": true,
+        "decisions": true,
+        "learnings": true
+      },
+      {
+        "kind": "modules",
+        "name": "dataset-viewer",
+        "tasks": true,
+        "usage": true,
+        "design_max": false,
+        "memory": true,
+        "decisions": true,
+        "learnings": true
+      },
+      {
+        "kind": "modules",
+        "name": "rtsp-detection",
+        "tasks": true,
+        "usage": true,
+        "design_max": false,
+        "memory": true,
+        "decisions": false,
+        "learnings": true
+      },
+      {
+        "kind": "modules",
+        "name": "rtsp-detection-v2",
+        "tasks": true,
+        "usage": true,
+        "design_max": false,
+        "memory": true,
+        "decisions": true,
+        "learnings": true
+      },
+      {
+        "kind": "modules",
+        "name": "rtsp-keypoint",
+        "tasks": true,
+        "usage": true,
+        "design_max": false,
+        "memory": true,
+        "decisions": true,
+        "learnings": true
+      },
+      {
+        "kind": "modules",
+        "name": "rtsp-segmentation",
+        "tasks": true,
+        "usage": true,
+        "design_max": false,
+        "memory": true,
+        "decisions": false,
+        "learnings": true
+      },
+      {
+        "kind": "modules",
+        "name": "rtsp-streaming",
+        "tasks": true,
+        "usage": true,
+        "design_max": false,
+        "memory": true,
+        "decisions": true,
+        "learnings": true
+      },
+      {
+        "kind": "modules",
+        "name": "rtsp-tracking",
+        "tasks": true,
+        "usage": true,
+        "design_max": false,
+        "memory": true,
+        "decisions": true,
+        "learnings": true
+      },
+      {
+        "kind": "claude-project",
+        "name": "annodock",
+        "tasks": true,
+        "usage": false,
+        "design_max": true,
+        "memory": true,
+        "decisions": true,
+        "learnings": true
+      },
+      {
+        "kind": "claude-project",
+        "name": "bulk-receipe",
+        "tasks": true,
+        "usage": false,
+        "design_max": false,
+        "memory": true,
+        "decisions": false,
+        "learnings": false
+      },
+      {
+        "kind": "claude-project",
+        "name": "bulk-receipe-v2",
+        "tasks": true,
+        "usage": false,
+        "design_max": false,
+        "memory": true,
+        "decisions": false,
+        "learnings": false
+      },
+      {
+        "kind": "claude-project",
+        "name": "forklift-distance",
+        "tasks": true,
+        "usage": false,
+        "design_max": false,
+        "memory": true,
+        "decisions": true,
+        "learnings": true
+      },
+      {
+        "kind": "claude-project",
+        "name": "perf-eval-gen",
+        "tasks": true,
+        "usage": false,
+        "design_max": false,
+        "memory": true,
+        "decisions": true,
+        "learnings": true
+      },
+      {
+        "kind": "claude-project",
+        "name": "quote-editor",
+        "tasks": true,
+        "usage": false,
+        "design_max": false,
+        "memory": true,
+        "decisions": false,
+        "learnings": false
+      },
+      {
+        "kind": "claude-project",
+        "name": "rescue-pose",
+        "tasks": true,
+        "usage": false,
+        "design_max": false,
+        "memory": true,
+        "decisions": false,
+        "learnings": false
+      }
+    ]
+  },
+  "isolated_probes": [
+    {
+      "case": "zero_selected",
+      "baseline_exit": 0,
+      "check_exit": 0,
+      "baseline_exists": false,
+      "last_check_exists": false,
+      "gate_missing": [
+        "회귀 기준선 없음 (/tmp/harness-audit-evidence-n2i8t9d_/regression/fixture/baseline.json) — 회귀 검사를 돌려라: `./run.sh regress fixture --baseline` (리뷰 착수) → 수정 반영 후 `./run.sh regress fixture --check`"
+      ]
+    },
+    {
+      "case": "changed_command_fails",
+      "check_exit": 0,
+      "ran_exit_codes": [
+        1
+      ],
+      "regressions": 0,
+      "not_in_baseline": 1,
+      "gate_missing": []
+    },
+    {
+      "case": "reuse_single_review_call",
+      "first_exit": 0,
+      "second_exit": 0,
+      "lastreview_exists": false
+    },
+    {
+      "case": "source_changed_after_evidence",
+      "source_mtime": 400.0,
+      "check_mtime": 200.0,
+      "gate_missing": [],
+      "review_missing": []
+    },
+    {
+      "case": "claim_before_agent_success",
+      "first_pretool_exit": 0,
+      "retry_after_no_actual_spawn_exit": 2,
+      "claim_exists": true
+    }
+  ],
+  "validation": {
+    "smoke": "Earlier in this conversation: PASS 531 / FAIL 0; no source edits since",
+    "smoke_log": "/tmp/harness-evaluation-smoke-20260921.log",
+    "doctor_log": "/tmp/harness-simplification-doctor-20260921.log",
+    "probes_script": "/tmp/harness-simplification-hook-fixtures.py",
+    "probes_command": "python3 -B /tmp/harness-simplification-hook-fixtures.py",
+    "scope_limits": [
+      "No model comparison benchmark",
+      "No lifecycle mutations or live task execution",
+      "No runtime RULES body audit",
+      "Retained queue/logs are historical and incomplete"
+    ],
+    "doctor": {
+      "exit_code": 0,
+      "verdict": "ALL CLEAN",
+      "advisory_orphan_roles": [
+        "codex-cto-bulk-receipe-v2",
+        "cto-bulk-receipe-v2",
+        "designer-cto-bulk-receipe-v2"
+      ],
+      "qualification": "Independent read-only process checks confirmed living dtach/provider processes without corresponding Orca role tabs; file writes and token consumption were not measured."
+    },
+    "source_manifest_rechecked_at": "2026-09-21T02:01:41.102129+00:00",
+    "source_manifest_unchanged_count": 135,
+    "report_local_link_errors": [],
+    "cross_review": {
+      "role_flow": "completed; initial-planning contracts and user gates retained in proposal",
+      "hook_evidence": "completed; atomic reservation and review/general task distinctions clarified",
+      "runtime_surface": "completed; per-request snapshot scope and current daemon pair policy clarified"
+    },
+    "probes_script_sha256": "cd02a8e1cf62dca1205200e51e68a2dfa238599fa473e15fc67a45cf19a1635d"
+  },
+  "report": {
+    "path": "docs/research/harness-simplification-assessment-2026-09-21.md",
+    "candidates": 18,
+    "lines": 541,
+    "sha256": "10fdcba06929ae9344270d1f8bd625da09c50932e0fa81646a1dcc52c293eca6"
+  }
+}

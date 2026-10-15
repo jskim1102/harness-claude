@@ -1972,6 +1972,31 @@ cmd_doctor() {
     grep -q 'basename "\$f").*developer.md.*continue' "$REPO/run.sh" 2>/dev/null \
         || { echo "  ✗ hybrid team: Claude developer agent 설치 제외 배선 부재"; canon_ok=0; }
 
+    # 5f) 계획 정합성 판정 경로 = CTO (PROCESS §5.2 / RULES §17, 2026-08-11). ★2026-09-10
+    # Astra 감사 F3: reviewer.md 만 재배선되고 protocol/planner/spawn-prompt 는 구
+    # planner 직통 경로를 유지 → CTO 가 planner.md 를 근거로 게이트 토큰을 지시 없이
+    # 붙여 tasks.md 가 변조된 실사고(annodock 08-20). 낡은 경로 문구가 되살아나면 잡는다.
+    # 같은 축: tasks.md 가 이미 있는 재개 빌드는 planner 스폰이 게이트에 막히므로
+    # spawn 지침도 reviewer 만 요구해야 한다 (start_project_spawn_nudge 와 동일 규칙).
+    local PROTO="$REPO/plugins/cto/rules/agent-team-protocol.md"
+    local PLANNER="$REPO/plugins/cto/agents/planner.md"
+    local TSKILL="$REPO/plugins/cto/skills/harness-team-spawn/SKILL.md"
+    grep -qE 'reviewer.*→.*(CTO|team-lead).*계획 정합성 판정' "$PROTO" 2>/dev/null \
+        || { echo "  ✗ 판정 경로: agent-team-protocol 에 reviewer→CTO 판정 경로 부재"; canon_ok=0; }
+    # 반증(2026-09-10 2라운드)이 1라운드 sweep 밖의 9곳을 더 찾았다 — role.md 의 "wake 사유 셋",
+    # session_start 주입문, 훅 차단 메시지 2곳, PROCESS §2, codex role, unknowns-check 참조 2곳.
+    # 파일 목록·패턴을 그 전부로 넓힌다 (정본 문구에 오탐 0 — 추가 전 grep 으로 확인).
+    local CTOROLE="$REPO/plugins/cto/role.md" PROC="$REPO/plugins/_shared/PROCESS.md"
+    local CDXROLE="$REPO/plugins/codex-cto/role.md"
+    local UNK="$REPO/plugins/cto/skills/harness-unknowns-check/references"
+    grep -nE 'directly to planner|reviewer` → `planner|판정.*네 소유|네 권한이다|§5\.2 adjudication|the reviewer asks you for|이 셋뿐|message the planner|`SendMessage` the planner|planner owns scope|둘 다 그때 planner|세 팀원|`planner`, `designer`, and `reviewer`|planner 가 specs/spec\.md' \
+        "$PROTO" "$PLANNER" "$SPAWN" "$TSKILL" "$CTOROLE" "$PROC" "$CDXROLE" "$UNK"/*.md \
+        "$REPO/hooks/session_start.py" "$REPO/hooks/team/start_project_gate.py" "$REPO/hooks/team/plan_readonly_gate.py" 2>/dev/null \
+        && { echo "  ✗ 판정 경로: 구 reviewer→planner 직통·planner 상시 문구 잔재 (위 줄) — 정본은 CTO 판정 / planner 1회용"; canon_ok=0; }
+    grep -q 'spawn ONLY reviewer' "$SPAWN" 2>/dev/null && grep -q 'reviewer 만' "$START" 2>/dev/null \
+        && grep -q 'reviewer 만' "$REPO/hooks/session_start.py" 2>/dev/null \
+        || { echo "  ✗ 재개 빌드 spawn: tasks.md 존재 시 reviewer 만 스폰 규칙 부재 (spawn-prompt/start-project/session_start 주입문)"; canon_ok=0; }
+
     if [[ $canon_ok -eq 1 ]]; then echo "  ✓ RULE A/B + reviewer + quality 불변식 정합 (복사본 동기화 OK)"; else rc=1; fi
 
     # [6] CEO terminal presence — advisory (rc 불변). Orca's public terminal

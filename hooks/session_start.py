@@ -150,9 +150,10 @@ def main() -> None:
 CTO 는 스폰되면 **팀 spawn 까지 마친 대기 상태**가 정상이다. 작업은 사용자
 대화가 시작시킨다.
 
-- **시작 마커가 있으면 첫 턴에 무조건 팀 spawn** (planner·reviewer 2명 —
-  designer/codex 는 add-cto 가 이미 별도 세션으로 준비). 그 턴이 무엇이든
-  spawn 이 먼저다.
+- **시작 마커가 있으면 첫 턴에 무조건 팀 spawn** (fresh 는 planner·reviewer 2명,
+  `specs/tasks.md` 가 이미 있으면 reviewer 만 — planner 는 1회용이라
+  planner_dispatch_gate 가 차단한다, RULES §17; designer/codex 는 add-cto 가 이미
+  별도 세션으로 준비). 그 턴이 무엇이든 spawn 이 먼저다.
 - spawn 후 그 턴의 사용자 요청을 정상 처리한다: **작업 지시면 바로 시작**,
   단순 질문이면 답하고 대기. 사용자 지시 없이 스스로 분해·업무 dispatch 를
   시작하지 않는다.
@@ -178,7 +179,9 @@ CTO 는 스폰되면 **팀 spawn 까지 마친 대기 상태**가 정상이다. 
 이전 lead 프로세스와 함께 **이미 소멸**했다 — 이전 대화에 팀이 살아 있었어도
 지금은 없다. 재스폰 전에는 SendMessage(planner|reviewer) 가 전부 실패한다.
 재스폰: 시작 마커가 있으면 첫 턴에 자동(STARTUP OVERRIDE), 마커가 소비된
-뒤라면 `/start-project` 수동 재신호.
+뒤라면 사용자에게 `reviewer 스폰할까요?` 로 묻고 승인받아 재스폰한다
+(`/start-project` 를 치라고 하지 않는다). `specs/tasks.md` 가 이미 있으니 reviewer 만
+재스폰한다 (planner 는 게이트 차단).
 """
 
     # 신원 배너 — **맨 앞**. designer-cto 는 lead CTO 와 같은 빌드 디렉토리에서

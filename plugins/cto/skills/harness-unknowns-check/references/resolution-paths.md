@@ -36,8 +36,10 @@ When you walk this path: send `[user-q]` to the lead per
 ## `ask <teammate>`
 
 Use when another teammate has already made or owns the decision. The
-designer owns visual decisions; the planner owns scope; the reviewer
-owns acceptance interpretation.
+designer owns visual decisions; scope belongs to the planner only during
+initial decomposition — once `specs/tasks.md` exists, scope questions go to
+the CTO (team-lead; planner is one-shot, RULES §17, and `SendMessage(planner)`
+is gate-blocked); the reviewer owns acceptance interpretation.
 
 ```markdown
 - [ ] does design.md commit to a specific color system? — ask designer

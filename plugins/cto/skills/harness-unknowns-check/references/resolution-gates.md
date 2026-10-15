@@ -72,12 +72,12 @@ The legal move: `[❓]` the task with a specific blocker:
 - [❓] [dev] implement /api/auth/signup | src/api/auth.ts | passes
       smoke test. Run: npm test -- auth
       > BLOCKED: acceptance says "use appropriate auth library" —
-      > spec.md does not specify which. Need clarification from planner.
+      > spec.md does not specify which. Need clarification from the CTO.
 ```
 
-`SendMessage` the planner. Do NOT silently pick "the appropriate
-library" — the planner has to either resolve and update the task or
-downgrade and document.
+`SendMessage` the CTO (team-lead) — planner is dormant after decomposition
+(RULES §17). Do NOT silently pick "the appropriate library" — the CTO has to
+either resolve (updating the task) or downgrade and document.
 
 ## Reviewer gate: any open unknown at verdict time = FAIL
 
@@ -134,8 +134,9 @@ dangerous to pass through.
 
 If the developer notices `spec.md` has an unresolved unknown that
 affects their task, the developer does NOT resolve it themselves
-(scope leak). They `[❓]` and message the planner. Same for designer
-noticing a planner unknown — flag, don't resolve.
+(scope leak). They `[❓]` and raise it to the CTO through the pair inbox
+(the CTO rules or surfaces it to the user — PROCESS §5.2). Same for designer
+noticing a spec unknown — flag, don't resolve.
 
 The corollary: each role's gate is theirs to defend, not someone
 else's to silently patch. Patching across role boundaries hides the

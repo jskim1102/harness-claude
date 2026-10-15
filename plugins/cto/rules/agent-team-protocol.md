@@ -62,13 +62,17 @@ without observing those artifacts.
 - **Direct between Claude teammates**: interface clarifications, dependency
   questions, and review/design context. Address a teammate by its name
   (`planner` / `reviewer`); a dormant teammate wakes on receipt.
-- **`reviewer` → `planner` (계획 정합성 판정)**: the one *required* peer route.
+- **`reviewer` → CTO (team-lead) (계획 정합성 판정)**: the one *required* route.
   A finding that falls outside the ckpt's acceptance criteria, or that
-  contradicts the plan, goes to `planner` for a 3-way ruling
+  contradicts the plan, goes to the **CTO** for a 3-way ruling
   (계획누락 / 의도된선택 / 새요구사항) **before** it can appear as a
-  BLOCKER/SHOULD in the verdict. Details: `reviewer.md` §계획 정합성 판정,
-  `planner.md` §계획 정합성 판정. The CTO must not turn an unadjudicated
-  out-of-scope finding into a `[dev]` fix task.
+  BLOCKER/SHOULD in the verdict (PROCESS §5.2, 2026-08-11). Never to
+  `planner` — it is one-shot after decomposition (RULES §17) and
+  `planner_dispatch_gate` blocks the send; attaching `HARNESS_USER_OK=planner`
+  without a user order is itself a violation (annodock 2026-08-20: the CTO did
+  exactly that on the strength of stale docs and planner mutated tasks.md).
+  Details: `reviewer.md` §계획 정합성 판정. The CTO must not turn an
+  unadjudicated out-of-scope finding into a `[dev]` fix task.
 - **Codex handoff**: deliver design contracts, review findings, and approved
   `[dev]` ranges through the paired `cto:<name> → codex-cto:<name>` inbox
   bridge. The bridge transports context only — user approval and the inbox
@@ -197,7 +201,9 @@ consumed (deleted) on a successful completion, so it cannot be reused.
   **`[review]` tasks 는 예외 — `[skip-verify]` 가 무시된다** (모델이
   토큰으로 리뷰 증거를 self-waive 하는 걸 막기 위함). 면제는 tasks.md
   밖의 per-segment waiver 파일로만 가능하다:
-  `~/.harness-claude/review-waivers/<team>/task-<id>.waiver`.
+  `~/.harness-claude/review-waivers/<project>/<ckpt-id>.waiver` (the ckpt that
+  owns the `[review]` line, e.g. `phase3.ckpt1.waiver`; the task-store
+  TaskCompleted path keys on `task-<id>.waiver`).
 
 ### 3. Idle work-check (`TeammateIdle`)
 

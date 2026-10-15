@@ -27,7 +27,9 @@ IGNORED for [review] tasks. Review evidence (code-review/qa) is mandatory
 typing a token into tasks.md. The ONLY way to waive review for a segment is an
 explicit per-segment WAIVER FILE outside tasks.md, recorded when the user said
 "이번 segment 검토 필요없음":
-    ~/.harness-claude/review-waivers/<team>/task-<id>.waiver
+    ~/.harness-claude/review-waivers/<project>/<ckpt-id>.waiver   (정본 — tasks.md 게이트와 공유 키;
+                                                                   task 문안의 ckpt id 로 대응)
+    ~/.harness-claude/review-waivers/<project>/task-<id>.waiver    (작업목록 task id 키; 레거시 <team>/ 폴백)
 Its presence (not any task text) exempts that one [review] task.
 FAIL OPEN: any internal error allows the completion.
 
@@ -77,6 +79,19 @@ def review_waiver_path(proj, task_id):
         WAIVER_DIR, _safe(proj or "_noteam"),
         "task-{}.waiver".format(_safe(task_id)),
     )
+
+
+CKPT_ID_RE = re.compile(r"\b([A-Za-z][A-Za-z0-9_-]*\.ckpt\d+)\b")
+
+
+def ckpt_waiver_paths(proj, text):
+    """task 문안에 적힌 ckpt id 마다 `<proj>/<ckpt-id>.waiver` — tasks_md_review_gate 와
+    같은 키. (2026-09-10 반증: 두 게이트가 다른 키를 읽어 문서대로 만든 waiver 를
+    한쪽이 무시했다 — 하나의 waiver 파일이 두 게이트를 다 면제해야 한다.)"""
+    return [
+        os.path.join(WAIVER_DIR, _safe(proj or "_noteam"), "{}.waiver".format(_safe(c)))
+        for c in dict.fromkeys(CKPT_ID_RE.findall(text or ""))
+    ]
 
 
 # 하나의 TaskCompleted 이벤트가 훅에 **두 번 배달**된다 (실측 2026-08-02,
@@ -148,7 +163,8 @@ def main():
     # only exemption is an explicit per-segment waiver FILE (outside tasks.md,
     # written by the CTO only when the user said "이번 segment 검토 필요없음").
     if is_review:
-        if _existing(review_waiver_path(proj, task_id), review_waiver_path(team, task_id)):
+        if _existing(review_waiver_path(proj, task_id), review_waiver_path(team, task_id)) \
+                or any(os.path.exists(w) for w in ckpt_waiver_paths(proj, text)):
             allow(EVENT, p, reason="review explicitly waived (per-segment waiver file)")
         # else: fall through — tokens ignored, review evidence still required.
     elif "[skip-verify]" in lower or "[skip-format-check]" in lower:
@@ -180,7 +196,7 @@ def main():
         footer = (
             "[review] 는 [skip-verify] 로 면제되지 않는다 — 사용자가 이 segment 를 "
             "명시 waive 한 경우에만 CTO 가 {} 를 만들어 면제한다.".format(
-                review_waiver_path(team, task_id))
+                (ckpt_waiver_paths(proj, text) or [review_waiver_path(proj, task_id)])[0])
             if is_review else
             "If this task genuinely needs no verification, add [skip-verify] to it."
         )

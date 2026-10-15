@@ -1116,6 +1116,13 @@ srg2(){ # srg2 <expect-exit> <recipient> <home> <cwd> <desc>
   [[ "$got" == "$1" ]] && ok "$5" || bad "$5 (exit $got != $1)"
 }
 srg2 2 planner   "$SRG_TMP/home"   "$SRG_TMP/cwd" "roster 부재 planner 차단 (lead-only 팀)"
+# 2026-10-06: 죽은 reviewer 에게 보내다 막히면 CTO 가 사용자에게 "/start-project 치라"고
+# 하던 출처. 재스폰은 "reviewer 스폰할까요?" 승인으로 한다 (start_project_gate 와 같은 규칙).
+srg_msg=$(echo '{"tool_name":"SendMessage","tool_input":{"to":"reviewer"}}' \
+  | HOME="$SRG_TMP/home" HARNESS_CTO_DIR="$SRG_TMP/cwd" python3 $SRG 2>&1 >/dev/null)
+[[ "$srg_msg" == *"스폰할까요?"* && "$srg_msg" != *'`/start-project` 로 재스폰'* ]] \
+  && ok "★sendmessage_gate: 죽은 팀원 → /start-project 대신 스폰 질문 안내" \
+  || bad "sendmessage_gate: 여전히 /start-project 재스폰 안내 :: $(echo "$srg_msg" | tail -2 | tr '\n' ' ')"
 srg2 0 team-lead "$SRG_TMP/home"   "$SRG_TMP/cwd" "team-lead 는 roster 검사 비대상"
 python3 - "$SRG_TMP" <<'PY'
 import json, os, sys
@@ -1454,6 +1461,40 @@ with TemporaryDirectory() as td:
     r=rollup(None)
     assert 'SECRET-BODY-OF-alpha' in r and 'SECRET-BODY-OF-beta' in r, '사람 CLI 가 전체를 못 본다'
 "
+# F1(2026-09-10 Astra 감사): [❓] 는 정본 블로커인데 cli 파서가 빼먹었다 → ✅+❓ ckpt 가
+# DONE 으로 보이고, 다음 ckpt 가 있으면 막힌 ckpt 를 건너뛰어 가리켰다. statusline·
+# dashboard·regression_gate 는 ❓ 를 아는데 cli 만 v1.0 정규식이었다 (내부 _task_counts
+# 는 또 다른 정규식). 불변식: ❓ = 미완+블로커, 체크박스 파서 정본 = regression_gate.BOX_RE 1개.
+check "status: [❓] 블로커 ckpt 는 DONE 아님 + blocked 집계" 0 python3 -c "
+import sys
+from pathlib import Path
+from tempfile import TemporaryDirectory
+sys.path.insert(0,'.')
+import harness.cli as c
+with TemporaryDirectory() as td:
+    s=Path(td)/'specs'; s.mkdir()
+    (s/'tasks.md').write_text(
+        '### phase3.ckpt1 로그인\n- [✅] [dev] api\n- [❓] [review] 인증 오류로 검증 불가\n'
+        '### phase3.ckpt2 다음\n- [ ] [dev] next\n')
+    cur=c._current_ckpt(s/'tasks.md')
+    assert cur['all_done'] is False and cur['ckpt']=='phase3.ckpt1', cur
+    n=c._task_counts(s)
+    assert n=={'done':1,'blocked':1,'open':1,'total':3}, n
+    (s/'tasks.md').write_text('### phase3.ckpt1 x\n- [✅] [dev] a\n- [❓] [review] b\n')
+    cur=c._current_ckpt(s/'tasks.md')
+    assert cur['all_done'] is False and cur['ckpt']=='phase3.ckpt1', cur
+"
+check "checkbox 파서 정본 1개 (cli·statusline·dashboard = regression_gate.BOX_RE)" 0 python3 -c "
+import re, sys
+sys.path.insert(0,'.')
+from harness.regression_gate import BOX_RE
+import harness.cli as c
+assert c._BOX_RE.pattern==BOX_RE.pattern, c._BOX_RE.pattern
+for f in ('hooks/cto_statusline.py','dashboard/backend/main.py'):
+    src=open(f,encoding='utf-8').read()
+    lits=re.findall(r'(?:box_re|_BOX_RE)\s*=\s*re\.compile\(r\"([^\"]+)\"\)', src)
+    assert lits and all(l==BOX_RE.pattern for l in lits), (f, lits)
+"
 PAIR_TMP="$(mktemp -d)"
 mkdir -p "$PAIR_TMP/home"
 check "inbox pair: Claude CTO → same Codex CTO" 0 env HOME="$PAIR_TMP/home" HARNESS_ROLE=cto:alpha python3 -m harness.cli send --to codex-cto:alpha --to-unknown --body "segment ready"
@@ -1533,6 +1574,26 @@ assert calls[-1][-4:] == ['--text', d.CODEX_INBOX_PROMPT, '--enter', '--json']
 o=$(grep -c "observe 화면" harness/daemon.py)
 [[ "$o" == "0" ]] && ok "daemon 메시지에 observe 없음" || bad "daemon observe 잔재"
 check "stall: tasks 미완 카운트" 0 python3 -c "import sys; sys.path.insert(0,'.'); from harness.daemon import _parse_tasks_incomplete as f; assert f('- [ ] a\n- [✅] b\n- [!] c\n- [x] d')==2, f('got %d' % f('- [ ] a\n- [✅] b\n- [!] c\n- [x] d'))"
+# F1(2026-09-10): daemon 도 ❓ 를 몰랐다 — ❓ 만 남은 페어는 incomplete=0 → 페어유실 알림이
+# 해제된다 (막힌 빌드에서 데몬이 조용해지는 정반대 동작). 파서 정본 = regression_gate.BOX_RE.
+check "stall: [❓] 블로커도 미완 (페어유실 알림 억제 방지)" 0 python3 -c "import sys; sys.path.insert(0,'.'); from harness.daemon import _parse_tasks_incomplete as f, _first_incomplete_line as g; t='- [✅] a\n- [❓] b\n* [ ] c'; assert f(t)==2, f(t); assert g(t).startswith('- [❓]'), g(t)"
+# F2(2026-09-10 Astra 감사): 인박스 wake 프롬프트가 "요약 후 하던 일 재개" 를 지시했는데
+# 같은 턴은 inbox_isolation_guard 가 §6 로 Edit/Bash 를 차단한다 → 훅과 지시가 반대
+# (rtsp-detection-v2 08-18·annodock 09-04 실차단). 작업중 nudge 는 IDLE_CONFIRM_SEC 가
+# 결정론으로 막으므로 재개 문장은 하중이 없다. 불변식: 세 사이트(daemon codex/designer
+# 프롬프트, Claude /inbox) 모두 "요약 후 정지, 다음 턴에 계속".
+check "inbox wake: 같은 턴 재개 지시 없음 (§6 정합, 3 사이트)" 0 python3 -c "
+import sys; sys.path.insert(0,'.')
+import harness.daemon as d
+p=d.CODEX_INBOX_PROMPT
+for bad in ('resume and finish','instead of stopping','continue your work'):
+    assert bad not in p, bad
+assert 'and stop' in p and 'next user turn' in p, p
+t=open('plugins/cto/commands/inbox.md',encoding='utf-8').read()
+for bad in ('이어서 끝낸다','멈추지 않는다'):
+    assert bad not in t, bad
+assert '§6' in t and '다음 턴' in t, t
+"
 check "stall 탐지기 부재 고정 (2026-08-20 사용자 지시 제거 — 복원=회귀)" 0 python3 -c "import sys; sys.path.insert(0,'.'); import harness.daemon as d; assert not hasattr(d,'_stall_verdict'); assert not hasattr(d,'STALL_SEC'); assert not hasattr(d,'detect_stalls'); assert not hasattr(d,'_detect_one_stall'); assert hasattr(d,'detect_pair_issues')"
 check "stall: hybrid pair 4상태" 0 python3 -c "from harness.daemon import _pair_status as s; assert s(True,True)=='healthy'; assert s(True,False)=='claude-only'; assert s(False,True)=='codex-only'; assert s(False,False)=='both-down'"
 pair_stall_out=$(python3 - <<'PY' 2>&1
@@ -2013,6 +2074,46 @@ except SystemExit as e:
   || bad "gate: 마커 write 실패 시 allow 아님 :: $(echo "$gsp_out" | tr '\n' ' ')"
 [[ "$gsp_out" == *"마커 기록 실패"* ]] && ok "★gate: 마커 write 실패 → stderr 표면화" \
   || bad "gate: 마커 write 실패가 여전히 조용함 :: $(echo "$gsp_out" | tr '\n' ' ')"
+# 9~14) 2026-10-06 사용자 지시: 마커가 소비된 뒤 재스폰에 `/start-project` 타이핑을
+#    요구하지 말고 "reviewer 스폰할까요?" 로 묻고 승인받아 진행. 승인은 **사용자
+#    프롬프트**(모델이 못 꾸밈)가 **직전 CTO 메시지의 스폰 질문**에 대한 긍정일 때만.
+GA="smokeask"; GTR="$(mktemp -d)"; GCL="$HOME/.harness-claude/orca-team-spawn-claims/$GA"
+_ask_tr() { # _ask_tr <file> <마지막 assistant 텍스트> [그 앞 assistant 텍스트]
+  { printf '%s\n' '{"type":"user","message":{"role":"user","content":"리뷰 진행해"}}'
+    [[ -n "${3:-}" ]] && python3 -c 'import json,sys; print(json.dumps({"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":sys.argv[1]}]}}, ensure_ascii=False))' "$3"
+    python3 -c 'import json,sys; print(json.dumps({"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":sys.argv[1]}]}}, ensure_ascii=False))' "$2"
+  } > "$1"; }
+_reply() { # _reply <transcript> <사용자 답>
+  rm -f "$GM/$GA.started"
+  python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"UserPromptSubmit","prompt":sys.argv[1],"transcript_path":sys.argv[2]}, ensure_ascii=False))' "$2" "$1" \
+    | HARNESS_ROLE=cto:$GA python3 "$GH" >/dev/null 2>&1; }
+_ask_tr "$GTR/asked.jsonl" "구현 끝났습니다. 독립 검증이 필요합니다. reviewer 스폰할까요?"
+mkdir -p "$GCL"; : > "$GCL/reviewer.claimed"
+_reply "$GTR/asked.jsonl" "응"
+[[ -f "$GM/$GA.started" ]] && ok "★gate: 스폰 질문 → '응' → 시작 마커 기록" \
+  || bad "gate: 스폰 질문에 '응' 했는데 마커 없음 (/start-project 타이핑 강요 잔존)"
+[[ ! -f "$GCL/reviewer.claimed" ]] && ok "gate: 승인 = /start-project 와 같은 claim 정리" \
+  || bad "gate: 승인 후 reviewer claim 잔존 → 재스폰이 role gate 에 막힘"
+_reply "$GTR/asked.jsonl" "네 진행해"
+[[ -f "$GM/$GA.started" ]] && ok "gate: '네 진행해' 도 승인" || bad "gate: '네 진행해' 미승인"
+_reply "$GTR/asked.jsonl" "아니 하지마"
+[[ ! -f "$GM/$GA.started" ]] && ok "gate: 거절('아니 하지마') → 마커 없음" || bad "gate: 거절인데 마커 기록"
+_reply "$GTR/asked.jsonl" "응 근데 스폰은 하지마"
+[[ ! -f "$GM/$GA.started" ]] && ok "gate: 긍정어 뒤 거절('응 근데 하지마') → 마커 없음" || bad "gate: '응 근데 하지마'를 승인으로 오인"
+_reply "$GTR/asked.jsonl" "alembic upgrade 먼저 돌려"
+[[ ! -f "$GM/$GA.started" ]] && ok "gate: 다른 지시 → 마커 없음" || bad "gate: 무관한 지시를 승인으로 오인"
+_ask_tr "$GTR/plain.jsonl" "alembic upgrade head 승인해 주시면 진행합니다."
+_reply "$GTR/plain.jsonl" "응"
+[[ ! -f "$GM/$GA.started" ]] && ok "gate: 스폰 질문 없이 '응' → 마커 없음" || bad "gate: 다른 질문의 '응'을 스폰 승인으로 오인"
+_ask_tr "$GTR/stale.jsonl" "리뷰 결과 반영했습니다." "reviewer 스폰할까요?"
+_reply "$GTR/stale.jsonl" "응"
+[[ ! -f "$GM/$GA.started" ]] && ok "gate: 직전이 아닌 옛 질문 → 마커 없음" || bad "gate: 지난 턴 스폰 질문으로 승인됨"
+rm -f "$GM/$GA.started"
+ev_ask="{\"hook_event_name\":\"PreToolUse\",\"tool_name\":\"Agent\",\"cwd\":\"$GT\",\"tool_input\":{\"subagent_type\":\"reviewer\"}}"
+gblk=$(echo "$ev_ask" | HARNESS_ROLE=cto:$GA python3 "$GH" 2>&1 >/dev/null)
+[[ "$gblk" == *"스폰할까요?"* && "$gblk" != *"/start-project 로 시작하세요"* ]] \
+  && ok "★gate: 차단 시 '/start-project 치라' 대신 사용자에게 스폰 질문하라고 안내" \
+  || bad "gate: 차단 메시지가 여전히 /start-project 입력 요구 :: $(echo "$gblk" | head -2 | tr '\n' ' ')"
 # settings.json 템플릿이 게이트를 Agent matcher 로 실제 배선하는지 (run.sh)
 grep -q "start_project_gate.py" "$REPO/run.sh" \
   && ok "gate: run.sh settings.json 에 배선됨" || bad "gate: run.sh 배선 누락"
@@ -2204,10 +2305,20 @@ for must in "skills/harness-task-format/SKILL.md" \
     && ok "F5: 가드 커버 확인 — $must" \
     || bad "F5: 가드가 $must 를 못 봄(.gitignore/ugrep 트랩 or 파일 이동)"
 done
+# 경로 정본 = `<project>/<ckpt-id>.waiver` (tasks.md 게이트가 읽는 키, 2026-09-10 Astra
+# 감사 F5). 옛 `<team>/task-<id>` 는 세션파생 키라 게이트가 못 보는 경로였다 — 부활 금지.
 for f in $F5_DOCS; do
-  /usr/bin/grep -q 'review-waivers/<team>/task-<id>\.waiver' "$f" \
+  /usr/bin/grep -q 'review-waivers/<project>/<ckpt-id>\.waiver' "$f" \
     && ok "F5: $(basename "$f") — [review]×[skip-verify] 문서가 waiver 경로 명시" \
     || bad "F5: $(basename "$f") — [review] 에서 skip-verify 무시/waiver 경로 누락"
+  /usr/bin/grep -q 'review-waivers/<team>/' "$f" \
+    && bad "F5: $(basename "$f") — 옛 <team> waiver 키 잔재 (게이트는 <project> 키만 읽는다)"
+done
+# 훅 자신의 docstring/차단 메시지도 같은 키를 말해야 한다 (반증 2026-09-10: TaskCompleted 게이트
+# 문서가 <team>/task-<id> 를 안내해 문서대로 만든 waiver 를 한쪽 게이트가 무시했다).
+for f in hooks/team/task_completed_verify_gate.py hooks/team/tasks_md_review_gate.py; do
+  /usr/bin/grep -q 'review-waivers/<team>/' "$REPO/$f" \
+    && bad "F5: $f — 옛 <team> waiver 키 잔재 (훅 문서/메시지)" || ok "F5: $f — <team> waiver 키 없음"
 done
 
 echo "== [12b] 완료게이트 재배달 멱등 (하나의 TaskCompleted 가 두 번 배달) =="
@@ -2952,8 +3063,14 @@ echo "== [install-services] systemd 유닛 편입 (부팅 자동시작 정본 = 
 check "install-services --dry-run 렌더" 0 ./run.sh install-services --dry-run
 check "dry-run: 플레이스홀더 잔존 없음"  1 bash -c "./run.sh install-services --dry-run | grep -qE '@[A-Z0-9_]+@'"
 dry_out=$(./run.sh install-services --dry-run 2>&1)
-[[ "$dry_out" == *"orca serve --port \${ORCA_PORT}"* && "$dry_out" == *"harness.daemon"* ]] \
-  && ok "dry-run: orca serve + harnessd ExecStart 렌더" || bad "dry-run: ExecStart 누락 :: $(echo "$dry_out" | head -2)"
+[[ "$dry_out" == *"orca-linux.AppImage serve --port \${ORCA_PORT}"* && "$dry_out" == *"harness.daemon"* ]] \
+  && ok "dry-run: AppImage serve + harnessd ExecStart 렌더" || bad "dry-run: ExecStart 누락 :: $(echo "$dry_out" | head -2)"
+# 2026-10-06: Orca 1.4.198+ 는 ~/.local/bin/orca 디스패처를 ~/.cache 추출본에 고정한다.
+# 유닛이 디스패처로 serve 하면 AppImage 를 바꿔도 옛 추출본이 떠서 update-orca 가
+# 5연속 롤백했다(1.4.199~220). ExecStart 는 반드시 AppImage 직접 실행이어야 한다.
+[[ "$dry_out" != *".local/bin/orca serve"* ]] \
+  && ok "dry-run: ExecStart 가 디스패처 아님 (1.4.198+ 캐시 고정 회귀 방지)" \
+  || bad "dry-run: ExecStart 가 ~/.local/bin/orca 디스패처 — AppImage 교체가 무효화된다"
 [[ "$dry_out" == *"WorkingDirectory=$REPO"* ]] \
   && ok "dry-run: HARNESS_ROOT 치환" || bad "dry-run: HARNESS_ROOT 미치환"
 # 2026-07-24: serve 추가 플래그(--mobile-pairing 등) 통로. ${VAR} 가 아니라 $VAR 여야
@@ -2975,6 +3092,25 @@ check "install-services --port 만 → 거부(pairing 필수)" 1 ./run.sh instal
 # systemctl 있는 머신 = env-file 게이트에서, 없는 머신 = systemctl 게이트에서 — 어느 쪽이든 exit 1.
 # XDG_RUNTIME_DIR 오염은 진짜 user manager 를 건드리는 사고 방지용 이중 안전벨트.
 check "install-services env 파일 없이 → 거부" 1 env XDG_RUNTIME_DIR=/nonexistent-smoke ./run.sh install-services
+
+echo "== [reap-orphans] 고아 판정 = 실행파일(exe) 기준, argv 부분문자열 아님 =="
+# 2026-10-06: argv 에 AppImage 경로가 들어간 업데이터 셸(`update-orca --from …AppImage…`)을
+# reaper 가 Orca 로 오판해 SIGKILL — 롤백 트랩도 못 돈 채 죽었다. --dry-run 만 쓴다(아무것도 안 죽임).
+REAP_T=$(mktemp -d)
+bash -c 'exec -a decoy sleep 30 # /home/x/apps/orca/orca-linux.AppImage orca-ide' & REAP_DECOY=$!
+cp /bin/sleep "$REAP_T/orca-ide"; "$REAP_T/orca-ide" 30 & REAP_REAL=$!
+sleep 0.3
+reap_out=$(./scripts/orca-reap-orphans.sh --dry-run 2>&1)
+[[ "$reap_out" != *" $REAP_DECOY "* && "$reap_out" != *"$REAP_DECOY "* ]] \
+  && ok "reap: argv 에 AppImage/orca-ide 문자열만 있는 셸은 표적 아님" \
+  || bad "reap: argv 부분문자열로 무고한 프로세스 표적 — 업데이터 참수 회귀 :: $(echo "$reap_out" | head -3)"
+[[ "$reap_out" == *"$REAP_REAL "* ]] \
+  && ok "reap: exe 가 orca-ide 인 유닛 밖 프로세스는 표적" \
+  || bad "reap: exe=orca-ide 고아를 못 잡음 :: $(echo "$reap_out" | head -3)"
+[[ "$reap_out" == *"dry-run"* || "$reap_out" == *"없음"* ]] \
+  && ok "reap: --dry-run 은 죽이지 않음" || bad "reap: dry-run 출력 이상 :: $(echo "$reap_out" | head -2)"
+kill $REAP_DECOY $REAP_REAL 2>/dev/null; wait $REAP_DECOY $REAP_REAL 2>/dev/null
+rm -f "$REAP_T/orca-ide"; rmdir "$REAP_T"
 
 echo "== [update-orca] AppImage 원클릭 갱신 + 자동 롤백 =="
 _make_fake_appimage() { # <path> <version>
@@ -3470,6 +3606,93 @@ PY
   && ok "regress: 미완 task 제외 (통과한 적 없음)" \
   || bad "regress: 미완 task 가 기준선에 포함됨 :: $RG_SEL"
 
+# RISKY: 스크래치가 아닌 프런트 빌드는 작업 트리 dist/ 를 덮어쓴다 (annodock 2026-10-06 — Caddy 가
+# frontend/dist 를 직접 서빙해 게이트 실행이 곧 판정 전 prod 배포였다). 설계(Codex 리뷰 1~3차 반영):
+# 감지는 원문 부분문자열(JS 도구 토큰 + 독립 단어 build), 면제는 `… build [--] --outDir /tmp/<리터럴>`
+# 화이트리스트 문법 하나 — 셸 변형은 전부 "더 제외" 방향으로만 틀린다.
+RG_BUILD=$(python3 - <<'PY'
+import sys; sys.path.insert(0, "harness")
+from regression_gate import risky_reason
+R = "프런트 빌드(dist 덮어씀)"
+risky = [
+    "cd frontend && npm run build", "cd frontend && npm test && npm run build",
+    "cd frontend && npm run build && ! grep -rq DeepLabel dist", "npx vite build", "pnpm build", "yarn build",
+    "npm --prefix frontend run build", "npm run --silent build", "yarn workspace x build", "npm run build:prod",
+    "cd frontend && npm run build -- --outDir dist", "cd frontend && npm run build # --outDir /tmp/scratch",
+    "cd frontend && npm run build > /tmp/build--outDir.log", 'TAG="#check" npm run build', 'TAG=\\" npm run build',
+    'TAG="a;b" npm run build', "bash -c 'npm run build'", 'echo "$(npm run build)" --outDir /tmp/x',
+    "npm run build -- --outDir=${TMPDIR:-dist}", "npm run build -- --outDir /tmp/../../srv/app/frontend/dist",
+    'npm run build -- --outDir="/tmp/"../../srv/app/frontend/dist', "npm run build -- --outDir /tmp/\\.\\./srv/x",
+    'TAG="--outDir /tmp/x " npm run build', "npm run build <<< '--outDir /tmp/x '",
+    "cd frontend && npm run build --outDir=/tmp/x", "npx vite build -- --outDir /tmp/x",   # 4차 P1: 구분자 의미론
+    "cd frontend && pnpm run build -- --outDir /tmp/p", "yarn build -- --outDir=/var/tmp/y",  # 5차 P1: pnpm/yarn 은 `--` 를 넘김
+    "pnpm run build --outDir /tmp/p", "yarn build --outDir /tmp/y",                           # → 면제 없음
+]
+safe = [
+    "cd frontend && npm run build -- --outDir /tmp/x", "cd frontend && npm run build -- --outDir=/tmp/x/",
+    "npx vite build --outDir /tmp/y", "cd frontend && npx tsc --noEmit", "cd frontend && npm test",
+    "npm test -- tests/build.spec.ts", "npm run lint && echo build",
+]
+bad = [c for c in risky if risky_reason(c) != R] + [c for c in safe if risky_reason(c) is not None]
+print("OK" if not bad else "MISMATCH: " + " || ".join(bad))
+PY
+)
+[[ "$RG_BUILD" == "OK" ]] \
+  && ok "regress: 프런트 빌드 30형태 위험 / npm·vite 스크래치 빌드·tsc·npm test·인자 속 build 7형태 통과" \
+  || bad "regress: 프런트 빌드 판정 불일치 :: $RG_BUILD"
+# pytest argv 판정 (순수 함수): console script·-m·인터프리터 옵션은 pytest, 셸 문자열·래퍼·편집기 피연산자는 아님
+RG_ARGV=$(python3 - <<'PY'
+import sys; sys.path.insert(0, "harness")
+from regression_gate import _is_pytest_argv as f
+print("|".join(f"{k}={int(f(a))}" for k, a in [
+    ("script", ["/b/.venv/bin/python", "/b/.venv/bin/pytest", "-q"]),
+    ("direct", ["/b/.venv/bin/pytest", "-q"]),
+    ("dashm", ["/b/.venv/bin/python3.12", "-m", "pytest", "-q"]),
+    ("xdev", ["python", "-X", "dev", "/x/.venv/bin/py.test"]),
+    ("bashc", ["bash", "-c", "python -m pytest -q"]),
+    ("catbash", ["bash", "-c", "cat /b/.venv/bin/pytest"]),
+    ("vim", ["vim", "/b/.venv/bin/pytest"]),
+    ("uvwrap", ["uv", "run", "pytest"]),
+    ("other", ["/usr/bin/python3", "/b/manage.py", "test"]),
+]))
+PY
+)
+[[ "$RG_ARGV" == "script=1|direct=1|dashm=1|xdev=1|bashc=0|catbash=0|vim=0|uvwrap=0|other=0" ]] \
+  && ok "regress: pytest argv 판정 — 인터프리터+console script/-m 만 pytest, 셸 문자열·편집기·런처는 아님" \
+  || bad "regress: pytest argv 판정 불일치 :: $RG_ARGV"
+
+# pre-flight: 같은 빌드 dir 에서 도는 다른 pytest 가 있으면 게이트가 시작을 거부한다
+# (annodock 2026-10-06 — reviewer 가 전체 스위트와 게이트를 겹쳐 돌려 허위 회귀 8건 중 7건).
+# 실제 console-script 모양(argv = [python, …/.venv/bin/pytest]) 의 가짜 프로세스를 SMOKE_HOME 아래 임시
+# dir 에 띄워 **그 pid 의 포함 여부**로 판정한다 — 호스트의 무관한 pytest 가 있어도 흔들리지 않게
+# (Codex 리뷰 3차 P2). 명령 문자열에 pytest 가 든 조상 셸은 세지 않는지(2차 P1-3)도 본다.
+RG_PT=$(mktemp -d "$SMOKE_HOME/rgpt.XXXXXX")   # SMOKE_HOME 아래 → EXIT trap 이 치운다
+mkdir -p "$RG_PT/.venv/bin"; printf '#!/bin/bash\nsleep 20\n' > "$RG_PT/.venv/bin/pytest"; chmod +x "$RG_PT/.venv/bin/pytest"
+cat > "$RG_PT/probe.py" <<PY
+import os, sys; sys.path.insert(0, "$(cd "$REPO" && pwd -P)/harness")
+from pathlib import Path
+from regression_gate import concurrent_pytest
+d = Path(sys.argv[1]); fx = int(sys.argv[2])
+pids = lambda hits: {int(h.split()[1]) for h in hits}
+print("fx_in=%d|fx_out=%d|parent_in=%d" % (fx in pids(concurrent_pytest(d)),
+      fx in pids(concurrent_pytest(d / "other-build-not-exists")), os.getppid() in pids(concurrent_pytest(d))))
+PY
+( cd "$RG_PT" && exec -a "$RG_PT/.venv/bin/python" bash "$RG_PT/.venv/bin/pytest" ) &
+RG_PT_PID=$!
+for _ in $(seq 1 40); do   # exec -a 반영 대기 (스케줄링 레이스 방지, 최대 2s)
+  [[ "$(tr '\0' ' ' < /proc/$RG_PT_PID/cmdline 2>/dev/null | cut -d' ' -f1)" == "$RG_PT/.venv/bin/python" ]] && break
+  sleep 0.05
+done
+RG_PT_OUT=$(python3 "$RG_PT/probe.py" "$RG_PT" "$RG_PT_PID")
+kill "$RG_PT_PID" 2>/dev/null; wait "$RG_PT_PID" 2>/dev/null
+[[ "$RG_PT_OUT" == "fx_in=1|fx_out=0|parent_in=0" ]] \
+  && ok "regress: 같은 빌드 dir 의 console-script pytest 탐지 (argv·cwd 기준) — 다른 dir 은 무시" \
+  || bad "regress: pytest 충돌 탐지 불일치 :: $RG_PT_OUT"
+RG_PT_ANC=$(bash -c 'cd "$1" && python3 "$1/probe.py" "$1" "$2"; : pytest' _ "$RG_PT" "$RG_PT_PID")
+[[ "$RG_PT_ANC" == "fx_in=0|fx_out=0|parent_in=0" ]] \
+  && ok "regress: 명령 문자열에 pytest 가 든 조상 셸은 충돌 아님 (argv 검증 + 조상 제외)" \
+  || bad "regress: 조상 셸 오탐 — 영구 exit 2 데드락 :: $RG_PT_ANC"
+
 # 완료게이트 연동 — 회귀 결과 상태별 차단/통과
 RGH=$(mktemp -d)
 mkdir -p "$RGH/.harness-claude/regression/rgsm" "$RGH/.claude/logs/verified/rgt" "$RGH/.claude/logs/codereview"
@@ -3538,10 +3761,75 @@ _tm 2 '- [ ] [review] seg' '- [✅] [review] seg' \
 : > "$TMH/.claude/logs/codereview/tmsm.reviewer.invoked"
 _tm 0 '- [ ] [review] seg' '- [✅] [review] seg' \
   && ok "tasksmd-gate: 회귀 0 + reviewer 호출 → 통과" || bad "tasksmd-gate: 정상 리뷰가 차단됨"
-mkdir -p "$TMH/.harness-claude/review-waivers/tmsm"; touch "$TMH/.harness-claude/review-waivers/tmsm/task-1.waiver"
+# F5(2026-09-10 Astra 감사): waiver 판정이 "프로젝트 폴더에 .waiver 하나라도" 였다 —
+# 지우는 코드가 없으니 첫 waive 가 그 프로젝트의 리뷰게이트를 영구 해제했다. 불변식:
+# waiver 는 닫히는 [review] 줄이 속한 ckpt 에 묶인다 (`<proj>/<ckpt-id>.waiver`);
+# ckpt 를 못 찾으면 면제 없음. (구 케이스는 이 광역 동작을 초록으로 핀하고 있었다.)
+TMF="$TMH/build/tmsm/specs"; mkdir -p "$TMF"
+printf '### phase1.ckpt1 seg\n- [ ] [review] seg\n### phase1.ckpt2 other\n- [ ] [review] other\n' > "$TMF/tasks.md"
+_tmf() {  # $1=기대exit  $2=old  $3=new  [$4=file]  (실 파일 → 편집 투영 → 전이 줄의 ckpt 역산)
+  printf '{"tool_name":"Edit","tool_input":{"file_path":"%s","old_string":"%s","new_string":"%s"}}' "${4:-$TMF/tasks.md}" "$2" "$3" \
+    | HOME="$TMH" HARNESS_ROLE=cto:tmsm python3 "$TMG" >/dev/null 2>&1
+  [[ $? -eq $1 ]]
+}
+_tmj() {  # $1=기대exit  $2=tool_input JSON (MultiEdit edits[] / replace_all 등 임의 모양)
+  printf '{"tool_name":"MultiEdit","tool_input":%s}' "$2" \
+    | HOME="$TMH" HARNESS_ROLE=cto:tmsm python3 "$TMG" >/dev/null 2>&1
+  [[ $? -eq $1 ]]
+}
+mkdir -p "$TMH/.harness-claude/review-waivers/tmsm"
 echo '{"regressions":9}' > "$TMH/.harness-claude/regression/tmsm/last-check.json"
-_tm 0 '- [ ] [review] seg' '- [✅] [review] seg' \
-  && ok "tasksmd-gate: waiver 있으면 물러남" || bad "tasksmd-gate: waiver 무시"
+touch "$TMH/.harness-claude/review-waivers/tmsm/task-1.waiver"
+_tmf 2 '- [ ] [review] seg' '- [✅] [review] seg' \
+  && ok "tasksmd-gate: 무관한 waiver(task-1) 는 면제 아님 → 차단" || bad "tasksmd-gate: 광역 waiver 로 리뷰게이트 해제 (F5)"
+touch "$TMH/.harness-claude/review-waivers/tmsm/phase1.ckpt2.waiver"
+_tmf 2 '- [ ] [review] seg' '- [✅] [review] seg' \
+  && ok "tasksmd-gate: 다른 ckpt 의 waiver 는 면제 아님 → 차단" || bad "tasksmd-gate: 타 ckpt waiver 로 해제"
+# 전이 판정은 편집 조각이 아니라 **투영된 파일** 기준 (반증 2026-09-10): 불릿 없는 부분줄
+# 편집은 조각만 보면 `^[-*]` 에 안 걸려 게이트가 통째로 비켜갔다 (판정도 감사행도 없이).
+_tmf 2 '[ ] [review] seg' '[✅] [review] seg' \
+  && ok "tasksmd-gate: 불릿 없는 부분줄 Edit 도 [review] 닫기로 판정 → 차단" || bad "tasksmd-gate: 부분줄 Edit 이 게이트 우회 (조각 기준 판정)"
+_tmf 0 '] [review] seg' '] [review] seg (reworded)' \
+  && ok "tasksmd-gate: 전이 없는 부분줄 편집은 통과 (관심사 아님)" || bad "tasksmd-gate: 전이 없는 편집 오차단"
+touch "$TMH/.harness-claude/review-waivers/tmsm/phase1.ckpt1.waiver"
+_tmf 0 '- [ ] [review] seg' '- [✅] [review] seg' \
+  && ok "tasksmd-gate: 그 ckpt 의 waiver → 면제" || bad "tasksmd-gate: 정당한 ckpt waiver 무시"
+# 두 ckpt 에 걸친 한 번의 Edit 이 둘 다 닫으면 둘 다 waiver 필요 (첫 줄 ckpt 만 키잉하던 구멍)
+# (픽스처는 반드시 …/specs/tasks.md — 다른 이름은 _target_is_tasks_md 가 조용히 통과시켜 헛초록)
+_tmfx() { local d="$TMH/build$1/specs"; mkdir -p "$d"; printf '%b' "$2" > "$d/tasks.md"; echo "$d/tasks.md"; }
+TMF6=$(_tmfx 6 '### phase1.ckpt1 seg\n- [ ] [review] seg\n### phase1.ckpt5 five\n- [ ] [review] five\n')
+_tmf 2 '- [ ] [review] seg\n### phase1.ckpt5 five\n- [ ] [review] five' '- [✅] [review] seg\n### phase1.ckpt5 five\n- [✅] [review] five' "$TMF6" \
+  && ok "tasksmd-gate: 두 ckpt 걸친 Edit, ckpt1 waiver 만 → 차단" || bad "tasksmd-gate: 첫 ckpt 만 키잉 → ckpt5 무면제 통과"
+_tmf 0 '- [ ] [review] seg\n### phase1.ckpt2 other\n- [ ] [review] other' '- [✅] [review] seg\n### phase1.ckpt2 other\n- [✅] [review] other' \
+  && ok "tasksmd-gate: 두 ckpt 걸친 Edit, 둘 다 waiver → 면제" || bad "tasksmd-gate: 둘 다 waiver 인데 차단"
+# MultiEdit 에서 이미 완료된 [review] 줄을 고쳐 쓰는 edit 는 전이가 아니다 — 그 ckpt 를 키에 넣지 않는다
+TMF3=$(_tmfx 3 '### phase1.ckpt1 seg\n- [ ] [review] seg\n### phase1.ckpt3 done\n- [✅] [review] done3\n')
+_tmj 0 "{\"file_path\":\"$TMF3\",\"edits\":[{\"old_string\":\"- [✅] [review] done3\",\"new_string\":\"- [✅] [review] done3 (re-worded)\"},{\"old_string\":\"- [ ] [review] seg\",\"new_string\":\"- [✅] [review] seg\"}]}" \
+  && ok "tasksmd-gate: 완료줄 재작성 edit 는 키에 안 들어감 (ckpt1 waiver 로 면제)" || bad "tasksmd-gate: 비전이 edit 가 ckpt3 를 키에 넣어 정당한 면제 차단"
+# replace_all 로 두 ckpt 의 동일 텍스트 [review] 를 한 번에 닫으면 둘 다 waiver 필요
+TMF4=$(_tmfx 4 '### phase1.ckpt1 seg\n- [ ] [review] same\n### phase1.ckpt4 four\n- [ ] [review] same\n')
+_tmj 2 "{\"file_path\":\"$TMF4\",\"old_string\":\"- [ ] [review] same\",\"new_string\":\"- [✅] [review] same\",\"replace_all\":true}" \
+  && ok "tasksmd-gate: replace_all 로 ckpt1+ckpt4 동시 닫기, ckpt4 무면제 → 차단" || bad "tasksmd-gate: replace_all 무시 → 첫 발생만 키잉"
+# 2단계 self-waive(가짜 헤딩 삽입 후 닫기): 같은 ckpt 헤딩이 둘이면 키 미상 → 면제 없음
+TMF5=$(_tmfx 5 '### phase1.ckpt1 seg\n- [✅] [review] seg\n### phase1.ckpt1 seg (fake)\n- [ ] [review] steer\n')
+_tmf 2 '- [ ] [review] steer' '- [✅] [review] steer' "$TMF5" \
+  && ok "tasksmd-gate: 중복 ckpt 헤딩 아래 닫기 = 키 미상 → waiver 무효 차단" || bad "tasksmd-gate: 가짜 헤딩으로 waiver 스티어링 성공"
+_tm 2 '- [ ] [review] seg' '- [✅] [review] seg' \
+  && ok "tasksmd-gate: 투영 불가(파일 없음) 면 조각 기준 판정 + waiver 무효 → 차단" || bad "tasksmd-gate: ckpt 미상인데 면제"
+# ★cross-gate: waiver 키 정본은 하나 — `<project>/<ckpt-id>.waiver` 하나로 tasks.md 게이트와
+# TaskCompleted 게이트가 **둘 다** 면제해야 한다 (반증 2026-09-10: 후자가 <team>/task-<id> 만
+# 봐서 문서대로 만든 waiver 를 한쪽이 무시했다).
+XGH="$(mktemp -d)/home"; XGP=xgsmoke
+mkdir -p "$XGH/.harness-claude/review-waivers/$XGP" "$XGH/.harness-claude/regression/$XGP" "$XGH/build/specs"
+echo '{"regressions":9}' > "$XGH/.harness-claude/regression/$XGP/last-check.json"
+touch "$XGH/.harness-claude/review-waivers/$XGP/phase1.ckpt1.waiver"
+printf '### phase1.ckpt1 seg\n- [ ] [review] seg\n' > "$XGH/build/specs/tasks.md"
+printf '{"tool_name":"Edit","tool_input":{"file_path":"%s","old_string":"- [ ] [review] seg","new_string":"- [✅] [review] seg"}}' "$XGH/build/specs/tasks.md" \
+  | HOME="$XGH" HARNESS_ROLE=cto:$XGP python3 "$TMG" >/dev/null 2>&1; [[ $? -eq 0 ]] \
+  && ok "cross-gate: ckpt waiver → tasks.md 게이트 면제" || bad "cross-gate: tasks.md 게이트가 ckpt waiver 무시"
+printf '{"task_id":"7","prompt_id":"x1","session_id":"s1","hook_event_name":"TaskCompleted","task_subject":"[review] phase1.ckpt1 seg — Run: ./x","task_description":""}' \
+  | HOME="$XGH" HARNESS_ROLE=cto:$XGP python3 "$CVG" >/dev/null 2>&1; [[ $? -eq 0 ]] \
+  && ok "cross-gate: 같은 ckpt waiver → TaskCompleted 게이트도 면제" || bad "cross-gate: TaskCompleted 게이트가 ckpt waiver 무시 (키 불일치)"
 
 echo "== [evidence-key] 증거 파일 키 = 프로젝트 (세션 회전 내성) =="
 EK=$(python3 - <<'PY'
@@ -3603,6 +3891,13 @@ else
 fi
 # 폐기된 mtx-env 가 되살아나지 않았나 (이름 회귀 방지)
 check "mtx-env 신설 금지 (폐기된 이름)" 1 ./run.sh mtx-env x
+
+echo "== [tools] 노션 자동화 도구 (skill-monitoring·github-weekly) =="
+# 2026-10-06: timer 환경엔 HARNESS_ROLE 이 없어 두 도구의 CEO 통보가 08-27 부터 전부
+# exit 2 로 증발했는데, smoke 가 tools/ 를 아예 안 봐서 몰랐다. 단위 스위트가 노션 반영
+# 규칙(항목 추가·삭제·개수만, 계획 밖 변경 검출)과 HARNESS_ROLE 없는 실 CLI 통보를 검증.
+check "skill-monitoring 스위트 (반영 규칙·사후 검증·timer 통보 경로)" 0 \
+  bash -c "cd '$REPO/tools/skill-monitoring' && python3 -m unittest -q test_skill_monitoring"
 
 echo
 echo "== smoke: PASS $PASS / FAIL $FAIL =="

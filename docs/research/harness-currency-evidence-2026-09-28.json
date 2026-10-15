@@ -1,0 +1,400 @@
+{
+  "date": "2026-09-28",
+  "basis": "current working tree, including pre-existing changes",
+  "head": "74f1207d37881aa4eddfa56e97d534bdb39a3930",
+  "observed_cli_versions": {
+    "claude": "2.1.283 (Claude Code)",
+    "codex": "codex-cli 0.155.1",
+    "orca": "1.4.198"
+  },
+  "published_versions": [
+    {
+      "name": "Claude Code",
+      "version": "2.1.283",
+      "source": "https://registry.npmjs.org/@anthropic-ai/claude-code/latest",
+      "documentation": "https://raw.githubusercontent.com/anthropics/claude-code/main/CHANGELOG.md"
+    },
+    {
+      "name": "Codex CLI",
+      "version": "0.157.1",
+      "source": "https://registry.npmjs.org/@openai/codex/latest",
+      "documentation": "https://learn.chatgpt.com/docs/changelog"
+    },
+    {
+      "name": "Orca",
+      "version": "1.4.215",
+      "source": "https://api.github.com/repos/stablyai/orca/releases/latest",
+      "documentation": "https://github.com/stablyai/orca/releases/tag/v1.4.215",
+      "published_at": "2026-09-27T03:08:22Z"
+    },
+    {
+      "name": "Vite",
+      "version": "8.3.1",
+      "source": "https://registry.npmjs.org/vite/latest",
+      "documentation": "https://vite.dev/releases"
+    },
+    {
+      "name": "React",
+      "version": "19.3.0",
+      "source": "https://registry.npmjs.org/react/latest",
+      "documentation": "https://react.dev/versions"
+    }
+  ],
+  "compatibility_note": {
+    "source": "https://github.com/stablyai/orca/releases/tag/v1.4.212",
+    "fact": "Fix for Codex 0.157+ failing with SUN_LEN in Orca-managed homes",
+    "locally_reproduced": false
+  },
+  "doctor": {
+    "exit_code": 0,
+    "output": "== harness doctor ==\n--- [1] 금지 토큰 (plugins/ hooks/ run.sh harness/) ---\n  ✓ clean\n--- [2] 참조 무결성 ---\n  ✓ 핵심 파일 전부 실존\n  ✓ dangling symlink 없음\n  ✓ PROCESS.md = 새 체계 (§0 확인)\n--- [3] 문법/컴파일 ---\n  ✓ run.sh\n  ✓ python 전체\n  ✓ 스킬 스크립트 문법\n--- [4] claude 버전 (>= 2.1.139) ---\n  ✓ 2.1.283\n--- [5] canon 정합성 (RULE A/B) ---\n  ✓ RULE A/B + reviewer + quality 불변식 정합 (복사본 동기화 OK)\n--- [6] CEO Orca terminal (advisory) ---\n  ✓ CEO Orca terminal 살아있음\n--- [7] 부팅 자동시작 orca-harness/harnessd (advisory) ---\n  ✓ orca-harness.service enabled + active\n  ✓ harnessd.service enabled + active\n  ✓ linger 활성 (로그인 없이 부팅 자동시작)\n--- [8] 미소비 리뷰 리포트 (advisory) ---\n  ✓ 미소비 리뷰 없음\n--- [9] 빌드 저장소 경계 (RULES §16, advisory) ---\n  ✓ §16 A 목록이 올라감에 없음 (전 빌드)\n--- [10] Orca 탭 ↔ 에이전트 정합 (advisory) ---\n  ⚠ 고아 에이전트: codex-cto-bulk-receipe-v2 — 프로세스는 도는데 붙을 탭 없음\n  ⚠ 고아 에이전트: cto-bulk-receipe-v2 — 프로세스는 도는데 붙을 탭 없음\n  ⚠ 고아 에이전트: designer-cto-bulk-receipe-v2 — 프로세스는 도는데 붙을 탭 없음\n    → 화면 없이 파일을 쓰고 토큰을 태운다. `./run.sh stop-cto <name>` 로 정지.\n== doctor: ALL CLEAN ✓ ==\n",
+    "warning_interpretation": "Orphan-process warnings do not establish active work or token consumption."
+  },
+  "smoke": {
+    "exit_code": 0,
+    "pass": 531,
+    "fail": 0,
+    "output": "== [1] run.sh 가드 ==\n  ✓ help 동작\n  ✓ add-cto plan 없음 → 실패\n  ✓ add-cto --module 폐기 안내\n  ✓ add-cto 인자 2개 거부\n  ✓ add-cto --fresh 단독 거부\n  ✓ add-codex-cto 제거\n  ✓ attach-codex-cto 잘못된 이름 거부\n  ✓ attach-codex-cto 비실존 세션 거부\n  ✓ help: add 하나 + attach 둘\n  ✓ 폐기 명령 제거: observe\n  ✓ 폐기 명령 제거: attach\n  ✓ 폐기 명령 제거: fetch-source\n  ✓ prune-ghosts → orca-restart-clean.sh\n  ✓ delete-cto ceo 차단\n  ✓ delete-cto 비실존 우아 처리\n  ✓ split-cto 제거됨 → unknown\n  ✓ add-cto 잘못된 base 거부\n  ✓ add-cto 레포 밖 경로 차단\n  ✓ add-cto 루트 plan.md 거부\n  ✓ Orca 역할 title 정본 + live handle exact 재탐색\n  ✓ Orca create: surface=background 경고 노출 (성공 응답은 무음)\n  ✓ add-cto Claude+Codex Orca terminal 준비\n  ✓ attach/stop: exact Orca handle focus·종료\n  ✓ CEO Orca create 재사용·focus·stop 멱등 lifecycle\n  ✓ ★gate: _orca_close_cto 호출이 전부 반환값을 받는다 (set -e 중단 방지)\n  ✓ ★gate: _orca_close_cto 가 rail pane 프로세스(grep·teammate_tail)를 걷는다\n  ✓ teammate 상태줄: 도구실행/응답생성/대기/미배치 4분기 (긴 도구도 WORKING)\n  ✓ skill-activity 로그 타임스탬프에 날짜 포함\n== [fresh-respawn] 탭 close 실패가 --fresh 재기동을 죽이면 안 된다 ==\n  ✓ ★gate: 탭 close 실패에도 --fresh 가 3역할 재기동 완주\n  ✓ add-codex-cto: config.toml 단일 정본+Orca 병합+멱등\n  ✓ codex hooks.json malformed → fail closed/no overwrite/no terminal\n  ✓ codex hooks.json unexpected schema → fail closed/no overwrite\n== [2] cto_statusline.py ==\n  ✓ 진행중 ckpt + 카운트\n  ✓ 깊은 cwd 상향탐색 (7단계+)\n  ✓ tasks.md 없음 → 분해 전\n  ✓ 체크박스 없는 ckpt = 미착수\n== [3] skill_announce.py ==\n  ✓ agent_name 표기\n  ✓ env 폴백\n  ✓ 단서 없음 → role 별 정본 호칭 폴백\n  ✓ role 태그 보존 (역산은 teammate 전용)\n  ✓ tool_name=Bash 무시\n  ✓ 깨진 JSON fail-open\n  ✓ Workflow named announce\n  ✓ Workflow inline-script meta name 추출\n  ✓ Workflow code-review → .invoked 기록(게이트 크레딧)\n== [4] coverage 스캐너 (fail-closed) ==\n  ✓ 전부 커버 → 0\n  ✓ 누락+stray → 1\n  ✓ extract +From: → 0\n  ✓ extract -From: → 1\n  ✓ modules -From: → 0 (면제)\n  ✓ ground-truth 없음 → 1\n== [5] 기타 훅 fail-open ==\n  ✓ user_prompt_inbox_check\n  ✓ task_created_format\n  ✓ task_completed_gate\n  ✓ teammate_idle\n== [6] git_guard (RULES §1·§2·§13 결정론 차단) ==\n  ✓ guard[2]: git commit -m x\n  ✓ guard[2]: git push origin main\n  ✓ guard[2]: git init\n  ✓ guard[2]: rm -rf src/\n  ✓ guard[2]: git -C . commit -m x\n  ✓ guard[2]: git -C . reset --hard\n  ✓ guard[2]: git -C . checkout -- file.py\n  ✓ guard[2]: git -c user.name=x commit -m y\n  ✓ guard[2]: curl -s -X POST -H 'X-Dash-Token: t' http://127.0.0.1:8165/api/cto/dv/commit -d '{}'\n  ✓ guard[2]: curl -X POST http://127.0.0.1:8166/api/cto/dv/push\n  ✓ guard[2]: wget --post-data= http://x/api/cto/dv/merge\n  ✓ guard[2]: python3 -c \"import requests;requests.post('http://x/api/cto/dv/commit')\"\n  ✓ guard[2]: curl -X POST http://127.0.0.1:8165/api/harness/commit -d '{}'\n  ✓ guard[2]: curl -X POST http://127.0.0.1:8165/api/harness/push\n  ✓ guard[0]: curl -s -X POST -H 'X-Dash-Token: t' http://127.0.0.1:8165/api/cto/dv/stage\n  ✓ guard[0]: curl -s -X POST http://127.0.0.1:8165/api/harness/stage\n  ✓ guard[0]: curl -s http://127.0.0.1:8165/api/cto/dv/git\n  ✓ guard[0]: curl -s http://127.0.0.1:8165/api/harness/git\n  ✓ guard[2]: rm -r -f src/\n  ✓ guard[2]: rm --recursive --force src/\n  ✓ guard[2]: rm -R -f src/\n  ✓ guard[2]: git restore file.py\n  ✓ guard[2]: git restore --staged --worktree file.py\n  ✓ guard[0]: git restore --staged .\n  ✓ guard[0]: rm -r src/\n  ✓ guard[2]: sqlite3 db 'DROP TABLE t'\n  ✓ guard[2]: psql -c 'ALTER TABLE users ADD COLUMN x int'\n  ✓ guard[2]: sqlite3 db 'DROP INDEX idx_email'\n  ✓ guard[0]: alembic upgrade head\n  ✓ guard[0]: git status\n  ✓ guard[0]: rm -rf /tmp/x\n  ✓ guard[2]: rm -rf /tmp/x; rm -rf src/\n  ✓ guard[2]: rm -rf /tmp/x src/\n  ✓ guard[2]: rm -rf src/; rm -rf /tmp/x\n  ✓ guard[0]: rm -rf /tmp/x /tmp/y\n  ✓ guard[0]: rm -rf /tmp/x && echo done\n  ✓ guard[0]: HARNESS_USER_OK=fs rm -rf /tmp/x src/\n  ✓ guard[2]: rm -rf \"/tmp/a;b\" src/\n  ✓ guard[2]: rm -rf '/tmp/a;b' src/\n  ✓ guard[2]: rm -rf \"/tmp/a|b\" src/\n  ✓ guard[2]: rm -rf \"/tmp/a&b\" src/\n  ✓ guard[0]: rm -rf \"/tmp/a;b\"\n  ✓ guard[0]: rm -rf '/tmp/a b'\n  ✓ guard[2]: rm -rf /tmp/../src\n  ✓ guard[2]: rm -rf /tmp//../src\n  ✓ guard[2]: rm -rf /tmp/../../etc\n  ✓ guard[0]: rm -rf /tmp/x/../y\n  ✓ guard[2]: rm -rf /tmp/x{,/../../src}\n  ✓ guard[0]: rm -rf /tmp/{a,b}\n  ✓ guard[2]: rm -rf $TMPDIRX/../src\n  ✓ guard[2]: rm -rf $TMPDIR_FOO/src\n  ✓ guard[2]: rm -rf $TMPDIR/../src\n  ✓ guard[0]: rm -rf $TMPDIR/x\n  ✓ guard[2]: rm -rf \"/tmp/unclosed\n  ✓ guard[0]: echo it's fine\n  ✓ guard[0]: cd /foo&&rm -rf /tmp/x\n  ✓ guard[2]: rm \"a;b\" -rf src/\n  ✓ guard[2]: rm \"/tmp/a;b\" -rf src/\n  ✓ guard[2]: rm \"/tmp/a|b\" -rf src/\n  ✓ guard[2]: rm \"/tmp/a&b\" -rf src/\n  ✓ guard[2]: rm src/ -rf\n  ✓ guard[2]: rm x -rf src/\n  ✓ guard[0]: rm \"/tmp/a;b\" -rf\n  ✓ guard[0]: rm /tmp/x -rf\n  ✓ guard[0]: rm file.txt\n  ✓ guard[0]: npm rm some-pkg\n  ✓ guard[2]: sh -c \"rm -rf src/\"\n  ✓ guard[2]: bash -c \"rm -rf src/\"\n  ✓ guard[2]: ssh host \"rm -rf src/\"\n  ✓ guard[0]: grep -rn \"rm -rf\" docs/\n  ✓ guard[0]: rg \"rm -rf\" plugins/\n  ✓ guard[0]: git log --grep=\"rm -rf\"\n  ✓ guard[0]: /usr/bin/grep -rn \"rm -rf\" tests/smoke.sh\n  ✓ guard[0]: rm -rf /tmp/x 2>/dev/null\n  ✓ guard[0]: rm -rf /tmp/x 2>&1\n  ✓ guard[0]: rm -rf /tmp/x 2> /dev/null\n  ✓ guard[0]: rm -rf /tmp/a /tmp/b 2>/dev/null\n  ✓ guard[2]: rm -rf src/ 2>/dev/null\n  ✓ guard[2]: rm -rf /tmp\n  ✓ guard[2]: rm -rf /tmp/\n  ✓ guard[2]: rm -rf /tmp/.\n  ✓ guard[2]: rm -rf $TMPDIR\n  ✓ guard[0]: rm -rf /tmp/*\n  ✓ guard[0]: rm -rf /tmp/x/\n  ✓ guard[2]: docker volume rm rtsp-streaming_ipcam_db\n  ✓ guard[2]: docker volume prune -f\n  ✓ guard[2]: docker compose down -v\n  ✓ guard[2]: docker compose down --volumes\n  ✓ guard[2]: docker compose -f x.yml down -v\n  ✓ guard[0]: docker compose down\n  ✓ guard[2]: docker compose --env-file \"a;b.env\" down -v\n  ✓ guard[2]: docker compose -f \"a;b.yml\" down -v\n  ✓ guard[2]: docker compose -p \"x;y\" down -v\n  ✓ guard[2]: docker compose --project-directory \"a;b\" down -v\n  ✓ guard[2]: harness \"a;b\" db drop proj\n  ✓ guard[2]: find \"a;b\" -delete\n  ✓ guard[2]: dd if=/dev/zero \"a;b\" of=/dev/sda\n  ✓ guard[2]: docker compose --env-file \"a|b.env\" down -v\n  ✓ guard[2]: docker compose --env-file \"a&b.env\" down -v\n  ✓ guard[2]: docker compose -f \"a\nb.yml\" build\n  ✓ guard[2]: docker compose -f \"a\nb.yml\" up -d\n  ✓ codex payload(+permission_mode) 차단 (git_guard 드롭인)\n  ✓ guard[0]: docker compose down\nnote: compose down -v 는 git_guard 가 차단\n  ✓ guard[0]: grep -n \"docker compose down -v\" hooks/git_guard.py\n  ✓ guard[0]: echo \"note: docker compose down -v 는 볼륨 삭제\"\n  ✓ guard[0]: printf %s \"compose down -v 미사용\" | harness send --to ceo\n  ✓ guard[2]: sh -c \"docker compose down -v\"\n  ✓ guard[2]: bash -c \"docker compose down --volumes\"\n  ✓ guard[0]: docker compose -f x/docker-compose.yml down --remove-orphans\n  ✓ guard[0]: docker rm -f rtsp-streaming-backend\n  ✓ guard[0]: HARNESS_USER_OK=fs docker volume rm x\n  ✓ guard[0]: HARNESS_USER_OK=git git commit -m ok\n  ✓ guard[2]: docker compose up\n  ✓ guard[2]: docker compose up -d\n  ✓ guard[2]: docker compose up -d --build\n  ✓ guard[2]: docker-compose up --build\n  ✓ guard[2]: docker compose build\n  ✓ guard[2]: docker build -t app .\n  ✓ guard[0]: docker compose up -d mediamtx\n  ✓ guard[0]: docker compose up -d postgres redis\n  ✓ guard[0]: HARNESS_USER_OK=docker docker compose up -d --build\n  ✓ guard[0]: HARNESS_USER_OK=docker docker compose build\n  ✓ guard[2]: docker compose -f docker-compose.yml up -d --build\n  ✓ guard[2]: docker compose --env-file .env up -d\n  ✓ guard[2]: docker-compose -f x.yml up --build\n  ✓ guard[2]: docker compose -f x.yml build\n  ✓ guard[2]: /usr/bin/docker compose -p proj up -d\n  ✓ guard[2]: docker compose -f \"a;b.yml\" build\n  ✓ guard[2]: docker compose -f \"a|b.yml\" build\n  ✓ guard[2]: docker compose -f \"a&b.yml\" up -d\n  ✓ guard[2]: docker compose --project-name \"x;y\" up -d\n  ✓ guard[0]: docker compose -f \"a;b.yml\" down\n  ✓ guard[0]: docker compose -f \"a;b.yml\" logs -f web\n  ✓ guard[0]: docker compose -f x.yml up -d postgres\n  ✓ guard[2]: docker compose up -d backend\n  ✓ guard[2]: docker compose up -d frontend\n  ✓ guard[2]: docker compose up -d mailhog\n  ✓ guard[2]: docker compose up -d backend mediamtx\n  ✓ guard[2] (compose-parse): docker compose up -d backend\n  ✓ guard[0] (compose-parse): docker compose up -d mediamtx\n  ✓ guard[2] (compose-parse): docker compose up -d backend mediamtx\n  ✓ git_guard: legacy session parser removed\n  ✓ git_guard 비Bash 무시\n  ✓ git_guard 깨진 JSON fail-open\n== [6b] spec_overwrite_gate (완성 모듈 재분해 Write 차단) ==\n  ✓ 완성 tasks.md(- [✅]) Write 차단\n  ✓ 완성 모듈 spec.md Write 차단(형제 tasks Done)\n  ✓ Edit(수술적 append) 통과 — Write 만 게이트\n  ✓ specs/ 안이어도 비대상 파일명 통과\n  ✓ 레거시 tasks.md(- [x]) Write 차단\n  ✓ 블로커/미완만(Done 0) tasks.md Write 통과\n  ✓ fresh(tasks.md 부재) 첫 Write 통과\n  ✓ specs/ dir 아님 통과\n  ✓ spec_overwrite_gate 비Write 무시\n  ✓ spec_overwrite_gate 깨진 JSON fail-open\n  ✓ Bash 리다이렉트 tasks.md 덮어쓰기 차단\n  ✓ Bash tee spec.md 덮어쓰기 차단\n  ✓ ★append(>>) 통과 — 수술적 추가는 정당\n  ✓ ★tee -a 통과\n  ✓ ★비대상 basename append 통과(lead-unavailable 워크플로)\n  ✓ Bash 읽기 통과\n  ✓ 백업 파일명 오탐 없음\n  ✓ fresh(Done 0) 리다이렉트 통과\n== [6c] plan_readonly_gate (plan.md = CEO 산출물, CTO 쓰기 차단) ==\n  ✓ claude-project 루트 plan.md Write 차단\n  ✓ modules 루트 plan.md Edit 차단\n  ✓ ★MultiEdit 도 차단(file_path 같은 우회로)\n  ✓ 중첩 specs/plan.md 통과(루트 한정)\n  ✓ 비빌드 부모 통과\n  ✓ 다른 파일명 통과\n  ✓ Read 통과 (읽기는 정당)\n  ✓ plan_readonly_gate 깨진 JSON fail-open\n  ✓ plan_readonly_gate: run.sh Write|Edit matcher 배선됨\n== [6d] sendmessage_recipient_gate (환각 전달 차단) ==\n  ✓ SendMessage(developer) 차단\n  ✓ SendMessage(codex-cto:*) 차단\n  ✓ agentId 형식(developer@team) 차단\n  ✓ 대소문자 무시 차단\n  ✓ SendMessage(designer) 차단 — 독립 designer-cto 세션\n  ✓ planner 통과\n  ✓ reviewer@team 통과\n  ✓ ★부분문자열 오탐 없음(my-developer-notes)\n  ✓ sendmessage_gate 비SendMessage 무시\n  ✓ sendmessage_gate 깨진 JSON fail-open\n  ✓ sendmessage_gate: run.sh SendMessage matcher 배선됨\n  ✓ roster 부재 planner 차단 (lead-only 팀)\n  ✓ team-lead 는 roster 검사 비대상\n  ✓ roster 실재 planner 통과\n  ✓ ★공존 lead-only dir(더 최신)에도 union 으로 planner 통과\n  ✓ teams dir 부재(미지) → fail-open 통과\n== [6d2] resume 팀소멸 알림 주입 (session_start) ==\n  ✓ resume+스폰이력 → 팀소멸 알림 주입\n  ✓ startup → 알림 없음\n  ✓ 스폰이력 없는 resume → 알림 없음\n== [6d3] planner_dispatch_gate (분해 후 planner 구동 금지) ==\n  ✓ tasks.md 부재(최초 분해) → Agent(planner) 통과\n  ✓ tasks.md 존재 → Agent(planner) 차단\n  ✓ 사용자 토큰 → Agent(planner) 통과\n  ✓ tasks.md 존재 → SendMessage(planner) 차단\n  ✓ 대소문자 무시 차단\n  ✓ agentId 형식(planner@team) 차단\n  ✓ 사용자 토큰 → SendMessage(planner) 통과\n  ✓ 비-planner(reviewer) 무관 통과\n  ✓ 비-planner 수신자 무관 통과\n  ✓ 비대상 tool 무시\n  ✓ 프로젝트 미식별 → fail-open 통과\n  ✓ planner_gate 깨진 JSON fail-open\n  ✓ planner_gate: run.sh Agent+SendMessage 이중 배선됨\n== [6e] fail-open 관측성 (가드가 죽어도 흔적은 남는다) ==\n  ✓ git_guard 깨진 stdin → exit 0 유지(fail-open)\n  ✓ ★git_guard 깨진 stdin → stderr 흔적\n  ✓ inbox_isolation 마커+깨진 JSON → exit 0 유지\n  ✓ ★inbox_isolation fail-open → stderr 흔적\n  ✓ audit() 쓰기 실패해도 예외 전파 X\n  ✓ ★audit() 쓰기 실패 → stderr 흔적\n  ✓ port[0/modules/alpha]: python3 -m http.server 5301\n  ✓ port[2/modules/alpha]: python3 -m http.server 8101\n  ✓ port[2/modules/alpha]: python3 -m http.server 8102\n  ✓ port[2/claude-project/beta]: python3 -m http.server 5301\n  ✓ port[0/modules/alpha]: python3 -m http.server 18101\n  ✓ port[0/modules/alpha]: uvicorn app:app --port 8101\n  ✓ port[2/modules/alpha]: uvicorn app:app --port 8102\n  ✓ port[2/modules/alpha]: npm run dev -- --host 0.0.0.0 --port 5301 && echo x; vite --port 8102\n  ✓ port[0/modules/alpha]: psql --port 8102 -c 'select 1'\n  ✓ port[0/modules/alpha]: psql --port=5435 -c 'select 1'\n  ✓ port[2/modules/alpha]: docker run -p 8102:8000 img\n  ✓ port[0/modules/alpha]: docker run -p 18102:8000 img\n  ✓ port[2/-]: uvicorn app:app --port 8101\n  ✓ port[0/modules/alpha]: HARNESS_USER_OK=port python3 -m http.server 8101\n  ✓ port[0/modules/alpha]: curl http://localhost:8102/api\n  ✓ mock 판별: http.server 감지\n  ✓ mock 판별: 부재 시 빈/무오류\n== [7] harness CLI ==\n  ✓ roles\n  ✓ ports --next 숫자\n  ✓ ports: RESERVED offset 회피\n  ✓ role regex: codex CTO/review senders\n  ✓ Orca title 위조: 유니코드 줄바꿈 exact allowlist\n  ✓ roles discovery: 프로젝트당 Claude+Codex pair\n  ✓ status --format json: UNTRUSTED body 마커 fence\n  ✓ status --format json: UNTRUSTED tasks.md title 마커 fence\n  ✓ status --format json: ckpt 없는 CTO 의 title 은 null\n  ✓ status: cto:<name> 는 형제 CTO body 못 봄\n  ✓ status: [❓] 블로커 ckpt 는 DONE 아님 + blocked 집계\n  ✓ checkbox 파서 정본 1개 (cli·statusline·dashboard = regression_gate.BOX_RE)\n  ✓ inbox pair: Claude CTO → same Codex CTO\n  ✓ inbox pair: Codex CTO → same Claude CTO\n  ✓ inbox pair: Claude CTO → 다른 이름 차단\n  ✓ inbox pair: Codex CTO → 다른 이름 차단\n  ✓ inbox pair: CEO → Codex CTO 차단\n  ✓ inbox pair: Codex CTO → CEO 차단\n  ✓ inbox pair: Codex CTO끼리 차단\n  ✓ inbox pair: 양쪽 role로 큐 읽기\n  ✓ codex-protocol-review fake e2e\n  ✓ daemon import\n  ✓ daemon: exact Orca role→handle target\n  ✓ daemon: role별 inbox wake payload\n  ✓ daemon 메시지에 observe 없음\n  ✓ stall: tasks 미완 카운트\n  ✓ stall: [❓] 블로커도 미완 (페어유실 알림 억제 방지)\n  ✓ inbox wake: 같은 턴 재개 지시 없음 (§6 정합, 3 사이트)\n  ✓ stall 탐지기 부재 고정 (2026-08-20 사용자 지시 제거 — 복원=회귀)\n  ✓ stall: hybrid pair 4상태\n  ✓ stall: pair collector/grace/dedup/recovery/suppression\n  ✓ watch: fire/no-fire/throttle/expiry/bad-spec/invalid-role\n== [8] canon 정합성 (doctor [5] RULE A/B + quality) ==\n  ✓ doctor [5] canon clean 통과\n  ✓ quality contract 정본 존재\n  ✓ Codex developer completion evidence 5줄\n  ✓ reviewer BLOCKER-only 차단 + goal preservation\n  ✓ sentinel: 게이트 없는 phase3+compose up → 위반 검출\n  ✓ sentinel: 게이트 문구 있는 줄 → 통과\n  ✓ docs: '브릿지 미존재' 스테일 전제 없음\n  ✓ spawn-prompt: same-name 브릿지 + RULES §6 게이트 명시\n  ✓ plugins/**/references/ git 가시(ignored 아님)\n  ✓ 루트 .references/ (vendored) 는 여전히 ignored\n== [9] netbind (RULES §5.3 외부접속 바인딩 정적검사) ==\n  ✓ netbind: 현 canon 빌드 위반 0 (exit=0)\n  ✓ netbind: 전항목 na 빌드 → exit 2 (미검사, 초록 아님)\n  ✓ netbind sentinel: server.host 누락·loopback=위반, host:true=통과\n== [8b] 세션 생사 = Orca 탭 ∧ keeper (유령/고아 탐지) ==\n  ✓ 생사판정: 유령 탭 제외 + 양방향 drift 검출\n  ✓ 생사판정 정본 1개 (cli._alive_sessions → logical_sessions 위임)\n== [9a] 대시보드 remote URL 검증 (ssh 인자 주입) ==\n  ✓ remote URL: 호스트·userinfo '-' 차단 + 정상 주소 통과\n== [9b] gitignore (RULES §16 빌드 저장소 경계 정적검사) ==\n  ✓ gitignore sentinel: A목록 검출·ignore 반영·tracked 는 ignore 로 안 빠짐\n  ✓ gitignore: §16 A 목록 = 정본 7항목\n== [11] start_project_gate (CTO 팀 spawn 결정론 게이트 — Agent) ==\n  ✓ gate: fresh Agent(팀역할, /start-project 전) → 차단\n  ✓ gate: nested subagent(/subagents/) → 허용\n  ✓ gate: 비-팀역할 Agent → 허용\n  ✓ gate: /start-project → 마커 기록\n  ✓ gate: 마커 후 Agent(팀역할) → 허용\n  ✓ gate: 비-CTO 세션 → no-op 통과\n  ✓ gate: 마커 write 실패해도 UserPromptSubmit allow(0)\n  ✓ ★gate: 마커 write 실패 → stderr 표면화\n  ✓ gate: run.sh settings.json 에 배선됨\n  ✓ ★gate: add-cto 마커 시딩 (rm 회귀 없음)\n  ✓ gate: 블록 메시지의 유령 앵커(role.md §62) 제거됨\n  ✓ role gate: nested Claude developer도 차단\n  ✓ role gate: 비-developer nested subagent 허용\n  ✓ Orca native split: exact tab leaf count + duplicate fail-closed\n  ✓ Orca role pane 해석: leafId!=tabId 정상 + 중복 title fail-closed\n  ✓ role gate: first planner claim allow\n  ✓ role gate: duplicate planner claim block\n  ✓ role gate: /start-project resets role claims\n  ✓ role gate: 분해완료+무토큰 planner → 무claim 통과\n  ✓ ★gate: dispatch_gate 가 차단할 호출에 claim 안 남김 (유령 claim 방지)\n  ✓ role gate: 사용자 토큰 planner → claim+allow\n  ✓ role gate: 토큰 경로는 claim 정상 기록\n== [12] code-review gate (reviewer [review] 완료 = code-review 실행) ==\n  ✓ code-review gate: 미호출 [review] 완료 → 차단\n  ✓ code-review gate: skill_announce 가 agent 별 마커 기록\n  ✓ code-review gate: CTO 가 돌린 code-review 는 reviewer 게이트를 못 연다\n  ✓ code-review gate: 호출 후 [review] 완료 → 허용\n  ✓ code-review gate: 재사용(새 호출 없음) → 차단\n  ✓ verify gate: [review]+[skip-verify] waiver 없음 → 차단(토큰 무시)\n  ✓ verify gate: waiver 파일 존재 → [review] 면제(허용)\n  ✓ verify gate: 비-review [skip-verify] → 면제(기존 유지)\n  ✓ F5: 가드 커버 확인 — skills/harness-task-format/SKILL.md\n  ✓ F5: 가드 커버 확인 — skills/harness-task-format/references/bypass-tokens.md\n  ✓ F5: 가드 커버 확인 — agents/planner.md\n  ✓ F5: 가드 커버 확인 — agents/reviewer.md\n  ✓ F5: 가드 커버 확인 — rules/agent-team-protocol.md\n  ✓ F5: reviewer.md — [review]×[skip-verify] 문서가 waiver 경로 명시\n  ✓ F5: planner.md — [review]×[skip-verify] 문서가 waiver 경로 명시\n  ✓ F5: SKILL.md — [review]×[skip-verify] 문서가 waiver 경로 명시\n  ✓ F5: bypass-tokens.md — [review]×[skip-verify] 문서가 waiver 경로 명시\n  ✓ F5: agent-team-protocol.md — [review]×[skip-verify] 문서가 waiver 경로 명시\n  ✓ F5: hooks/team/task_completed_verify_gate.py — <team> waiver 키 없음\n  ✓ F5: hooks/team/tasks_md_review_gate.py — <team> waiver 키 없음\n== [12b] 완료게이트 재배달 멱등 (하나의 TaskCompleted 가 두 번 배달) ==\n  ✓ 재배달: 1차 배달 → allow\n  ✓ 재배달: 같은 prompt_id 2차 배달 → allow (자기소각 없음)\n  ✓ 재배달: 새 prompt_id + 새 증거 없음 → block (재사용 방지 유지)\n  ✓ 재배달: 새 prompt_id + 새 증거 → allow\n== [13] start_project_spawn_nudge (Stop: 3-Claude + Codex 압박) ==\n  ✓ nudge: 마커 없음 → allow\n  ✓ ★gate: 팀 spawn 지침에 조건부 문구 없음 (마커=첫 턴 무조건)\n  ✓ ★gate: nudge 가 인박스 격리 턴엔 물러남 (§6 교착 방지)\n  ✓ nudge: legacy-multiplexer 없음 → fail-open(allow)\n  ✓ nudge: Codex tab missing → block\n  ✓ nudge: native teammate split 0/3 → block\n  ✓ nudge: loop-guard 3 blocks then fail-open\n  ✓ nudge: lead+skill+3 teammates and Codex → complete\n  ✓ nudge: completion clears marker\n  ✓ nudge: Orca unavailable → fail-open\n  ✓ ★gate: 분해완료 재시작 = reviewer 만으로 완료 (planner 요구 안 함)\n  ✓ nudge: 분해완료 완료판정 → 마커 청소\n  ✓ ★gate: 분해완료 block 문구가 planner 금지를 명시\n  ✓ nudge: run.sh settings.json Stop 훅 배선됨\n== [14] CEO 라이프사이클 (하이진 finding #1/#5) ==\n  ✓ cto settings: Claude planner/reviewer만 설치 (designer/developer 는 독립 세션)\n  ✓ ceo settings: 하네스 hook 3 + statusLine, CTO 전용(Agent Teams/teammateMode) 미포함\n  ✓ session_start: CEO=RULES+role(PROCESS 미주입)·CTO=+PROCESS·unset=무출력\n  ✓ terminal revive: keeper_role 전달 3곳 + sock 검사\n  ✓ CEO/CTO lifecycle: run.sh legacy-multiplexer 실행문 0\n  ✓ daemon: CEO wake 영구 0 (다이어트) + CTO wake 유지\n  ✓ daemon: 연속 idle 확인 게이트 — 작업중 nudge 차단(미확인/busy/재확인 3분기)\n  ✓ staleness verdict: 3분기 결정론\n  ✓ ceo resume: id없음/트랜스크립트없음=무플래그 · 실재=--resume\n  ✓ stop-ceo: 세션 id 파일 삭제(터미널 부재에도)\n  ✓ session_start: CEO/CTO 세션 id 기록 · 비정상 이름 거부\n  ✓ cto lead resume: id/트랜스크립트 게이트 (CEO 와 동일 헬퍼)\n  ✓ codex resume: cwd 정확 매칭 (전역 --last 오염 차단)\n  ✓ daemon: CEO 사망 스냅샷 verdict(orphan-pty/process-gone)+동초 충돌 보존\n  ✓ keeper: dtach detached 생성·master 생존·fuser 정리\n  ✓ keeper 배선: dtach(HOME 소켓) + tmux 흔적 0 + stop-ceo keeper kill\n== [inbox_isolation] RULES §6 same-turn 격리 (guard + clear) ==\n  ✓ no-marker → Edit 통과\n  ✓ marker → Edit 차단\n  ✓ marker → Task 차단\n  ✓ marker → Read 통과\n  ✓ marker → Bash(harness inbox) 통과\n  ✓ marker → Bash(echo) 차단\n  ✓ marker → Bash(inbox;chain) 차단\n  ✓ clear 후 → Edit 통과\n  ✓ 마커+깨진 JSON fail-open\n== [pair-aware CTO] _live_cto_sessions codex half 가시성 ==\n  ✓ pair half 구조화+codex orphan 가시+쌍 dedup\n  ✓ run.sh CTO close = role-owned Orca handles\n  ✓ run.sh legacy-multiplexer kill-session 제거\n== [dashboard-contract] 양방향 대화·삭제·CTO lifecycle 배선 ==\n  ✓ dashboard up: repo .env 에서 DASH_TOKEN 자동 로드 배선\n  ✓ dashboard: CTO 3자 state 진리표 + ready 정합\n  ✓ dashboard: cto_start ready 판정이 keeper 소켓 레이스를 흡수 (settled)\n  ✓ dashboard: /api/state items ready 가 designer 포함\n  ✓ dashboard: docker 판정 = 앱 포트 published (서비스명 무관)\n  ✓ dashboard: docker/dev 판정이 같은 앱 포트 기준\n  ✓ dashboard up: uvicorn reload 가 harness/ 도 감시\n  ✓ dashboard: all conversations visible + scoped delete/clear + controls\n== [install-services] systemd 유닛 편입 (부팅 자동시작 정본 = infra/systemd) ==\n  ✓ install-services --dry-run 렌더\n  ✓ dry-run: 플레이스홀더 잔존 없음\n  ✓ dry-run: orca serve + harnessd ExecStart 렌더\n  ✓ dry-run: HARNESS_ROOT 치환\n  ✓ dry-run: ORCA_SERVE_EXTRA_ARGS 통로\n  ✓ env 재작성: EXTRA_ARGS 보존 + pairing 갱신\n  ✓ install-services 미지 플래그 거부\n  ✓ install-services --port 만 → 거부(pairing 필수)\n  ✓ install-services env 파일 없이 → 거부\n== [update-orca] AppImage 원클릭 갱신 + 자동 롤백 ==\n  ✓ update-orca: staged AppImage 교체 성공\n  ✓ update-orca: 고정 경로 교체 + 버전명 backup 보존\n  ✓ update-orca: 검증 후 service stop/start 각 1회\n  ✓ update-orca: 새 runtime health 실패 → 명령 실패\n  ✓ update-orca: 이전 image 자동복원 + 실패 image 격리 + service 재기동\n  ✓ update-orca: checksum·공식 release URL·Orca 실행위치 가드 존재\n  ✓ update-orca: release 다운로드 → checksum 통과 → 설치\n  ✓ update-orca: 다운로드 경로 설치 결과 = 1.4.193\n  ✓ update-orca: release 변조(tamper_sha) → 중지 전 차단·AppImage 무변경\n  ✓ update-orca: release 변조(tamper_size) → 중지 전 차단·AppImage 무변경\n  ✓ update-orca: release 변조(no_digest) → 중지 전 차단·AppImage 무변경\n  ✓ update-orca: release 변조(evil_url) → 중지 전 차단·AppImage 무변경\n  ✓ update-orca: release 변조(prerelease) → 중지 전 차단·AppImage 무변경\n  ✓ update-orca: release 변조(draft) → 중지 전 차단·AppImage 무변경\n  ✓ update-orca: 요청 버전 ≠ release 버전 → 거부\n  ✓ update-orca: tag 불일치도 중지 전 차단\n  ✓ update-orca: Orca 안 비대화 셸 → 마커 없으면 거부\n  ✓ update-orca: 사용자 마커(HARNESS_USER_OK=orca)면 통과\n  ✓ update-orca: 무관한 마커는 안 열린다\n  ✓ update-orca: 대화형 tty 는 마커가 있어도 거부\n  ✓ update-orca: runtime ready 기본 대기 120초\n== [orca-ghost] delete-cto 가 Orca 유령을 만들지 않는다 ==\n  ✓ ★delete-cto: Orca 등록 유지 (구동 중 외부 삭제 = 지울 수 없는 유령)\n  ✓ delete-cto: 제거 경로(Orca 설정)를 사용자에게 안내\n  ✓ prune: 미리보기 동작 (픽스처)\n  ✓ prune: Orca 구동 중 --apply 거부\n  ✓ prune: 거부 시 상태파일 무변경\n  ✓ prune: 고아를 실제로 식별\n  ✓ prune: 전 컬렉션 + 값참조 스윕 (부활 회귀 핀)\n  ✓ prune: 특수키·live 항목 보존\n  ✓ prune: paneKey(<tabId>::<leafId>) 오탐 없음\n  ✓ prune: --apply 실제 정리\n  ✓ prune: apply 후 고아 0\n  ✓ prune: 재검사 클린\n  ✓ prune: apply 후 live 항목 보존\n  ✓ rail 가드: skill 피드만으로 판정 (고아 뷰어에 속지 않음)\n  ✓ rail: 재생성 전 고아 뷰어 정리\n== [orca-err] Orca 실패 사유 표면화 (무음 먹통 버튼 방지) ==\n  ✓ _orca_err 본문 추출 (run.sh)\n  ✓ orca-err: selector_not_found 추출\n  ✓ orca-err: code+message 결합\n  ✓ orca-err: 비-JSON 폴백\n  ✓ orca-err: 빈 응답 폴백\n  ✓ ★run.sh: Orca --json 실패를 사유 없이 버리는 경로 0\n  ✓ ★terminal create 실패가 bare return 1 이 아님\n== [gitignore-seed] 빌드 .gitignore 기본항목 자동 시딩 ==\n  ✓ seed 함수 추출·정의됨\n  ✓ 신규 빌드 시딩: .dev.pids\n  ✓ 신규 빌드 시딩: .dev-logs/\n  ✓ 신규 빌드 시딩: .claude/\n  ✓ 멱등 — 재호출 시 중복 추가 없음\n  ✓ 기존 슬래시 없는 항목 존중 (중복 없음)\n  ✓ add-cto 경로에 배선됨\n== [add-cto-wire] add-cto mediamtx 포트 자동배선 (RULES §4/§4.1) ==\n  ✓ _wire_project_env 본문 추출 (run.sh)\n  ✓ 카메라: MEDIAMTX 4줄 = base+offset (offset 77 → API 10074)\n  ✓ 카메라: 기존 포트 줄 보존 (append)\n  ✓ ★비카메라: MEDIAMTX 0줄 (전 프로젝트 주입 = 2026-07-21 사고)\n  ✓ db: DATABASE_URL 미주입 (수동 배선 유지)\n  ✓ db: 함수가 harness db 를 호출하지 않음\n  ✓ PORT_OFFSET 부재 → MEDIAMTX 미주입\n  ✓ .env 없으면 no-op (exit 0)\n  ✓ .env 없으면 새로 만들지 않음\n== [regress] 회귀 게이트 (PROCESS §3 5.4) ==\n  ✓ regress: 선정 3개 (phase1·segment·미완·위험·파괴·중복 제외)\n  ✓ regress: fix.ckptN 도 ckpt 로 인식 (statusline 정규식보다 넓게)\n  ✓ regress: 재실행 위험(npm install) 제외 — segment 밖에서도 걸린다\n  ✓ regress: 파괴 명령(rm -rf) 실행 거부\n  ✓ regress: 중복 명령 1회만\n  ✓ regress: --segment 범위(phase3.ckpt2) 제외\n  ✓ regress: 미완 task 제외 (통과한 적 없음)\n  ✓ regress gate: 재검사 결과 없음 → 차단\n  ✓ regress gate: 회귀 2건 → 차단\n  ✓ regress gate: 회귀 0 → 통과\n  ✓ regress gate: 재검사가 기준선보다 오래됨 → 차단\n== [tasksmd-gate] tasks.md [review] 완료 편집 게이트 ==\n  ✓ tasksmd-gate: 전이 판정 (review 닫힘만 O · dev/재기입/블로커/타파일 X)\n  ✓ tasksmd-gate: 회귀 상태 없음 → [review] 닫기 차단\n  ✓ tasksmd-gate: [dev] 체크박스는 통과 (관심사 아님)\n  ✓ tasksmd-gate: 회귀 3건 → 차단\n  ✓ tasksmd-gate: 회귀 0 이어도 reviewer 호출 없으면 차단\n  ✓ tasksmd-gate: 회귀 0 + reviewer 호출 → 통과\n  ✓ tasksmd-gate: 무관한 waiver(task-1) 는 면제 아님 → 차단\n  ✓ tasksmd-gate: 다른 ckpt 의 waiver 는 면제 아님 → 차단\n  ✓ tasksmd-gate: 불릿 없는 부분줄 Edit 도 [review] 닫기로 판정 → 차단\n  ✓ tasksmd-gate: 전이 없는 부분줄 편집은 통과 (관심사 아님)\n  ✓ tasksmd-gate: 그 ckpt 의 waiver → 면제\n  ✓ tasksmd-gate: 두 ckpt 걸친 Edit, ckpt1 waiver 만 → 차단\n  ✓ tasksmd-gate: 두 ckpt 걸친 Edit, 둘 다 waiver → 면제\n  ✓ tasksmd-gate: 완료줄 재작성 edit 는 키에 안 들어감 (ckpt1 waiver 로 면제)\n  ✓ tasksmd-gate: replace_all 로 ckpt1+ckpt4 동시 닫기, ckpt4 무면제 → 차단\n  ✓ tasksmd-gate: 중복 ckpt 헤딩 아래 닫기 = 키 미상 → waiver 무효 차단\n  ✓ tasksmd-gate: 투영 불가(파일 없음) 면 조각 기준 판정 + waiver 무효 → 차단\n  ✓ cross-gate: ckpt waiver → tasks.md 게이트 면제\n  ✓ cross-gate: 같은 ckpt waiver → TaskCompleted 게이트도 면제\n== [evidence-key] 증거 파일 키 = 프로젝트 (세션 회전 내성) ==\n  ✓ evidence-key: cwd 로 프로젝트 역산 (team_name 이 session-* 여도)\n  ✓ evidence-key: 단서 없으면 레거시 team_name 폴백\n== [guard-new] git_guard 신규 패턴 (worktree · orchestration reset) ==\n  ✓ guard-new: worktree remove/prune · orchestration reset 차단, 조회는 통과\n== [runsh-surface] run.sh 서브커맨드 정본 대조 (RULES §15) ==\n  ✓ run.sh dispatch 중복 라벨 없음\n  ✓ run.sh 서브커맨드 집합 = 정본 (26개)\n  ✓ mtx-env 신설 금지 (폐기된 이름)\n\n== smoke: PASS 531 / FAIL 0 ==\n"
+  },
+  "npm_audit": {
+    "command": "npm audit --package-lock-only --ignore-scripts --json",
+    "cwd": "dashboard/frontend",
+    "exit_code": 1,
+    "result": {
+      "auditReportVersion": 2,
+      "vulnerabilities": {
+        "baseline-browser-mapping": {
+          "name": "baseline-browser-mapping",
+          "severity": "moderate",
+          "isDirect": false,
+          "via": [
+            {
+              "source": 1193686,
+              "name": "baseline-browser-mapping",
+              "dependency": "baseline-browser-mapping",
+              "title": "baseline-browser-mapping process termination on invalid input causes denial of service",
+              "url": "https://github.com/advisories/GHSA-w5vr-8v7q-w6rv",
+              "severity": "moderate",
+              "cwe": [
+                "CWE-705"
+              ],
+              "cvss": {
+                "score": 0,
+                "vectorString": null
+              },
+              "range": ">=2.0.0 <2.11.0"
+            }
+          ],
+          "effects": [],
+          "range": ">=2.0.0 <2.11.0",
+          "nodes": [
+            "node_modules/baseline-browser-mapping"
+          ],
+          "fixAvailable": true
+        },
+        "browserslist": {
+          "name": "browserslist",
+          "severity": "high",
+          "isDirect": false,
+          "via": [
+            {
+              "source": 1153171,
+              "name": "browserslist",
+              "dependency": "browserslist",
+              "title": "Browserslist: Unbounded memory growth (no cache eviction) via distinct query results, leading to eventual OOM",
+              "url": "https://github.com/advisories/GHSA-c83g-rgw3-j3cx",
+              "severity": "high",
+              "cwe": [
+                "CWE-770"
+              ],
+              "cvss": {
+                "score": 7.5,
+                "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+              },
+              "range": "<=4.28.6"
+            },
+            {
+              "source": 1153172,
+              "name": "browserslist",
+              "dependency": "browserslist",
+              "title": "Browserslist: Uncaught crash / prototype write via untrusted browserslist-stats.json custom stats (normalizeStats)",
+              "url": "https://github.com/advisories/GHSA-73wf-gq98-2v4g",
+              "severity": "high",
+              "cwe": [
+                "CWE-248",
+                "CWE-1321"
+              ],
+              "cvss": {
+                "score": 7.5,
+                "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+              },
+              "range": "<=4.28.6"
+            }
+          ],
+          "effects": [],
+          "range": "<=4.28.6",
+          "nodes": [
+            "node_modules/browserslist"
+          ],
+          "fixAvailable": true
+        },
+        "esbuild": {
+          "name": "esbuild",
+          "severity": "moderate",
+          "isDirect": false,
+          "via": [
+            {
+              "source": 1102341,
+              "name": "esbuild",
+              "dependency": "esbuild",
+              "title": "esbuild enables any website to send any requests to the development server and read the response",
+              "url": "https://github.com/advisories/GHSA-67mh-4wv8-2f99",
+              "severity": "moderate",
+              "cwe": [
+                "CWE-346"
+              ],
+              "cvss": {
+                "score": 5.3,
+                "vectorString": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:H/I:N/A:N"
+              },
+              "range": "<=0.24.2"
+            }
+          ],
+          "effects": [
+            "vite"
+          ],
+          "range": "<=0.24.2",
+          "nodes": [
+            "node_modules/esbuild"
+          ],
+          "fixAvailable": {
+            "name": "vite",
+            "version": "8.3.1",
+            "isSemVerMajor": true
+          }
+        },
+        "nanoid": {
+          "name": "nanoid",
+          "severity": "high",
+          "isDirect": false,
+          "via": [
+            {
+              "source": 1138811,
+              "name": "nanoid",
+              "dependency": "nanoid",
+              "title": "nanoid: non-secure generators can loop indefinitely with negative size",
+              "url": "https://github.com/advisories/GHSA-28wg-ghj8-5hjv",
+              "severity": "high",
+              "cwe": [
+                "CWE-835"
+              ],
+              "cvss": {
+                "score": 5.9,
+                "vectorString": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:N/A:H"
+              },
+              "range": "<3.3.16"
+            },
+            {
+              "source": 1139427,
+              "name": "nanoid",
+              "dependency": "nanoid",
+              "title": "nanoid: custom generators can loop indefinitely when size is zero",
+              "url": "https://github.com/advisories/GHSA-2v37-7h3g-55p8",
+              "severity": "high",
+              "cwe": [
+                "CWE-835"
+              ],
+              "cvss": {
+                "score": 5.9,
+                "vectorString": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:N/A:H"
+              },
+              "range": "<3.3.18"
+            }
+          ],
+          "effects": [],
+          "range": "<=3.3.17",
+          "nodes": [
+            "node_modules/nanoid"
+          ],
+          "fixAvailable": true
+        },
+        "postcss": {
+          "name": "postcss",
+          "severity": "high",
+          "isDirect": false,
+          "via": [
+            {
+              "source": 1130709,
+              "name": "postcss",
+              "dependency": "postcss",
+              "title": "PostCSS: incomplete fix of GHSA-6g55-p6wh-862q — attacker-controlled sourceMappingURL reads arbitrary .map files when `from` is unset",
+              "url": "https://github.com/advisories/GHSA-fxqj-rqcc-2cmp",
+              "severity": "moderate",
+              "cwe": [
+                "CWE-22",
+                "CWE-200"
+              ],
+              "cvss": {
+                "score": 0,
+                "vectorString": null
+              },
+              "range": "<=8.5.22"
+            },
+            {
+              "source": 1139510,
+              "name": "postcss",
+              "dependency": "postcss",
+              "title": "PostCSS: Path Traversal in Previous Source Map Auto-Loading (sourceMappingURL) leads to Arbitrary .map File Disclosure",
+              "url": "https://github.com/advisories/GHSA-r28c-9q8g-f849",
+              "severity": "high",
+              "cwe": [
+                "CWE-22"
+              ],
+              "cvss": {
+                "score": 7.5,
+                "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"
+              },
+              "range": "<=8.5.17"
+            }
+          ],
+          "effects": [],
+          "range": "<=8.5.22",
+          "nodes": [
+            "node_modules/postcss"
+          ],
+          "fixAvailable": true
+        },
+        "vite": {
+          "name": "vite",
+          "severity": "high",
+          "isDirect": true,
+          "via": [
+            {
+              "source": 1116229,
+              "name": "vite",
+              "dependency": "vite",
+              "title": "Vite Vulnerable to Path Traversal in Optimized Deps `.map` Handling",
+              "url": "https://github.com/advisories/GHSA-4w7w-66w2-5vf9",
+              "severity": "moderate",
+              "cwe": [
+                "CWE-22",
+                "CWE-200"
+              ],
+              "cvss": {
+                "score": 0,
+                "vectorString": null
+              },
+              "range": "<=6.4.1"
+            },
+            {
+              "source": 1120784,
+              "name": "vite",
+              "dependency": "vite",
+              "title": "launch-editor: NTLMv2 hash disclosure via UNC path handling on Windows",
+              "url": "https://github.com/advisories/GHSA-v6wh-96g9-6wx3",
+              "severity": "moderate",
+              "cwe": [
+                "CWE-73",
+                "CWE-522"
+              ],
+              "cvss": {
+                "score": 0,
+                "vectorString": null
+              },
+              "range": "<=6.4.2"
+            },
+            {
+              "source": 1123525,
+              "name": "vite",
+              "dependency": "vite",
+              "title": "vite: `server.fs.deny` bypass on Windows alternate paths",
+              "url": "https://github.com/advisories/GHSA-fx2h-pf6j-xcff",
+              "severity": "high",
+              "cwe": [
+                "CWE-22",
+                "CWE-200"
+              ],
+              "cvss": {
+                "score": 7.5,
+                "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"
+              },
+              "range": "<=6.4.2"
+            },
+            "esbuild"
+          ],
+          "effects": [],
+          "range": "<=6.4.2",
+          "nodes": [
+            "node_modules/vite"
+          ],
+          "fixAvailable": {
+            "name": "vite",
+            "version": "8.3.1",
+            "isSemVerMajor": true
+          }
+        }
+      },
+      "metadata": {
+        "vulnerabilities": {
+          "info": 0,
+          "low": 0,
+          "moderate": 2,
+          "high": 4,
+          "critical": 0,
+          "total": 6
+        },
+        "dependencies": {
+          "prod": 43,
+          "dev": 104,
+          "optional": 49,
+          "peer": 0,
+          "peerOptional": 0,
+          "total": 146
+        }
+      }
+    },
+    "exploitability_tested": false
+  },
+  "source_sha256": {
+    "run.sh": "fcc7e4b971f3c4de25eb8d21437cc48376e3671a0760ab7d05ec818569539f77",
+    "harness/orca_runtime.py": "63130154b90dfc640e6cce8a8e26d980770753aabedf4ab8caa5c62929b0504a",
+    "harness/daemon.py": "ac8ba805621883028a8bae76e761f4b4f353d941c948ab95b4868f9aec9da553",
+    "harness/codex_hooks.py": "43f465153229295b1e4047e8607a49200fb24095441f1a443cbf38bd4be99104",
+    "hooks/team/teammate_idle_workcheck.py": "e2ea05f9958ee4848322798774b42750ef89f36cfb35a76acaa58ae957140210",
+    "hooks/team/team_hook_common.py": "4dde33d22aec58a45ae25ed83b5ad479a27a58d8ef411e515fa30712877e1225",
+    "hooks/inbox_isolation_guard.py": "08349055ad962d7c6246a3884b4d7fedf2cf8f32b530e6e4a16df686b0e725b9",
+    "plugins/ceo/role.md": "72de9a5982c260c682435367ea0f761b747fdcd7c22d0d9a14d89eff39dafdf9",
+    "plugins/cto/role.md": "96e5dcb44dd175c62ef2f7d25e47c8969960366270a5186b59cdc0357fea22d0",
+    "plugins/codex-cto/role.md": "4b7a416ff93fbc08900496edfdbc25a8c9c792615e814b3c3e6341084fac17be",
+    "plugins/cto/rules/agent-team-protocol.md": "6e3f2c484e0577f31d778c5749fab18d54fc485e640f0326e38ba75aba66530a",
+    "plugins/cto/skills/harness-team-spawn/SKILL.md": "06dd28d4104d82809a1a394d00b62d2280ea78ef240880d9f90adce2d56f4959",
+    "dashboard/frontend/package-lock.json": "59433dd6de050f68dcdea021da94712311107c59299a4954aa7a481067f5c1ee",
+    "dashboard/frontend/package.json": "a103d9b80a9ef96db8e64eacc07f20d535db8d9610937079a0368c89848a48f8",
+    "dashboard/frontend/vite.config.js": "855de29fd956ea15cb06c17d596852813107baa3d67174199ec5601316d78d34",
+    "dashboard/backend/requirements.txt": "72b7dd981782e40c30a580b5bc5233a96ece788ba1e69d7686917830d40ee106"
+  },
+  "limitations": [
+    "No live agent task, model benchmark, CLI upgrade, service restart, or exploit test.",
+    "RULES.md was not read as an instruction or semantic audit target.",
+    "No revalidation of existing research runtime message counts.",
+    "Backend installed dependency versions were not audited."
+  ],
+  "locked_frontend_versions": {
+    "vite": "5.4.21",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "@vitejs/plugin-react": "4.7.0"
+  },
+  "followup_observations": [
+    {
+      "observed_at": "2026-09-28T09:47:52.355648+09:00",
+      "trigger": "User requested Codex CLI version recheck",
+      "codex_version": "codex-cli 0.157.1",
+      "resolved_executable": "/home/kim_3090/.nvm/versions/node/v24.14.1/lib/node_modules/@openai/codex/bin/codex.js",
+      "package_version": "0.157.1",
+      "assessment_correction": "Codex CLI is up to date against the previously verified 0.157.1 release; withdraw its pending-update recommendation.",
+      "baseline_checks_rerun": false,
+      "original_observation_preserved": true
+    }
+  ]
+}

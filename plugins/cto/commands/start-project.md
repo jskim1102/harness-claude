@@ -29,7 +29,10 @@ harness roles
 ## Step 1 — Spawn Exactly 2 Claude Teammates
 
 Spawn은 fresh/유지보수 판단보다 먼저다. `planner → reviewer`
-순서로 두 명 전원을 upfront spawn 한다. `developer`는 외부 Codex 세션이므로
+순서로 두 명 전원을 upfront spawn 한다. 단 `specs/tasks.md` 가 이미 있으면(분해
+완료된 재개 빌드) **reviewer 만** spawn 한다 — planner 는 1회용(RULES §17)이라
+`Agent(planner)` 가 `planner_dispatch_gate` 에 막힌다 (`start_project_spawn_nudge`
+도 같은 규칙). `developer`는 외부 Codex 세션이므로
 `Agent(subagent_type=developer)`를 절대 호출하지 않는다.
 
 Invoke the `harness-team-spawn` skill. It owns:
@@ -39,8 +42,8 @@ Invoke the `harness-team-spawn` skill. It owns:
 
 Codex 세션은 Step 0에서 확인한 별도 세션을 그대로 사용한다.
 
-완성 모듈이어도 두 Claude teammate는 모두 spawn 한다. 이 명령에서는 유지보수
-여부를 판단하거나 planner에게 재분해 메시지를 보내지 않는다.
+완성 모듈이어도 spawn 대상은 위 규칙(`specs/tasks.md` 유무)만으로 정한다. 이
+명령에서는 유지보수 여부를 판단하거나 planner에게 재분해 메시지를 보내지 않는다.
 
 ### Spawn Self-check
 

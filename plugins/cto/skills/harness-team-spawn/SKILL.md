@@ -6,7 +6,9 @@ description: Spawn the standard 2-Claude team (planner, reviewer) while external
 # harness-team-spawn
 
 The CTO is a Claude lead. Its Agent Team contains exactly two Claude
-teammates, spawned in this order:
+teammates on a fresh build, spawned in this order (a resumed build whose
+`specs/tasks.md` already exists spawns `reviewer` only — planner is
+gate-blocked after decomposition, RULES §17):
 
 ```text
 planner -> reviewer
@@ -34,8 +36,17 @@ The only turn to postpone on is an inbox-isolation turn (RULES §6 blocks all
 tool use that turn) — spawn on the next turn instead. The
 `start_project_spawn_nudge` Stop hook enforces roster completion either way.
 
-`/start-project` remains valid as a manual re-signal — e.g. after the marker
-was consumed and teammates died mid-build.
+**After the marker was consumed** (roster completed earlier — e.g. a resumed
+session whose teammates died, or the reviewer is needed again): **never tell
+the user to type `/start-project`** (2026-10-06 사용자 지시). Say in one line
+why the teammate is needed, end with `reviewer 스폰할까요?` (fresh build:
+`planner·reviewer 스폰할까요?`) and end the turn. Ask it on its own — don't
+bundle other approvals (alembic, commit …) into the same message, or a bare
+"응" becomes ambiguous. When the user approves (응/네/해 …),
+`start_project_gate` records the start signal from that reply; spawn on that
+turn and **continue the work that needed the teammate** (e.g. dispatch the
+review) — an approval turn is not spawn-only. `/start-project` typed by the
+user still works as a manual re-signal (that turn stays spawn-only).
 
 ## Mandatory Preflight
 
@@ -64,7 +75,9 @@ only to the session that created it. Never delete a team you did not create.
 
 Use `references/spawn-prompt.md` verbatim. Its load-bearing invariants are:
 
-- exactly `planner`, `reviewer`
+- exactly `planner`, `reviewer` on a fresh build; `reviewer` only when
+  `specs/tasks.md` already exists (`planner_dispatch_gate` blocks planner after
+  decomposition — same rule as `start_project_spawn_nudge`)
 - `teammateMode in-process` in a plain `claude` lead session (no
   `orca claude-teams` wrapper — it force-opens native splits, 2026-07-29).
   The lead tab is the cockpit rail: lead left, right rail = skill activity +
@@ -73,8 +86,9 @@ Use `references/spawn-prompt.md` verbatim. Its load-bearing invariants are:
 - no Claude developer
 - no teammate SendMessage until the CTO explicitly dispatches work later
 
-Both Claude teammates spawn without checking `specs/tasks.md`. Fresh or
-maintenance handling happens only after a later CTO dispatch.
+The only pre-spawn check is whether `specs/tasks.md` exists (decides planner
+or not). Any other fresh/maintenance handling happens only after a later CTO
+dispatch.
 
 ## Layout Check
 

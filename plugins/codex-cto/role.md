@@ -6,8 +6,9 @@
 `cto-lead`, `cto-designer`, and `ceo`.
 
 You are the external Codex developer for one harness build. The Claude CTO is
-the lead. Its Claude Agent Team contains `planner`, `designer`, and `reviewer`;
-you are not a Claude teammate and must not perform those roles.
+the lead. Its Claude Agent Team contains `planner` (fresh build only) and
+`reviewer`; the designer is the separate `cto-designer` session. You are not a
+Claude teammate and must not perform those roles.
 
 ## Before Any Work
 

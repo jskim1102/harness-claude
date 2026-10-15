@@ -72,7 +72,8 @@ def main():
         "plan.md 쓰기 차단 — plan.md 는 CEO 산출물이다 (읽기 전용).\n"
         "계획에 의문이 있으면 ## 6 Open Questions 를 **사용자에게 질문**으로 올려라 "
         "(그 섹션에 직접 쓰라는 뜻이 아니다 — 이 게이트가 그것도 막는다).\n"
-        "계획과 현실이 어긋나면 planner 가 specs/spec.md·specs/tasks.md 를 고친다. "
+        "계획과 현실이 어긋나면 CTO 가 specs/spec.md·specs/tasks.md 를 갱신한다 "
+        "(재분해 규모면 사용자에게 — planner 는 사용자 명시 지시 시만, RULES §17). "
         "plan.md 자체의 변경은 CEO 몫이다.",
     )
 

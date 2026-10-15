@@ -49,7 +49,9 @@ worked examples.
   must not be able to self-waive mandatory review evidence by typing a
   token). The ONLY way to waive review for a segment is a per-segment
   waiver FILE the CTO writes when the user said "검토 필요없음":
-  `~/.harness-claude/review-waivers/<team>/task-<id>.waiver`.
+  `~/.harness-claude/review-waivers/<project>/<ckpt-id>.waiver` (the ckpt that
+  owns the `[review]` line, e.g. `phase3.ckpt1.waiver`; the task-store
+  TaskCompleted path keys on `task-<id>.waiver`).
 
 The two tokens are different gates (creation vs. completion) and are
 not interchangeable. Details in `references/bypass-tokens.md`.

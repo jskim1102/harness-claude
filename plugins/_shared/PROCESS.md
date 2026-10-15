@@ -52,9 +52,12 @@ plan.md 의 3축 선언을 그대로 따른다:
 
 ## 2. 팀 spawn 후 대기 / 명시적 dispatch
 
-`/start-project`는 planner/reviewer를 spawn하는 것만 수행한다. 이 턴에는
-plan.md, specs, tasks, phase, ckpt, segment를 읽거나 생성·검증하지 않는다. 세 팀원이
-준비되면 CTO는 사용자에게 상태만 보고하고 대기한다. 아래 분해 절차는 사용자가 CTO에게
+`/start-project`는 planner/reviewer를 spawn하는 것만 수행한다 (`specs/tasks.md` 가
+이미 있는 재개 빌드는 reviewer 만 — planner 는 1회용, RULES §17). 이 턴에는
+plan.md, specs, tasks, phase, ckpt, segment를 읽거나 생성·검증하지 않는다. 필수 팀원이
+준비되면 CTO는 사용자에게 상태만 보고하고 대기한다. (마커 소비 후 재스폰은 `/start-project`
+타이핑을 요구하지 않고 `reviewer 스폰할까요?` 승인으로 한다 — 그 승인 턴은 spawn-only 가
+아니라 스폰 후 하던 작업을 이어 간다. 정본 = harness-team-spawn "When To Spawn".) 아래 분해 절차는 사용자가 CTO에게
 분해를 명시적으로 지시하고(`/decompose` 또는 자연어) CTO가 planner에게
 dispatch한 뒤에만 시작한다.
 

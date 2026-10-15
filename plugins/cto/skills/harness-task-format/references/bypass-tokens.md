@@ -85,7 +85,8 @@ The ONLY way to waive review for a segment is a per-segment waiver FILE
 segment 검토 필요없음":
 
 ```
-~/.harness-claude/review-waivers/<team>/task-<id>.waiver
+~/.harness-claude/review-waivers/<project>/<ckpt-id>.waiver   # tasks.md path (e.g. phase3.ckpt1.waiver)
+~/.harness-claude/review-waivers/<project>/task-<id>.waiver    # task-store TaskCompleted path
 ```
 
 Otherwise it is always review + code-review. See `reviewer.md` for the

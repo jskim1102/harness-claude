@@ -22,7 +22,8 @@
   2. `--segment` 범위 안의 ckpt          → 방금 만든 것이라 기준선이 아니다
   3. phase1(환경설정) ckpt               → 1회성 셋업. 재실행 위험이 여기 몰려 있다
   4. 재실행 위험 명령                    → venv 재생성·npm install·docker up·
-                                            alembic·dev.sh up·상태변경 curl
+                                            alembic·dev.sh up·상태변경 curl·
+                                            스크래치(/tmp) --outDir 가 아닌 프런트 빌드(dist 덮어씀)
   5. 중복 명령                           → 실측 30~50% 가 중복
 
 안전 경계 (정직하게):
@@ -31,6 +32,14 @@
   DESTRUCTIVE_RE 로 명백한 파괴 명령을 **실행 전에 거부**한다. 이는 git_guard 와
   같은 성격의 **anti-합리화 장치이지 샌드박스가 아니다** — 리뷰어가 이미 자기
   Bash 로 같은 명령을 돌릴 수 있는 것과 같은 신뢰 도메인이다.
+  또 하나: 선정된 Run: 에 pytest 가 있으면 시작 전에 **같은 빌드 dir 안에서 도는 다른
+  pytest** 를 찾아 exit 2 로 거부한다 — 게이트는 내부에서 pytest 를 돌리므로 공유
+  테스트 DB 를 쓰는 스위트와 겹치면 무관한 테스트가 허위 실패한다 (annodock
+  2026-10-06: 허위 회귀 8건 중 7건이 이 원인). 판정은 /proc 의 argv 로 한다(argv[0]
+  이 pytest 이거나 `-m pytest`) — 명령 문자열에 pytest 가 들어간 셸 래퍼와 게이트의
+  조상 프로세스는 세지 않는다 (Codex 리뷰 2026-10-08 P1: 게이트를 기다리는 부모 셸이
+  걸리면 영원히 exit 2). 우회 플래그는 없다 — 기다렸다 돌려라. 한계: 시작 시점 1회
+  검사라 실행 도중 뒤늦게 시작되는 pytest 는 못 막는다(공유 락은 별건).
 
 usage:
   regression_gate.py <build-name> --baseline [--segment A~B] [--timeout N] [--json]
@@ -63,12 +72,51 @@ CKPT_RE = re.compile(r"^###\s+([A-Za-z][A-Za-z0-9_-]*\.ckpt\d+)\s*(.*)$")
 RUN_RE = re.compile(r"\bRun:\s*(.+?)\s*$")
 ROLE_RE = re.compile(r"\[(dev|design|plan|review)\]")
 
+# --- 프런트 빌드 판정 (RISKY 의 callable 항목) ------------------------------
+# 설계 원칙 (Codex 리뷰 2026-10-08 1~3차 반영): 셸 문법을 흉내내 "정확히" 판정하려던 시도는 따옴표
+# 이스케이프·$'…'·here-string·치환 같은 변형마다 구멍이 났다. 그래서 두 방향 모두 "더 제외하는
+# 쪽"으로만 틀리게 만든다 — 이 파일의 정책(잘못 제외 = 커버리지 손실, 잘못 실행 = 환경 파괴)이다.
+#   감지: 원문 그대로(따옴표·주석 해석 없음) 세그먼트(|;&)에 JS 빌드 도구 토큰과 독립 단어 `build` 가
+#         같이 있으면 위험. bash -c '…npm run build…'·TAG="a;b" npm run build 같은 변형도 문자열이
+#         남아있는 한 걸린다. printf '…npm run build…' 류의 과잉 제외는 감수한다.
+#   면제: 세그먼트 전체가 정확히 `npm run build -- --outDir[= ]/tmp/<리터럴 경로>` 또는
+#         `[npx] vite build --outDir[= ]/tmp/<리터럴 경로>` 일 때만. 환경변수 대입·리다이렉트·치환·
+#         따옴표·`..`·다른 인자가 하나라도 붙으면 면제가 아니다 (화이트리스트 문법). 구분자 `--` 의
+#         의미가 도구마다 달라서 이 둘만 허용한다 (Codex 리뷰 4·5차 P1): npm 은 `--` 가 없으면 옵션을
+#         자기가 먹고 스크립트엔 안 넘겨 기본 dist 로 빌드되므로 `--` 필수. vite 는 `--` 뒤를 무시하므로
+#         `--` 금지. pnpm 과 modern Yarn 은 `--` 자체를 스크립트에 넘겨 vite 가 옵션을 무시한다 —
+#         버전별로 전달 규칙이 갈려 안전한 형태를 특정할 수 없으니 **면제 없음**(항상 위험).
+#   한계: 빌드 뒤 `cp -r /tmp/x dist` 처럼 빌드가 아닌 명령으로 서빙 dir 를 덮어쓰는 건 못 잡는다 —
+#         이 게이트는 휴리스틱 가드지 샌드박스가 아니다. 근본 해법은 prod 가 작업 트리를 직접 서빙하지
+#         않는 것(annodock: Caddy 가 frontend/dist 를 직접 서빙, 2026-10-06 실측).
+_JS_TOOL_RE = re.compile(r"\b(?:npm|pnpm|yarn|npx|vite|webpack|esbuild|rollup|parcel|next|astro)\b")
+_BUILD_WORD_RE = re.compile(r"(?<![\w./])build(?![\w./])")
+_SCRATCH_DIR = r"--outDir(?:=|\s+)(?:/tmp|/var/tmp)(?:/[A-Za-z0-9_-][A-Za-z0-9._-]*)+/?"
+_SCRATCH_BUILD_RE = re.compile(
+    r"^\s*(?:"
+    + r"npm\s+run\s+build\s+--\s+" + _SCRATCH_DIR          # npm: `--` 필수 (pnpm/yarn 은 면제 없음)
+    + r"|(?:npx\s+)?vite\s+build\s+" + _SCRATCH_DIR         # vite: `--` 금지
+    + r")\s*$"
+)
+
+
+def _risky_frontend_build(cmd: str) -> bool:
+    for seg in re.split(r"[|;&]+", cmd):
+        if _JS_TOOL_RE.search(seg) and _BUILD_WORD_RE.search(seg) and not _SCRATCH_BUILD_RE.match(seg):
+            return True
+    return False
+
+
 # --- 재실행하면 부작용이 남는 명령 (제외; 실행하지 않음) --------------------
 # 보수적으로 잡는다 — 잘못 제외하면 커버리지만 줄지만, 잘못 실행하면 환경이 깨진다.
 RISKY = (
     ("venv 재생성", re.compile(r"\bpython3?\s+-m\s+venv\b")),
     ("패키지 재설치", re.compile(r"\b(pip3?|uv\s+pip)\s+install\b|\bpoetry\s+install\b|\buv\s+sync\b")),
     ("npm 설치", re.compile(r"\bnpm\s+(install|ci|i)\b")),
+    # --outDir 없는 빌드는 작업 트리의 dist/ 를 덮어쓴다. annodock 은 Caddy 가 frontend/dist 를
+    # 직접 서빙하므로 게이트 실행 = 판정 전 prod 배포였다 (2026-10-06 17:26 실측). 판정 규칙은
+    # _risky_frontend_build 참조 — /tmp 류 스크래치 --outDir 만 통과.
+    ("프런트 빌드(dist 덮어씀)", _risky_frontend_build),
     ("docker build/up", re.compile(r"\bdocker(\s+compose|-compose)?\s+(up|build)\b")),
     ("docker pull", re.compile(r"\bdocker(\s+compose|-compose)?\s+pull\b")),
     ("DB 마이그레이션", re.compile(r"\balembic\s+(upgrade|downgrade|stamp)\b")),
@@ -125,7 +173,7 @@ def parse_tasks(text: str) -> tuple[list[Task], list[str]]:
 
 def risky_reason(cmd: str) -> str | None:
     for name, rx in RISKY:
-        if rx.search(cmd):
+        if rx(cmd) if callable(rx) else rx.search(cmd):
             return name
     return None
 
@@ -135,6 +183,90 @@ def destructive_reason(cmd: str) -> str | None:
         if rx.search(cmd):
             return name
     return None
+
+
+def _proc_argv(pid: str) -> list[str]:
+    try:
+        raw = Path(f"/proc/{pid}/cmdline").read_bytes()
+    except OSError:
+        return []
+    return [a.decode("utf-8", "replace") for a in raw.split(b"\0") if a]
+
+
+_PYTEST_NAMES = ("pytest", "py.test")
+_PY_INTERP_RE = re.compile(r"^(?:python|pypy)(?:\d+(?:\.\d+)?)?$")
+_PY_OPTS_WITH_VALUE = ("-X", "-W", "--check-hash-based-pycs")
+
+
+def _is_pytest_argv(argv: list[str]) -> bool:
+    """실제 pytest 기동인가 — argv[0] 자체가 pytest 거나, 파이썬 인터프리터가 `-m pytest` 또는
+    console script(`/…/bin/pytest`, 커널이 shebang 을 푼 모양)를 첫 피연산자로 받는 경우만.
+    vim/cat 의 피연산자, `bash -c "…pytest…"` 문자열, uv/poetry/time 같은 래퍼는 세지 않는다
+    (래퍼의 자식이 위 모양으로 잡힌다). Codex 리뷰 2026-10-08 2·3차."""
+    if not argv:
+        return False
+    if Path(argv[0]).name in _PYTEST_NAMES:
+        return True
+    if not _PY_INTERP_RE.match(Path(argv[0]).name):
+        return False
+    skip = False
+    for i, a in enumerate(argv[1:], 1):
+        if skip:
+            skip = False
+            continue
+        if a == "-m":
+            return i + 1 < len(argv) and argv[i + 1] == "pytest"
+        if a in _PY_OPTS_WITH_VALUE:
+            skip = True
+            continue
+        if a.startswith("-"):
+            continue
+        return Path(a).name in _PYTEST_NAMES
+    return False
+
+
+def _ancestor_pids() -> set[int]:
+    """자기 자신 + 조상 체인 (게이트를 기다리는 부모 셸을 충돌로 세지 않기 위해)."""
+    pids: set[int] = set()
+    pid = os.getpid()
+    while pid > 1 and pid not in pids:
+        pids.add(pid)
+        try:
+            stat = Path(f"/proc/{pid}/stat").read_text()
+            pid = int(stat.rsplit(")", 1)[1].split()[1])   # `pid (comm) state ppid …`
+        except (OSError, ValueError, IndexError):
+            break
+    return pids
+
+
+def concurrent_pytest(bdir: Path) -> list[str]:
+    """이 빌드 dir 안(cwd 기준)에서 도는 다른 pytest 프로세스. Linux /proc 전용 —
+    /proc 이 없으면 검사 불가 → 빈 목록(현상 유지). 프로세스는 찾았는데 cwd 를 못 읽으면
+    보수적으로 충돌로 본다."""
+    proc = Path("/proc")
+    if not proc.is_dir():
+        return []
+    root = bdir.resolve()
+    skip = _ancestor_pids()
+    hits: list[str] = []
+    for entry in proc.iterdir():
+        if not entry.name.isdigit() or int(entry.name) in skip:
+            continue
+        argv = _proc_argv(entry.name)
+        if not _is_pytest_argv(argv):
+            continue
+        try:
+            target = os.readlink(entry / "cwd")
+            if target.endswith(" (deleted)"):      # 지워진 뒤 재생성된 빌드 dir — 같은 DB 일 수 있다
+                inside = True
+            else:
+                cwd = Path(target).resolve()
+                inside = cwd == root or root in cwd.parents
+        except OSError:
+            inside = True
+        if inside:
+            hits.append(f"pid {entry.name} · {' '.join(argv)[:88]}")
+    return hits
 
 
 def segment_ckpts(order: list[str], spec: str | None) -> set[str]:
@@ -261,6 +393,16 @@ def main() -> int:
         if args.check:
             print("== REGRESSIONS: 0 ==")
         return 0
+
+    if any("pytest" in t.cmd for t in selected):
+        busy = concurrent_pytest(bdir)
+        if busy:
+            print("error: 같은 빌드 dir 에서 다른 pytest 가 실행 중 — 게이트는 내부에서 pytest 를 "
+                  "돌리므로\n       공유 테스트 DB 가 겹쳐 무관한 테스트가 허위 실패한다. "
+                  "끝나길 기다렸다가 다시 돌려라.", file=sys.stderr)
+            for h in busy:
+                print(f"       - {h}", file=sys.stderr)
+            return 2
 
     base = None
     if args.check:
