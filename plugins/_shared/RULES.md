@@ -86,7 +86,7 @@ CEO, CTO, Claude sub-agent(planner / reviewer), 별도 designer-cto·Codex devel
 **`mediamtx` (카메라 프로젝트 전용 — rtsp-streaming / cam-distance / rtsp-detection /
 rtsp-keypoint; auth-service 등 비카메라는 무관)** 은 **각 프로젝트가 자기 mediamtx
 컨테이너를 번들**한다 (compose 의 `mediamtx` 서비스 + 프로젝트 볼륨, self-host).
-포트는 offset 파생 — **`add-cto` 가** `.env` 에 박는다(§4.1, 카메라만): `MEDIAMTX_API_PORT = 9997 +
+포트는 offset 파생 — **`add-cto`(기존 빌드) 또는 plan.md 확정 훅(새 빌드)이** `.env` 에 박는다(§4.1, 카메라만, 멱등): `MEDIAMTX_API_PORT = 9997 +
 offset` / `MEDIAMTX_RTSP_PORT = 8554 + offset` / `MEDIAMTX_WEBRTC_PORT = 8889 +
 offset` / `MEDIAMTX_ICE_UDP_PORT = 8189 + offset` (위 표와 동일한 `시작포트 +
 (offset−1)` 식). stream_key = `ipcam-…` (프로젝트별 인스턴스라 slug prefix 불필요
@@ -213,11 +213,13 @@ self-host 라 backend/frontend 와 동일하게 범위 **안** — MEDIAMTX_API/
   `MEDIAMTX_VIEWER_PASS` 를 둔다. stream_key 는 `ipcam-…` (프로젝트별 인스턴스라 slug
   prefix 불필요 — 인스턴스 자체가 격리 경계). 카메라 프로젝트는 plan.md/specs 의
   mediamtx/스트리밍 시그널로 식별 — 비카메라는 무관.
-- **이 배선은 `add-cto` 가 자동**으로 한다 (스폰 시 1회): 위 `MEDIAMTX_*_PORT` 4줄을
+- **이 배선은 자동**이다 — 기존 빌드는 `add-cto` 스폰 시, 새 빌드는 `plan.md` 확정
+  승인 시(`plan_readonly_gate`; 2026-10-15 계획이 CTO 로 옮겨져 add-cto 때는 plan 이
+  없다). 둘 다 `run.sh _wire_project_env` 하나를 부르고 멱등이다: 위 `MEDIAMTX_*_PORT` 4줄을
   `시작포트 + (PORT_OFFSET − 1)` 로 파생해 `.env` 에 기입 — backend/frontend 포트와
   같은 offset 규율의 연장이다. ⚠ **카메라 프로젝트에만** 박는다 (판별 = plan.md 의
   mediamtx 시그널). 전 프로젝트 무조건 주입이 2026-07-21 사고였다(§15) — 이 게이트를
-  걷어내지 말 것. `run.sh _wire_project_env`, `tests/smoke.sh [add-cto-wire]` 가 핀. 비번(`MEDIAMTX_BACKEND_PASS`/
+  걷어내지 말 것. `run.sh _wire_project_env`, `tests/smoke.sh [add-cto-wire]`·`[6c]` 가 핀. 비번(`MEDIAMTX_BACKEND_PASS`/
   `MEDIAMTX_VIEWER_PASS`)은 **프로젝트마다 고유값** — 파생 프로젝트가 canonical 비번을
   물려받지 말 것 (`.env`, gitignore, §4.1). ⚠ **스트리밍 코어 diff-0**: capture/mediamtx
   연동 코드는 canonical rtsp-streaming 과 byte-identical, 파생은 거리/검출/키포인트
@@ -448,8 +450,9 @@ bash SOURCE 에 RAW 텍스트로 splice** 된다 — 인자가 인용부호 안�
 모듈(`modules/<name>/`)을 재료로 쓰는 모든 빌드에 적용. 핵심 = **있는 모듈을
 무시하고 from-scratch 로 다시 짓는 착각 차단** + **가져온 기능의 무단 누락 차단.**
 
-- **Library Check 필수 (plan-time, fail-closed)**: CEO 의 plan.md `## 3
-  Library Check` 는 빈칸 불가 — `modules/*/specs/USAGE.md` 를 스캔한 뒤
+- **Library Check 필수 (plan-time, fail-closed)**: plan.md(계획 단계에 CTO lead 가
+  작성 — `harness-plan`, §19) 의 `## 3 Library Check` 는 빈칸 불가 —
+  `modules/*/specs/USAGE.md` 를 스캔한 뒤
   `reuse:<name> (이유)` 또는 `no-overlap (이유)` 를 **명시**한다. 무응답/생략 =
   "라이브러리 확인 안 함" 으로 간주, CTO 는 그 plan 으로 분해 시작 X.
 - **미완성 모듈 소비 금지**: `modules/<name>/specs/USAGE.md` 가 **없으면**
@@ -615,7 +618,7 @@ CTO 의 host 서버 종료.)
   자각 지점이다. 사용자 승인 없이 그 파일을 고치는 것은 본 조항 위반이다.
 - **왜 하드룰인가 (2026-07-21 사고):** add-cto 가 전 프로젝트에 mediamtx 포트를 박던
   버그를 고치면서, 에이전트가 **시키지도 않은 `./run.sh mtx-env <name>` 을 신설**했다.
-  버그 수정에는 필요 없는 것이었다 — 카메라 여부는 CEO 가 plan.md 에 선언하면 되는
+  버그 수정에는 필요 없는 것이었다 — 카메라 여부는 plan.md 에 선언하면 되는
   판단이었고, 실제로 그렇게 고쳤다. 사용자가 쓰지도 않을 명령어를 배우게 만들 뻔했다.
 
 ## 16. 빌드 저장소 경계 — `.gitignore` 는 CTO 가 쓴다
@@ -630,7 +633,7 @@ phase1(환경설정)에서 아래 A+B 를 반영한 `.gitignore` 를 작성한�
 | 항목 | 왜 |
 |---|---|
 | `.claude/` | 하네스 세션 설정. 스킬이 **하네스 repo 절대경로 심링크**라 남의 머신에서 전부 dangling. `harness-memory.md`(세션 통계)·`.lock` 도 여기. |
-| `plan.md` | CEO 발주서. 만드는 쪽 문서. |
+| `plan.md` | 계획서 (CTO lead 가 사용자와 작성·확정, §19). 만드는 쪽 문서. |
 | `specs/` | spec·tasks·decisions·learnings·design-contract = 빌드 관리 문서. |
 | `DESIGN.md` | 디자인 시스템 산출물. |
 | `.source/`, `.sources/` | extract 원본·데이터셋. **대용량** — GitHub 은 파일당 100MB 하드리밋이고 zip 은 델타 압축이 안 돼 한 번 커밋되면 히스토리에 영구 잔존한다(실측: dataset-viewer `.source/` 427MB, 최대 192MB 단일 zip = push 자체가 거부된다). |
@@ -711,3 +714,24 @@ CTO 가 직접 판단해 `[dev]` 로 발주하고, 판단이 안 서면 planner 
 - **내부 식별자는 바꾸지 않는다.** `harness msg send --from/--to`, db `msg` 행,
   훅·게이트는 전부 위 표 오른쪽 값을 계속 쓴다. 바뀌는 것은 사람이 읽는 표기뿐
   (`harness/cli.py` 의 `_display_role`).
+
+## 19. plan.md = CTO lead 가 쓰고, 확정되면 잠근다 (2026-10-15 역할 재분할)
+
+`plan.md` 는 **lead CTO 가 계획 단계에 사용자와 쓴다** (`harness-plan` 스킬: brief →
+brainstorming(축2·축3) → Library Check(§7) → 재료 분석 → 작성 → plan-ceo-review).
+CEO 는 `/build-project <name>`·`/build-module <name>` 로 **빈 폴더만** 만든다 —
+brainstorming·plan 작성을 CEO 탭에서 하지 않는다.
+
+- **초안/잠금**: 초안 마커(`~/.claude/logs/plan-draft/<name>.draft`)가 있을 때만 lead 가
+  `plan.md` 를 쓴다. planner·reviewer·designer-cto 는 초안이어도 쓰지 않는다. 마커가
+  없으면 잠금 — 기존 빌드는 전부 잠금이다 (이관 없음).
+- **확정**: lead 가 **"plan.md 확정할까요?"** 를 단독 턴으로 묻는다. 사용자의 승인 답이
+  신호다 (다른 질문에 한 "응" 은 무효 — reviewer 스폰 승인과 같은 판정). 승인 =
+  잠금 + 팀 스폰 시작 마커 + 카메라 포트 배선(§4) 을 훅이 한 번에 한다.
+- **변경**: 잠긴 뒤 계획을 바꿔야 하면 이유 한 줄 + **"plan.md 수정할까요?"** → 승인 →
+  초안 → 수정 → 다시 확정. 승인 없이 만들다가 계획을 결과에 맞춰 고치는 것이 이
+  잠금이 막는 사고다. 계획-현실의 작은 괴리는 `specs/spec.md`·`specs/tasks.md`
+  갱신으로 (§17).
+- **결정론 강제**: `hooks/team/plan_readonly_gate.py` (Write/Edit/MultiEdit +
+  UserPromptSubmit), `run.sh add-cto`(빈 폴더 = 초안 마커, 시작 마커 보류). Bash 경유
+  쓰기·Codex 세션은 다른 게이트와 같은 fail-open 범위.

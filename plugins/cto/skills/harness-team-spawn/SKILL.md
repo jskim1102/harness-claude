@@ -32,6 +32,12 @@ for confirmation. `add-cto` pre-seeds the marker (2026-08-04 사용자 결정: �
 spawn 은 CTO 실행에 포함된다), so a spawned CTO always comes up with its team.
 Spawn first, then answer whatever the user actually asked.
 
+**No marker and no `plan.md` = planning phase** (2026-10-15: the CTO lead
+authors `plan.md` with the user). Do not spawn and do not ask `스폰할까요?` —
+run `harness-plan` and end the turn with `plan.md 확정할까요?`. The user's
+approval makes `plan_readonly_gate` seed the start marker on that same turn;
+spawn then (planner + reviewer — `specs/tasks.md` does not exist yet).
+
 The only turn to postpone on is an inbox-isolation turn (RULES §6 blocks all
 tool use that turn) — spawn on the next turn instead. The
 `start_project_spawn_nudge` Stop hook enforces roster completion either way.

@@ -8,21 +8,21 @@ user, not by the teammate.
 
 | Source of the question | Batching                 | Why                                     |
 | :--------------------- | :----------------------- | :-------------------------------------- |
-| `plan.md` Open Questions | Batch the independent ones | The CEO left them as a set            |
+| `plan.md` Open Questions | Batch the independent ones | The planning phase left them as a set |
 | Contingent follow-ups  | 1 question per round      | Each answer shapes the next question    |
 | `design-consultation`  | Batched questionnaire     | Designed as a single frame              |
 | `plan-eng-review`      | Reviewer findings only    | Most of the skill is internal grading   |
 | `design-shotgun`       | Variants, not questions   | Surface mockups, not text Q&A           |
 
 **Not on this table on purpose:** `office-hours`, `brainstorming`,
-`grill-me`. Intent exploration is done before the CTO exists — the CEO
-ran that loop with the user and `plan.md` is the result. Teammates do not
+`grill-me`. Intent exploration is done in the planning phase — the CTO lead
+ran that loop with the user (`harness-plan`) and `plan.md` is the result. Teammates do not
 re-run them (`planner.md` "No Stage-1 Rituals"); the planner relays
 `plan.md` `## 6 Open Questions` instead.
 
 ## `plan.md` Open Questions — batch the frame
 
-These are the questions the CEO deliberately left open. They are
+These are the questions the planning phase deliberately left open. They are
 independent of each other by construction, so send them as one round and
 let the user answer them in relation to each other. Splitting them across
 rounds loses the frame and feels like an interrogation.

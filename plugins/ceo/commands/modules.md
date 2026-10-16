@@ -1,5 +1,5 @@
 ---
-description: 모듈 라이브러리 목록을 출력한다. modules/<name>/specs/USAGE.md 존재 = 완성(재사용 가능) 모듈. 1단계 Library Check 때, 또는 사용자가 "모듈 뭐 있어" 물을 때 사용.
+description: 모듈 라이브러리 목록을 출력한다. modules/<name>/specs/USAGE.md 존재 = 완성(재사용 가능) 모듈. 사용자가 "모듈 뭐 있어" 물을 때 사용. (Library Check 자체는 CTO 가 계획 단계에 한다 — 2026-10-15.)
 ---
 
 모듈 라이브러리 스캔 (USAGE.md 존재 = 완성·재사용 가능, 없음 = 빌드 중):
@@ -10,4 +10,4 @@ description: 모듈 라이브러리 목록을 출력한다. modules/<name>/specs
 - ✅ 모듈 = plan.md `## 3 Library Check` 에서 `reuse:<name>` 후보. 상세는
   해당 `modules/<name>/specs/USAGE.md` 를 읽는다.
 - 🚧 모듈 = 빌드 중 — 재료로 소비 금지 (RULES §7).
-- 비어있으면 "모듈 없음 — `/build-module <brief>` 로 새로 빌드" 안내.
+- 비어있으면 "모듈 없음 — `/build-module <name>` 으로 빈 폴더를 만들고 CTO 탭에서 계획" 안내.

@@ -1,82 +1,24 @@
 ---
-description: 1단계(CEO) — 모듈 빌드 plan.md 작성. 사용자의 <brief>를 받아 brainstorming으로 정렬하고, 축2(target)·축3(source)를 추론·확인한 뒤 modules/<name>/plan.md 1개를 작성한다. 모듈 = 여러 프로젝트에 재사용되는 기능 단위 (프론트 단순, 기능 목적 최우선). plan-ceo-review 게이트 통과 후 사용자에게 add-cto 스폰 명령을 안내한다. 사용자가 "/build-module <brief>" 또는 "모듈 만들어/모듈로 만들어둬" 류로 요청할 때 사용.
+description: 새 모듈 빌드 폴더 생성 — 빈 폴더만 만든다 (계획·brainstorm·plan.md 는 CTO 탭의 몫, 2026-10-15). 모듈 = 여러 프로젝트에 재사용되는 기능 단위. Usage: /build-module <name>
+argument-hint: <name>
 ---
 
-# /build-module <brief>
+# /build-module <name>
 
-**축1 = module 확정** (이 명령 자체가 선언). 산출물 = **여러 프로젝트에
-재사용되는 기능 단위** — 그 자체가 개발 대상이다. 빌드 dir = `modules/<name>/`
-(작업장 = 라이브러리 동일).
+빈 폴더 `modules/<name>/` 하나를 만든다. **그게 전부다.** 모듈 = 여러 프로젝트에
+재사용되는 기능 단위 (프론트 단순, 기능 목적 최우선, 완성 = 기능 + `specs/USAGE.md`)
+— 그 성격을 plan.md 에 담는 것까지 CTO 가 계획 단계에 한다
+(`plugins/cto/skills/harness-plan`, RULES §19).
 
-모듈의 본질 (plan.md ## 5 Constraints 에 반영할 것):
-- **프론트엔드는 단순하게** — 데모/테스트용 최소 UI. 화려한 디자인 금지
-  (다른 프로젝트가 갖다쓰기 쉬워야 함).
-- **기능적 목적이 최우선** — 자기완결, 명확한 경계, 특정 프로젝트 가정에
-  묶이지 않을 것.
-- 완성 기준 = 기능 완비 + `specs/USAGE.md` (CTO 가 마지막에 작성).
+!name='$0'; root="${HARNESS_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null)}"; [[ "$name" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]] || { echo "error: name must be kebab-case (lowercase, digits, hyphens). Usage: /build-module <name>"; exit 1; }; [[ "$name" != "ceo" ]] || { echo "error: 'ceo' 는 CEO 작업공간"; exit 1; }; [[ -n "$root" && -d "$root/modules" ]] || { echo "error: HARNESS_ROOT 미확인 — ./run.sh ceo 로 재기동"; exit 1; }; for b in claude-project modules; do [[ -e "$root/$b/$name" ]] && { echo "error: $b/$name 이미 존재 — 기존 빌드면 ./run.sh add-cto $name, 새 빌드면 다른 이름"; exit 1; }; done; mkdir -p "$root/modules/$name" && echo "created: modules/$name/ (빈 폴더 — 계획은 CTO 탭에서)" && printf '다음 — 새 터미널에서:\n  ./run.sh add-cto %s        # 계획 단계로 기동 (plan.md 없음 = CTO 가 brief 부터)\n  ./run.sh attach-cto %s     # /model · /effort 설정 → 첫 메시지 = 만들고 싶은 것\n' "$name" "$name"
 
-1단계(CEO)의 유일한 산출물은 **`modules/<name>/plan.md` 1개**다.
-phase/ckpt 분해는 하지 않는다 (CTO 몫). codex 호출 없음.
+## CEO 가 하는 것 / 하지 않는 것
 
-## 절차
-
-1. **brainstorming (고정 스킬)** — `<brief>` 를 사용자와 정렬:
-   - 축2 (target): `new` | `extend:<기존>` — 추론 + **사용자 확인**
-   - 축3 (source): `scratch` | `modules:[slug…]` | `extract:[프로젝트/기능…]` | 조합(여럿이면 `+` 나열: `modules:[x] + extract:[y/기능]`) — 추론 + **사용자 확인**
-   - **재사용 경계 + 계약 요점** (무엇을 노출하나, 입출력) 을 brief 에서 끌어낸다.
-   - `<name>` (kebab-case) — **CEO 제안 → 사용자 승인 후 확정** (dir 생성 전).
-
-2. **Library Check (고정 동작, fail-closed)** — `modules/*/specs/USAGE.md` 스캔.
-   같은/비슷한 모듈이 이미 있으면 `reuse:<slug> (이유)` (= 기존 모듈 확장이
-   맞는지 사용자와 논의), 없으면 `no-overlap (이유)`. **반드시 명시** (RULES §7).
-
-3. **조건부 고정 (축3 source ≠ scratch — 자동 선택)**:
-   - 재료가 코드면 → `understand-anything` (extract 면 파일 수준 위치까지 ## 3 기록.
-     라인 수준 코드 추출은 CTO/planner 몫 — planner 가 원본 직접 읽어 `From:` 로 박음)
-   - git URL 소스는 `./run.sh fetch <url>` 선행. 소스 read-only.
-
-4. **plan.md 작성** — `modules/<name>/` 디렉토리를 만들며 작성:
-
-   ```markdown
-   # Plan: <name>
-   ## 1. Build Type      # deliverable: module / target: <축2> / source: <축3>
-   ## 2. Goal            # 무엇을 왜, 1~2줄
-   ## 3. Library Check   # reuse:<slug>(이유) | no-overlap(이유) (+extract면 파일 수준 위치)
-   ## 4. Requirements    # 핵심 기능 bullet 요점만 + 재사용 경계/계약 요점
-   ## 5. Constraints     # 스택/보안/성능, non-goals — "프론트 단순" 명시
-   ## 6. Open Questions  # CTO가 분해 때 풀 것
-   ```
-
-   `## 5 Constraints`: **postgres 는 공유 인스턴스**(127.0.0.1:5435 db-per-project,
-   RULES §4.1/§5.2) — 모듈 전용 postgres 를 spec 하지 마라(배선은 CTO 가 한다).
-   **mediamtx 는 반대로 모듈 self-host**(카메라 모듈만; 2026-07-18 공유 인스턴스 폐지,
-   RULES §4/§4.1) — 자기 `mediamtx` 서비스/볼륨을 compose 에 두고 포트는 offset
-   파생(포트 배선은 add-cto 자동).
-
-5. **plan-ceo-review (고정 게이트)** — plan.md 점검 후 사용자 🤚 최종 확인.
-
-6. **사용자 안내**:
-   ```
-   plan 확정: modules/<name>/plan.md
-   다음 — 새 터미널에서:
-     ./run.sh add-cto <name>                     # 세션만 — 분해 자동 시작 X
-     ./run.sh attach-cto <name>
-   세션 안에서: /model · /effort 설정 → 바로 작업 지시 (팀 자동 스폰 — /start-project 불필요)
-   ```
-
-## 유동 스킬 (사용자 요청 시)
-
-- `grill-me` — 사용자가 plan 을 더 압박하고 싶을 때 (user opt-in)
-
-## deep-research (제안 게이트 — 사용자 승인 시만)
-
-CEO 자율 실행 X. 외부 사실이 없으면 *지금* 못 닫는 plan 필드(Goal/Constraints/축2·축3)가
-있을 때만 사용자에게 제안 → 승인 시 실행 (규제·표준 / 기술 실현가능성 / 외부 의존 스펙).
-미룰 수 있으면 `## 6 Open Questions` 로 (CTO 조사).
-
-## Boundaries
-
-- plan.md 외 파일 생성 X. phase/ckpt 분해 X. CTO 스폰 직접 실행 X.
-  codex 호출 X. README 작성 X (RULES §1 — `specs/USAGE.md` 는 CTO 의 완성 산출물).
+- 위 출력을 사용자에게 그대로 보여준다. 끝.
+- **하지 않는다**: 만들고 싶은 것 묻기, 축2·축3 추론, Library Check, plan.md 작성,
+  이름 제안 대화. 사용자가 이름 없이 "모듈 만들어" 라고 하면 kebab-case 이름 하나만
+  확인해 이 커맨드를 다시 치고, 만들고 싶은 것은 CTO 탭에서 말하라고 안내한다.
+- 기존 모듈 확장은 이 커맨드가 아니다 — 그 모듈의 CTO 탭에서 직접.
+- `add-cto`·`attach-cto` 를 CEO 가 실행하지 않는다 (사용자가 새 터미널에서).
 
 ARGUMENTS: $ARGUMENTS

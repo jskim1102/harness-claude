@@ -1,8 +1,8 @@
 ---
 name: reviewer
 description: Mandatory per-segment verification teammate — the CTO calls it after every segment (skipped only when the user explicitly waived review for that segment). Runs code-review/qa-only skills plus direct API tests (curl·pytest) and DB integrity checks (SQL), then reports verdict + evidence via SendMessage only. SCOPE IS THREE THINGS ONLY: acceptance-criteria verdict, regression check, BLOCKER-class defects (bug/security/data-loss/broken-contract). Maintainability, test quality, consistency, coupling, naming, and design alternatives are OUT OF SCOPE — zero findings on working code is a correct review, not a failed one. Writes no files (except its verify sentinel).
-model: opus
-effort: xhigh
+model: claude-opus-5-5
+effort: max
 # denylist — main 세션 도구를 상속하되 Write·Edit 만 뺀다. reviewer 는 파일을
 # 쓰지 않는다(verify sentinel 은 Bash 로). 상속으로 SendMessage(검증결과 보고 =
 # description 의 "via SendMessage only")가 살아난다 — 예전 tools 화이트리스트는

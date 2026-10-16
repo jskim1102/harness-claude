@@ -291,3 +291,45 @@ def load_team_tasks(team_name):
         except Exception:
             continue
     return tasks
+
+
+# ---- 사용자 승인 판정 (start_project_gate · plan_readonly_gate 공유) ----
+# 두 게이트가 같은 장치를 쓴다: 사용자 프롬프트(모델이 못 꾸밈)가 **직전 CTO
+# 메시지의 질문**에 대한 짧은 긍정일 때만 승인. 구현이 갈리면 한쪽만 조여진다.
+NO_RE = re.compile(r"아니|ㄴㄴ|싫|말고|하지\s*마|취소|\b(no|nope|stop)\b", re.I)
+# 첫 단어 정확 일치만 본다 — 접두 매칭은 "어디까지 했어?"·"해당 부분…" 을 승인으로 오인한다.
+YES_WORDS = {"응", "응응", "ㅇ", "ㅇㅇ", "ㅇㅇㅇ", "웅", "어", "네", "네네", "넵", "넵넵", "넹",
+             "예", "yes", "y", "yep", "yeah", "sure", "ok", "okay", "오케이", "ㅇㅋ",
+             "좋아", "좋아요", "그래", "그래요", "해", "해줘", "해줘요", "해주세요", "해라",
+             "ㄱ", "ㄱㄱ", "고", "go", "진행", "진행해", "진행해줘", "진행해주세요", "진행하자",
+             "스폰", "스폰해", "스폰해줘", "스폰해주세요", "알았어", "알겠어", "부탁해", "부탁해요"}
+# 질문 전용 동사(확정*/수정*)는 여기 넣지 않는다 — plan_readonly_gate._answer_ok 가 질문별로
+# 판정한다. 공유 집합에 넣으면 "reviewer 스폰할까요?" 에 "수정해" 가 스폰 승인으로 샌다.
+
+
+def approves(prompt):
+    """짧은 긍정 답("응", "네 진행해", "확정해" …). 부정어가 섞이면 무효."""
+    p = (prompt or "").strip()
+    if not p or len(p) > 40 or NO_RE.search(p):
+        return False
+    return re.split(r"[\s,.!?~]+", p.lower())[0] in YES_WORDS
+
+
+def last_assistant_text(path):
+    """transcript 의 마지막 assistant 텍스트 = 사용자가 지금 답하는 CTO 메시지."""
+    with open(path, "rb") as fh:
+        fh.seek(0, os.SEEK_END)
+        fh.seek(max(0, fh.tell() - 1_000_000))  # 긴 세션은 끝부분만 본다
+        tail = fh.read().decode("utf-8", "ignore")
+    for line in reversed(tail.splitlines()):
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        if entry.get("type") != "assistant":
+            continue
+        content = (entry.get("message") or {}).get("content") or []
+        texts = [c.get("text", "") for c in content if isinstance(c, dict) and c.get("type") == "text"]
+        if texts:
+            return texts[-1]
+    return ""

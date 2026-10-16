@@ -154,6 +154,9 @@ CTO 는 스폰되면 **팀 spawn 까지 마친 대기 상태**가 정상이다. 
   `specs/tasks.md` 가 이미 있으면 reviewer 만 — planner 는 1회용이라
   planner_dispatch_gate 가 차단한다, RULES §17; designer/codex 는 add-cto 가 이미
   별도 세션으로 준비). 그 턴이 무엇이든 spawn 이 먼저다.
+- **시작 마커도 없고 `plan.md` 도 없으면 계획 단계다** (2026-10-15 역할 재분할).
+  팀을 스폰하지 말고 `harness-plan` 스킬로 brief 부터 묻는다. `plan.md 확정할까요?`
+  에 사용자가 승인하면 훅이 그 턴에 시작 마커를 심는다 — 그 턴에 팀을 spawn 한다.
 - spawn 후 그 턴의 사용자 요청을 정상 처리한다: **작업 지시면 바로 시작**,
   단순 질문이면 답하고 대기. 사용자 지시 없이 스스로 분해·업무 dispatch 를
   시작하지 않는다.

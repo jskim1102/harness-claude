@@ -286,7 +286,7 @@ planner runs it after decomposition and a nonzero exit blocks handoff.
 
 **Boundary:** this is spec↔tree **internal** coverage only — it does NOT
 check whether the spec itself captured everything the user wanted
-(intent→spec is the CEO 1단계 / `harness-unknowns-check` gate).
+(intent→spec is the CTO planning phase `harness-plan` / `harness-unknowns-check` gate).
 
 ## Files in this skill
 

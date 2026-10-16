@@ -27,6 +27,9 @@ check "add-cto plan 없음 → 실패"     1 ./run.sh add-cto claude-project/no-
 check "add-cto --module 폐기 안내"   1 ./run.sh add-cto --module
 check "add-cto 인자 2개 거부"        1 ./run.sh add-cto a b
 check "add-cto --fresh 단독 거부"    1 ./run.sh add-cto --fresh
+ceo_out=$(./run.sh add-cto ceo 2>&1); ceo_rc=$?
+[[ $ceo_rc -eq 1 && "$ceo_out" == *"CEO 작업공간"* ]] \
+  && ok "add-cto ceo 명시 거부 (빈 폴더=새 빌드 규칙의 예외)" || bad "add-cto ceo 거부 메시지 불일치 (rc=$ceo_rc) :: $(echo "$ceo_out" | head -1)"
 check "add-codex-cto 제거"             1 ./run.sh add-codex-cto no-such-codex-cto-zz
 check "attach-codex-cto 잘못된 이름 거부" 1 ./run.sh attach-codex-cto bad_name
 check "attach-codex-cto 비실존 세션 거부"  1 ./run.sh attach-codex-cto no-such-codex-cto-zz
@@ -459,6 +462,70 @@ if (
 else
   bad "add-cto/stop-cto 정상 경로 실패"
 fi
+
+echo "== [plan-phase] add-cto 빈 폴더 = 새 빌드(계획 단계) (2026-10-15 역할 재분할) =="
+# CEO 탭 /build-project <name> 이 빈 폴더만 만든다. add-cto 는 plan.md 도 specs/tasks.md
+# 도 없는 폴더를 "계획 단계" 로 띄운다: 초안 마커 O, 시작 마커 X (plan.md 확정 훅이
+# 심는다). .env 는 미리 둔다 — 포트 배정 경로는 불변이고 실 PORT.md 를 건드리지 않기 위해.
+mkdir -p "$CODEX_TMP/repo/claude-project/plan-smoke"; touch "$CODEX_TMP/repo/claude-project/plan-smoke/.env"
+: > "$ORCA_LOG"; : > "$ORCA_STATE"; rm -f "$ORCA_STATE.repos"
+_pp_run() { # _pp_run <add-cto args…> — 격리 HOME/REPO + 스텁 PATH 로 cmd_add_cto 만 돌린다
+  # ★함수 안에서 run.sh 를 source 하면 함수 인자 $1 이 맨 아래 dispatch case 로 흘러
+  # 'unknown command' exit 1 이 된다 — set -- 로 비운 뒤 source (plan_readonly_gate._wire_ports 와 동일).
+  local -a _pp_args=("$@")
+  ( set --; source "$REPO/run.sh" >/dev/null 2>&1
+    set +e
+    REPO="$CODEX_TMP/repo"; PATH="${PP_EXTRA_PATH:+$PP_EXTRA_PATH:}$CODEX_TMP/bin:$PATH"
+    HOME="$CODEX_TMP/home"; export HOME
+    CODEX_HOME="$CODEX_TMP/codex-home"; export CODEX_HOME
+    _check_claude_version(){ return 0; }; _ensure_harnessd(){ :; }
+    write_role_settings(){ :; }
+    cmd_add_cto "${_pp_args[@]}" >/dev/null 2>"$CODEX_TMP/pp.err" ); }
+if (
+  source "$REPO/run.sh" >/dev/null 2>&1
+  set +e
+  REPO="$CODEX_TMP/repo"; PATH="$CODEX_TMP/bin:$PATH"
+  HOME="$CODEX_TMP/home"; export HOME
+  CODEX_HOME="$CODEX_TMP/codex-home"; export CODEX_HOME
+  _check_claude_version(){ return 0; }; _ensure_harnessd(){ :; }
+  write_role_settings(){ :; }
+  cmd_add_cto plan-smoke >/dev/null 2>&1 || exit 1
+  [[ -f "$HOME/.claude/logs/plan-draft/plan-smoke.draft" ]] || exit 2
+  [[ ! -f "$HOME/.claude/logs/started/plan-smoke.started" ]] || exit 3
+  # 계획 중 재스폰(plan.md 는 썼지만 아직 초안) → 시작 마커 여전히 X
+  : > "$CODEX_TMP/repo/claude-project/plan-smoke/plan.md"
+  cmd_add_cto plan-smoke >/dev/null 2>&1 || exit 5
+  [[ ! -f "$HOME/.claude/logs/started/plan-smoke.started" ]] || exit 6
+  # 확정(초안 마커 삭제) 후 재스폰 → 기존 빌드 규칙 = 시작 마커 시딩
+  rm -f "$HOME/.claude/logs/plan-draft/plan-smoke.draft"
+  cmd_add_cto plan-smoke >/dev/null 2>&1 || exit 7
+  [[ -f "$HOME/.claude/logs/started/plan-smoke.started" ]] || exit 8
+  cmd_stop_cto plan-smoke >/dev/null 2>&1 || exit 9
+); then
+  ok "★add-cto 빈 폴더: 초안 마커 O · 시작 마커 X / 초안 중 재스폰 마커 X / 확정 후 시딩"
+else
+  bad "add-cto 계획 단계 경로 실패 (exit $?)"
+fi
+# ★코드 찬 plan 없는 폴더 (리뷰 F5 — 실 폴더 claude-project/annodock-ws 가 이 모양): 빈 폴더가
+# 아니면 새 빌드로 삼키지 않는다. 초안 마커가 있으면(계획 중 재스폰 — .sources/ 등 생김) 통과.
+mkdir -p "$CODEX_TMP/repo/claude-project/dirty-smoke/backend"; touch "$CODEX_TMP/repo/claude-project/dirty-smoke/.env"
+rm -f "$CODEX_TMP/home/.claude/logs/plan-draft/dirty-smoke.draft"
+if _pp_run dirty-smoke; then bad "★plan 없는 코드 찬 폴더를 새 빌드로 삼킴 (annodock-ws 클래스)"; else
+  grep -q "빈 폴더가 아니다" "$CODEX_TMP/pp.err" && ok "★plan 없는 코드 찬 폴더 → 거부 (빈 폴더 아님)" || bad "dirty 거부 사유 불일치 :: $(tail -1 "$CODEX_TMP/pp.err")"; fi
+[[ ! -f "$CODEX_TMP/home/.claude/logs/plan-draft/dirty-smoke.draft" ]] && ok "거부 시 초안 마커 안 남김" || bad "거부했는데 초안 마커 생성"
+mkdir -p "$CODEX_TMP/home/.claude/logs/plan-draft"; touch "$CODEX_TMP/home/.claude/logs/plan-draft/dirty-smoke.draft"
+if _pp_run dirty-smoke; then ok "초안 중 재스폰: 시드 외 파일 있어도 통과"; else bad "초안 중 재스폰이 막힘 :: $(tail -1 "$CODEX_TMP/pp.err")"; fi
+( source "$REPO/run.sh" >/dev/null 2>&1; set +e; REPO="$CODEX_TMP/repo"; PATH="$CODEX_TMP/bin:$PATH"; HOME="$CODEX_TMP/home"; export HOME; _check_claude_version(){ return 0; }; _ensure_harnessd(){ :; }; write_role_settings(){ :; }; cmd_stop_cto dirty-smoke >/dev/null 2>&1 )
+# ★add-cto 도 .env 유무와 무관하게 _wire_project_env 를 부른다 (리뷰 F8 — 확정 훅의 배선이
+# 실패했을 때 재스폰으로 복구되는 경로; 멱등이라 안전). harness 는 스텁 (실 PORT.md 보호).
+mkdir -p "$CODEX_TMP/stub-harness"; printf '#!/usr/bin/env bash\nexit 0\n' > "$CODEX_TMP/stub-harness/harness"; chmod +x "$CODEX_TMP/stub-harness/harness"
+printf '# Plan\n- mediamtx self-host\n' > "$CODEX_TMP/repo/claude-project/plan-smoke/plan.md"
+printf 'PORT_OFFSET=5\n' > "$CODEX_TMP/repo/claude-project/plan-smoke/.env"
+PP_EXTRA_PATH="$CODEX_TMP/stub-harness" _pp_run plan-smoke
+grep -q '^MEDIAMTX_API_PORT=10002$' "$CODEX_TMP/repo/claude-project/plan-smoke/.env" \
+  && ok "★add-cto: 기존 .env 에도 카메라 포트 보충 (멱등 복구 경로)" || bad "add-cto 가 기존 .env 의 카메라 포트를 보충하지 않음"
+( source "$REPO/run.sh" >/dev/null 2>&1; set +e; REPO="$CODEX_TMP/repo"; PATH="$CODEX_TMP/bin:$PATH"; HOME="$CODEX_TMP/home"; export HOME; _check_claude_version(){ return 0; }; _ensure_harnessd(){ :; }; write_role_settings(){ :; }; cmd_stop_cto plan-smoke >/dev/null 2>&1 )
+: > "$ORCA_LOG"; : > "$ORCA_STATE"; rm -f "$ORCA_STATE.repos"
 
 # ★ 2026-08-04 실사고: 대시보드 "CTO 실행 (fresh)" 가 rtsp-streaming 에서 실패하고
 # CTO 가 죽은 채로 남았다. 결함은 둘이 겹친 것이다:
@@ -1060,24 +1127,121 @@ rm -f /tmp/smoke-sog/specs/tasks.md
 sogb 0 "cat > /tmp/smoke-sog/specs/tasks.md"        "fresh(Done 0) 리다이렉트 통과"
 rm -rf /tmp/smoke-sog
 
-echo "== [6c] plan_readonly_gate (plan.md = CEO 산출물, CTO 쓰기 차단) =="
-# role.md:60 의 'plan.md 는 읽기 전용' 이 prose 뿐이라 샜다 → 결정론 게이트.
-# 빌드 **루트**만 대상 — 중첩 specs/plan.md 오탐 금지.
+echo "== [6c] plan_readonly_gate (plan.md 잠금 — 초안은 lead 만, 확정 후 차단) =="
+# 2026-10-15 역할 재분할: 계획 작성이 CTO 로 왔다. 초안 마커(~/.claude/logs/plan-draft/
+# <name>.draft)가 있을 때 **lead 만** 자기 빌드의 plan.md 를 쓰고, 없으면(기존 빌드·
+# 확정 후) 지금처럼 차단한다. 빌드 **루트**만 대상 — 중첩 specs/plan.md 오탐 금지.
 PRG="$REPO/hooks/team/plan_readonly_gate.py"
-prg(){ # prg <expect-exit> <tool> <file_path> <desc>
-  local out; out=$(echo "{\"tool_name\":\"$2\",\"tool_input\":{\"file_path\":\"$3\"}}" | python3 $PRG 2>/dev/null); local got=$?
+PRD="$HOME/.claude/logs/plan-draft"; mkdir -p "$PRD"; rm -f "$PRD"/*.draft
+prg(){ # prg <expect-exit> <tool> <file_path> <desc> [role] [transcript]
+  local role="${5:-cto:demo}" tp="${6:-/x/lead.jsonl}"
+  local out; out=$(echo "{\"tool_name\":\"$2\",\"tool_input\":{\"file_path\":\"$3\"},\"transcript_path\":\"$tp\"}" | HARNESS_ROLE="$role" python3 $PRG 2>/dev/null); local got=$?
   [[ "$got" == "$1" ]] && ok "$4" || bad "$4 (exit $got != $1)"
 }
-prg 2 Write /r/claude-project/demo/plan.md       "claude-project 루트 plan.md Write 차단"
-prg 2 Edit  /r/modules/demo/plan.md              "modules 루트 plan.md Edit 차단"
+prg 2 Write /r/claude-project/demo/plan.md       "잠금: claude-project 루트 plan.md Write 차단"
+prg 2 Edit  /r/modules/demo/plan.md              "잠금: modules 루트 plan.md Edit 차단"
 prg 2 MultiEdit /r/claude-project/demo/plan.md   "★MultiEdit 도 차단(file_path 같은 우회로)"
 prg 0 Write /r/claude-project/demo/specs/plan.md "중첩 specs/plan.md 통과(루트 한정)"
 prg 0 Write /r/other/demo/plan.md                "비빌드 부모 통과"
 prg 0 Write /r/claude-project/demo/specs/tasks.md "다른 파일명 통과"
 prg 0 Read  /r/claude-project/demo/plan.md       "Read 통과 (읽기는 정당)"
+touch "$PRD/demo.draft"
+prg 0 Write /r/claude-project/demo/plan.md       "★초안: lead 의 자기 빌드 plan.md Write 허용"
+prg 0 Edit  /r/modules/demo/plan.md              "초안: Edit 도 허용"
+prg 2 Write /r/claude-project/demo/plan.md       "초안이어도 teammate(/subagents/) 차단" cto:demo /x/subagents/y.jsonl
+prg 2 Write /r/claude-project/demo/plan.md       "초안이어도 designer-cto 차단" designer-cto:demo
+prg 2 Write /r/claude-project/other/plan.md      "★남의 빌드 plan.md 는 초안 무관 차단"
+rm -f "$PRD/demo.draft"
+prg 2 Write /r/claude-project/demo/plan.md       "마커 삭제 = 다시 잠금"
 check "plan_readonly_gate 깨진 JSON fail-open" 0 bash -c "echo bad | python3 $PRG"
 grep -q "plan_readonly_gate.py" "$REPO/run.sh" \
   && ok "plan_readonly_gate: run.sh Write|Edit matcher 배선됨" || bad "plan_readonly_gate: run.sh 배선 누락"
+# 확정·수정 승인 (UserPromptSubmit) — 사용자 프롬프트 + 직전 CTO 질문 (reviewer 스폰
+# 승인과 같은 장치). 빌드 dir = payload cwd (lead 의 cwd = 빌드 dir). 카메라 배선은
+# run.sh 의 _wire_project_env 를 source 해 쓴다 — harness 는 스텁으로 가로챈다(실 PORT.md 보호).
+PLD="$SMOKE_HOME/plan-lock"; mkdir -p "$PLD/claude-project/pl-cam" "$PLD/claude-project/pl-plain" "$PLD/bin"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$PLD/bin/harness"; chmod +x "$PLD/bin/harness"
+PLM="$HOME/.claude/logs/started"; mkdir -p "$PLM"
+_pl_tr() { python3 -c 'import json,sys; print(json.dumps({"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":sys.argv[1]}]}}, ensure_ascii=False))' "$2" > "$1"; }
+_pl_say() { # _pl_say <name> <transcript> <prompt>
+  python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"UserPromptSubmit","prompt":sys.argv[1],"transcript_path":sys.argv[2],"cwd":sys.argv[3]}, ensure_ascii=False))' "$3" "$2" "$PLD/claude-project/$1" \
+    | PATH="$PLD/bin:$PATH" HARNESS_ROLE="cto:$1" python3 "$PRG" 2>/dev/null; }
+_pl_tr "$PLD/ask-confirm.jsonl" "plan.md 를 다 썼습니다. plan.md 확정할까요?"
+_pl_tr "$PLD/ask-edit.jsonl" "요구사항이 바뀌어 계획을 고쳐야 합니다. plan.md 수정할까요?"
+_pl_tr "$PLD/ask-other.jsonl" "alembic upgrade head 승인해 주시면 진행합니다."
+# (1) plan.md 없는 확정 → 무시
+touch "$PRD/pl-cam.draft"; rm -f "$PLM/pl-cam.started"
+_pl_say pl-cam "$PLD/ask-confirm.jsonl" "응" >/dev/null
+[[ -f "$PRD/pl-cam.draft" && ! -f "$PLM/pl-cam.started" ]] \
+  && ok "★확정: plan.md 없으면 무시 (마커 유지, 시작 마커 없음)" || bad "확정: plan.md 없는데 잠금/스폰됨"
+# (2) 카메라 plan 확정 → 초안 삭제 + 시작 마커 + claim 정리 + MEDIAMTX 4줄
+printf '# Plan: pl-cam\n## 1. Build Type\n- deliverable: project\n## 5. Constraints\n- mediamtx self-host\n' > "$PLD/claude-project/pl-cam/plan.md"
+printf 'PORT_OFFSET=81\nBACKEND_PORT=8081\n' > "$PLD/claude-project/pl-cam/.env"
+pl_out=$(_pl_say pl-cam "$PLD/ask-confirm.jsonl" "응")
+[[ ! -f "$PRD/pl-cam.draft" ]] && ok "★확정: 초안 마커 삭제 = 잠금" || bad "확정 후 초안 마커 잔존"
+[[ -f "$PLM/pl-cam.started" ]] && ok "★확정: 시작 마커 기록 (팀 스폰 신호)" || bad "확정 후 시작 마커 없음"
+pl_want=$'MEDIAMTX_API_PORT=10078\nMEDIAMTX_RTSP_PORT=8635\nMEDIAMTX_WEBRTC_PORT=8970\nMEDIAMTX_ICE_UDP_PORT=8270'
+[[ "$(grep '^MEDIAMTX_' "$PLD/claude-project/pl-cam/.env")" == "$pl_want" ]] \
+  && ok "★확정: 카메라 MEDIAMTX 4줄 = base+offset (offset 81)" || bad "확정: 카메라 포트 불일치 :: $(grep '^MEDIAMTX_' "$PLD/claude-project/pl-cam/.env" | tr '\n' ' ')"
+[[ "$pl_out" == *"plan.md 확정"* ]] && ok "확정: 컨텍스트 1줄 출력" || bad "확정: stdout 컨텍스트 없음 :: $pl_out"
+prg 2 Write "$PLD/claude-project/pl-cam/plan.md" "확정 후 lead 도 plan.md 차단" cto:pl-cam
+# (3) 수정 승인 → 초안 마커 재생성, 시작 마커 그대로
+_pl_say pl-cam "$PLD/ask-edit.jsonl" "응" >/dev/null
+[[ -f "$PRD/pl-cam.draft" ]] && ok "★수정 승인: 초안 마커 재생성 (잠금 해제)" || bad "수정 승인 후 초안 마커 없음"
+# (4) 재확정 → 4줄 중복 없음 (멱등)
+_pl_say pl-cam "$PLD/ask-confirm.jsonl" "네" >/dev/null
+[[ "$(grep -c '^MEDIAMTX_' "$PLD/claude-project/pl-cam/.env")" == "4" ]] \
+  && ok "★재확정: MEDIAMTX 4줄 유지 (중복 없음)" || bad "재확정: MEDIAMTX 중복 :: $(grep -c '^MEDIAMTX_' "$PLD/claude-project/pl-cam/.env")줄"
+# (5) 비카메라 확정 → 0줄 (2026-07-21 전 프로젝트 주입 사고 회귀 탐지)
+printf '# Plan: pl-plain\n- 그냥 REST API\n' > "$PLD/claude-project/pl-plain/plan.md"
+printf 'PORT_OFFSET=82\n' > "$PLD/claude-project/pl-plain/.env"; touch "$PRD/pl-plain.draft"
+_pl_say pl-plain "$PLD/ask-confirm.jsonl" "응" >/dev/null
+[[ "$(grep -c '^MEDIAMTX_' "$PLD/claude-project/pl-plain/.env")" == "0" ]] \
+  && ok "★비카메라 확정: MEDIAMTX 0줄" || bad "비카메라에 mediamtx 주입"
+# (6) 무효 답 — 거절 / 다른 질문 / 다른 지시
+rm -f "$PRD/pl-plain.draft" "$PLM/pl-plain.started"; touch "$PRD/pl-plain.draft"
+_pl_say pl-plain "$PLD/ask-confirm.jsonl" "아니 아직" >/dev/null
+[[ -f "$PRD/pl-plain.draft" && ! -f "$PLM/pl-plain.started" ]] && ok "거절('아니 아직') → 무변화" || bad "거절인데 확정됨"
+_pl_say pl-plain "$PLD/ask-other.jsonl" "응" >/dev/null
+[[ -f "$PRD/pl-plain.draft" && ! -f "$PLM/pl-plain.started" ]] && ok "다른 질문의 '응' → 무변화" || bad "다른 질문의 '응'을 확정으로 오인"
+rm -f "$PRD/pl-plain.draft"
+_pl_say pl-plain "$PLD/ask-other.jsonl" "응" >/dev/null
+[[ ! -f "$PRD/pl-plain.draft" ]] && ok "다른 질문의 '응' → 초안 마커 생성 안 함" || bad "다른 질문의 '응'을 수정 승인으로 오인"
+# (7) 비-CTO(ceo) 는 no-op
+echo '{"hook_event_name":"UserPromptSubmit","prompt":"응","transcript_path":"'"$PLD/ask-confirm.jsonl"'","cwd":"'"$PLD/claude-project/pl-plain"'"}' | HARNESS_ROLE=ceo python3 "$PRG" >/dev/null 2>&1; [[ $? -eq 0 ]] \
+  && ok "plan gate: 비-CTO 세션 → no-op 통과" || bad "plan gate: 비-CTO no-op 실패"
+# (8) ★어휘 분리 (리뷰 F1): 확정 질문에 '수정해' 는 확정이 아니고, 수정 질문에 '확정' 은 수정이 아니다.
+rm -f "$PLM/pl-plain.started"; touch "$PRD/pl-plain.draft"
+_pl_say pl-plain "$PLD/ask-confirm.jsonl" "수정해" >/dev/null
+[[ -f "$PRD/pl-plain.draft" && ! -f "$PLM/pl-plain.started" ]] && ok "★확정 질문에 '수정해' → 무변화 (정반대 전이 금지)" || bad "확정 질문에 '수정해' 가 확정으로 잡힘"
+_pl_say pl-plain "$PLD/ask-confirm.jsonl" "확정" >/dev/null
+[[ ! -f "$PRD/pl-plain.draft" && -f "$PLM/pl-plain.started" ]] && ok "확정 질문에 '확정' → 확정" || bad "확정 질문에 '확정' 미인식"
+_pl_say pl-plain "$PLD/ask-edit.jsonl" "확정" >/dev/null
+[[ ! -f "$PRD/pl-plain.draft" ]] && ok "★수정 질문에 '확정' → 무변화" || bad "수정 질문에 '확정' 이 수정 승인으로 잡힘"
+_pl_say pl-plain "$PLD/ask-edit.jsonl" "수정해줘" >/dev/null
+[[ -f "$PRD/pl-plain.draft" ]] && ok "수정 질문에 '수정해줘' → 초안" || bad "수정 질문에 '수정해줘' 미인식"
+# (9) ★표기 내성 (리뷰 F3): 모델은 파일명만 백틱/볼드로 감싸고 '확정 할까요' 로 띄우기도 한다.
+_pl_tr "$PLD/ask-confirm-bt.jsonl" '다 썼습니다. `plan.md` 확정할까요?'
+_pl_tr "$PLD/ask-edit-bold.jsonl" '계획을 바꿔야 합니다. **plan.md** 수정 할까요?'
+rm -f "$PLM/pl-plain.started"; touch "$PRD/pl-plain.draft"
+_pl_say pl-plain "$PLD/ask-confirm-bt.jsonl" "응" >/dev/null
+[[ ! -f "$PRD/pl-plain.draft" && -f "$PLM/pl-plain.started" ]] && ok "★백틱 \\`plan.md\\` 확정할까요? → 확정" || bad "백틱 표기 확정 질문 미인식"
+_pl_say pl-plain "$PLD/ask-edit-bold.jsonl" "응" >/dev/null
+[[ -f "$PRD/pl-plain.draft" ]] && ok "★볼드 **plan.md** 수정 할까요? → 초안" || bad "볼드/띄어쓰기 수정 질문 미인식"
+# (10) ★재확정 (리뷰 F2): 팀이 이미 떠 있으면(spawn claim 존재) 시작 마커를 다시 심지 않고 claim 도 안 지운다.
+rm -f "$PLM/pl-plain.started"; touch "$PRD/pl-plain.draft"
+mkdir -p "$HOME/.harness-claude/orca-team-spawn-claims/pl-plain"
+: > "$HOME/.harness-claude/orca-team-spawn-claims/pl-plain/planner.claimed"; : > "$HOME/.harness-claude/orca-team-spawn-claims/pl-plain/reviewer.claimed"
+pl_re=$(_pl_say pl-plain "$PLD/ask-confirm.jsonl" "응")
+[[ ! -f "$PRD/pl-plain.draft" ]] && ok "재확정: 잠금" || bad "재확정: 초안 마커 잔존"
+[[ ! -f "$PLM/pl-plain.started" && -f "$HOME/.harness-claude/orca-team-spawn-claims/pl-plain/planner.claimed" ]] \
+  && ok "★재확정: 팀 생존(claim) → 시작 마커 X · claim 보존 (중복 스폰 방지)" || bad "재확정이 살아있는 팀 위에 시작 마커/claim 정리 → 중복 스폰·훅 모순"
+[[ "$pl_re" == *"재확정"* && "$pl_re" != *"스폰하고"* ]] && ok "재확정: 컨텍스트가 재스폰을 지시하지 않음" || bad "재확정 컨텍스트가 스폰 지시 :: $pl_re"
+# (11) 라이브 구 settings 세션 (리뷰 F4): lead 차단 메시지가 재기동 경로를 말한다 (승인이 안 잡히는 세션 탈출구).
+pl_blk=$(echo '{"tool_name":"Edit","tool_input":{"file_path":"/r/claude-project/pl-plain/plan.md"},"transcript_path":"/x/lead.jsonl"}' | HARNESS_ROLE=cto:pl-plain python3 "$PRG" 2>&1 >/dev/null)
+[[ "$pl_blk" == *"add-cto"* ]] && ok "잠금 메시지: settings 재생성 전 세션 재기동 안내 포함" || bad "잠금 메시지에 재기동 안내 없음"
+[[ "$(grep -c 'plan_readonly_gate.py' "$REPO/run.sh")" -ge 2 ]] \
+  && ok "plan gate: run.sh UserPromptSubmit 배선됨 (Write 매처 + UserPromptSubmit)" || bad "plan gate: UserPromptSubmit 배선 누락"
 
 echo "== [6d] sendmessage_recipient_gate (환각 전달 차단) =="
 # Codex developer 는 SendMessage 로 안 닿는다 — 호출은 성공한 척하고 아무도 못 받는다
@@ -1874,6 +2038,45 @@ check "plugins/**/references/ git 가시(ignored 아님)" 0 \
 # 루트는 `.references/` — 위 plugins 쪽 `references/` 와 이름이 겹치지 않게 점을 붙였다.
 check "루트 .references/ (vendored) 는 여전히 ignored" 0 git check-ignore -q .references
 
+echo "== [plan-owner] plan.md 주체 = CTO (2026-10-15 역할 재분할 회귀 핀) =="
+# CEO 는 빈 폴더만, 계획(brainstorming→Library Check→plan.md→확정 질문)은 CTO 의
+# harness-plan 스킬. 역할 문서가 "plan.md = CEO 산출물" 로 되돌아가면 CTO 가 계획
+# 단계에서 손을 놓거나 CEO 탭이 다시 brainstorming 을 시작한다 — 문구로 핀.
+po_pat='CEO 산출물\|CEO-authored\|CEO 작성\|plan.md 초안\|CEO 발주서\|CEO 의 plan.md\|CEO.s confirmed\|the CEO left\|the CEO already\|CEO ran that loop\|CEO 의도 컨텍스트\|CEO 가 plan §3\|1단계 plan 작성자\|CEO 1단계\|1단계 Library Check'
+po_hits=$(grep -rn "$po_pat" "$REPO/plugins/cto" "$REPO/plugins/_shared" "$REPO/plugins/ceo/role.md" \
+  "$REPO/plugins/ceo/commands/build-project.md" "$REPO/plugins/ceo/commands/build-module.md" "$REPO/plugins/ceo/commands/modules.md" \
+  "$REPO/hooks/session_start.py" "$REPO/harness/gitignore_scan.py" 2>/dev/null | grep -v "예전엔\|폐지\|이력" || true)
+[[ -z "$po_hits" ]] && ok "plan.md = CEO 주체 문구 0건" || bad "plan.md CEO 주체 문구 잔존 :: $(echo "$po_hits" | cut -c1-120 | tr '\n' ' ')"
+for f in build-project build-module; do
+  grep -qiE "brainstorming|plan-ceo-review|## 4\. Requirements|<brief>" "$REPO/plugins/ceo/commands/$f.md" \
+    && bad "CEO $f.md 가 아직 계획 절차/<brief> 를 품음" || ok "CEO $f.md = 폴더 생성 전용"
+  grep -q 'mkdir -p "\$root/' "$REPO/plugins/ceo/commands/$f.md" && ok "CEO $f.md 폴더 생성 !-line" || bad "CEO $f.md 폴더 생성 라인 없음"
+done
+grep -q "name: harness-plan" "$REPO/plugins/cto/skills/harness-plan/SKILL.md" 2>/dev/null && ok "CTO harness-plan 스킬 실존" || bad "harness-plan 스킬 없음"
+grep -q "plan.md 확정할까요" "$REPO/plugins/cto/skills/harness-plan/SKILL.md" 2>/dev/null && ok "harness-plan: 확정 질문 문구 = 게이트 regex 와 일치" || bad "harness-plan 확정 질문 문구 불일치"
+grep -q "plan.md 수정할까요" "$REPO/plugins/cto/skills/harness-plan/SKILL.md" 2>/dev/null && ok "harness-plan: 수정 질문 문구 = 게이트 regex 와 일치" || bad "harness-plan 수정 질문 문구 불일치"
+for f in plugins/cto/role.md hooks/session_start.py plugins/cto/skills/harness-team-spawn/SKILL.md plugins/_shared/PROCESS.md plugins/_shared/RULES.md; do
+  grep -q "harness-plan" "$REPO/$f" && ok "$f 가 harness-plan(계획 단계) 참조" || bad "$f harness-plan 미참조"
+done
+grep -q "^## 19\." "$REPO/plugins/_shared/RULES.md" && ok "RULES §19 plan.md 잠금 조항" || bad "RULES §19 없음"
+grep -q "하네스 문제 신고" "$REPO/plugins/cto/commands/msg-ceo.md" && ok "/msg-ceo = 하네스 문제 신고 전용" || bad "/msg-ceo 범위 미갱신"
+grep -q "포트 충돌 조율" "$REPO/plugins/ceo/role.md" && bad "CEO role.md 에 08-20 폐지된 포트 confirm 절 잔존" || ok "CEO role.md 포트 confirm 절 삭제"
+grep -q "<brief>" "$REPO/plugins/ceo/commands/modules.md" && bad "CEO /modules 가 아직 /build-module <brief> 사용법 안내" || ok "CEO /modules 안내 = <name>"
+grep -q "시작 마커도 없고" "$REPO/hooks/session_start.py" && ok "STARTUP OVERRIDE 계획 단계 조건 = 마커 X ∧ plan.md X (tasks.md 있는 빌드와 모순 없음)" || bad "STARTUP OVERRIDE 계획 단계 조건이 plan.md 부재만 봄 (nudge 와 모순 가능)"
+grep -q "deep-research" "$REPO/plugins/cto/skills/harness-plan/SKILL.md" && bad "harness-plan 이 존재하지 않는 deep-research 스킬을 참조" || ok "harness-plan: dangling 스킬 참조 없음"
+grep -qE "add-cto.*(또는|·).*확정|확정.*(또는|·).*add-cto" "$REPO/plugins/_shared/RULES.md" && ok "RULES: 카메라 포트 배선 주체 = add-cto·확정 훅" || bad "RULES 카메라 포트 배선 주체 문구 stale (add-cto 만)"
+# !-line 실행 검증 — 파일에서 !줄을 뽑아 $0 를 치환해 임시 root 로 돌린다.
+PO_ROOT="$SMOKE_HOME/plan-owner-root"; mkdir -p "$PO_ROOT/claude-project" "$PO_ROOT/modules/taken"
+_po_run() { # _po_run <cmd-file> <name>
+  local line; line=$(grep -m1 '^!name=' "$REPO/plugins/ceo/commands/$1.md" | sed "s/^!//; s/'\$0'/'$2'/")
+  ( cd "$PO_ROOT" && HARNESS_ROOT="$PO_ROOT" bash -c "$line" ) >/dev/null 2>&1; }
+_po_run build-project 'Bad_Name'; [[ $? -ne 0 ]] && ok "/build-project kebab 아님 거부" || bad "/build-project kebab 검사 없음"
+_po_run build-project ceo;        [[ $? -ne 0 ]] && ok "/build-project ceo 거부" || bad "/build-project ceo 허용"
+_po_run build-project taken;      [[ $? -ne 0 && ! -e "$PO_ROOT/claude-project/taken" ]] && ok "/build-project 양쪽 중복 거부 (modules/taken 존재)" || bad "/build-project 중복 검사 없음"
+_po_run build-project newproj;    [[ $? -eq 0 && -d "$PO_ROOT/claude-project/newproj" ]] && ok "★/build-project 빈 폴더 생성" || bad "/build-project 폴더 생성 실패"
+[[ -z "$(ls -A "$PO_ROOT/claude-project/newproj" 2>/dev/null)" ]] && ok "/build-project 폴더는 비어 있음 (plan.md X)" || bad "/build-project 가 폴더에 뭔가 씀"
+_po_run build-module newmod;      [[ $? -eq 0 && -d "$PO_ROOT/modules/newmod" ]] && ok "★/build-module 빈 폴더 생성 (modules/)" || bad "/build-module 폴더 생성 실패"
+
 echo "== [9] netbind (RULES §5.3 외부접속 바인딩 정적검사) =="
 # exit 의미 (2026-07-21): 0=위반 0 + 전 빌드 검사됨 / 1=위반 있음 / 2=위반 0 이지만
 # 아무것도 못 본 빌드 있음(미검사). 스모크는 **위반 0(=exit≠1)** 만 단언한다 —
@@ -2102,6 +2305,8 @@ _reply "$GTR/asked.jsonl" "응 근데 스폰은 하지마"
 [[ ! -f "$GM/$GA.started" ]] && ok "gate: 긍정어 뒤 거절('응 근데 하지마') → 마커 없음" || bad "gate: '응 근데 하지마'를 승인으로 오인"
 _reply "$GTR/asked.jsonl" "alembic upgrade 먼저 돌려"
 [[ ! -f "$GM/$GA.started" ]] && ok "gate: 다른 지시 → 마커 없음" || bad "gate: 무관한 지시를 승인으로 오인"
+_reply "$GTR/asked.jsonl" "수정해"
+[[ ! -f "$GM/$GA.started" ]] && ok "★gate: 스폰 질문에 '수정해' → 마커 없음 (plan 어휘가 공유 YES_WORDS 로 새지 않음)" || bad "gate: '수정해' 를 스폰 승인으로 오인 (YES_WORDS 오염)"
 _ask_tr "$GTR/plain.jsonl" "alembic upgrade head 승인해 주시면 진행합니다."
 _reply "$GTR/plain.jsonl" "응"
 [[ ! -f "$GM/$GA.started" ]] && ok "gate: 스폰 질문 없이 '응' → 마커 없음" || bad "gate: 다른 질문의 '응'을 스폰 승인으로 오인"
@@ -2114,6 +2319,9 @@ gblk=$(echo "$ev_ask" | HARNESS_ROLE=cto:$GA python3 "$GH" 2>&1 >/dev/null)
 [[ "$gblk" == *"스폰할까요?"* && "$gblk" != *"/start-project 로 시작하세요"* ]] \
   && ok "★gate: 차단 시 '/start-project 치라' 대신 사용자에게 스폰 질문하라고 안내" \
   || bad "gate: 차단 메시지가 여전히 /start-project 입력 요구 :: $(echo "$gblk" | head -2 | tr '\n' ' ')"
+# 승인 판정 헬퍼는 team_hook_common 공유 (2026-10-15: plan_readonly_gate 도 같은 장치를 쓴다 —
+# 구현이 갈리면 한쪽만 조여진다).
+check "★승인 판정 헬퍼 공유 (team_hook_common.approves)" 0 python3 -c "import sys; sys.path.insert(0,'$REPO/hooks/team'); from team_hook_common import approves, last_assistant_text; assert approves('응') and approves('네 진행해') and not approves('응 근데 하지마') and not approves('alembic upgrade 먼저 돌려') and not approves('수정해') and not approves('확정')"
 # settings.json 템플릿이 게이트를 Agent matcher 로 실제 배선하는지 (run.sh)
 grep -q "start_project_gate.py" "$REPO/run.sh" \
   && ok "gate: run.sh settings.json 에 배선됨" || bad "gate: run.sh 배선 누락"
@@ -2572,6 +2780,33 @@ else
   bad "ceo settings 스코프 위반 or 미생성 :: $CS"
 fi
 rm -rf "$CEOTMP"
+
+# Case A2 — 기본 모델/effort (2026-10-16 사용자 지시): 하네스의 CEO·CTO(+designer-cto,
+# 같은 빌드 settings 공유) Claude 는 전부 Opus 5.5(claude-opus-5-5) + effortLevel max 가
+# 기본. planner/reviewer 프론트매터도 동일. 사용자는 attach 후 /model·/effort 로 바꿀 수 있다.
+MDTMP="$(mktemp -d)"
+( source "$REPO/run.sh" >/dev/null 2>&1; set +e; write_role_settings "$MDTMP/cto" "cto" "auto" >/dev/null 2>&1; write_role_settings "$MDTMP/ceo" "ceo" >/dev/null 2>&1 )
+for r in cto ceo; do
+  S="$MDTMP/$r/.claude/settings.json"
+  if python3 -c "import json,sys; d=json.load(open('$S')); sys.exit(0 if d.get('model')=='claude-opus-5-5' and d.get('effortLevel')=='max' else 1)" 2>/dev/null; then
+    ok "model default: $r settings = claude-opus-5-5 / effortLevel max"
+  else
+    bad "model default: $r settings 가 opus 5.5 max 아님 :: $(python3 -c "import json; d=json.load(open('$S')); print(d.get('model'), d.get('effortLevel'))" 2>/dev/null)"
+  fi
+done
+rm -rf "$MDTMP"
+for a in planner reviewer; do
+  fm=$(sed -n '2,/^---$/p' "$REPO/plugins/cto/agents/$a.md")
+  if grep -qx 'model: claude-opus-5-5' <<<"$fm" && grep -qx 'effort: max' <<<"$fm"; then
+    ok "model default: $a 프론트매터 = claude-opus-5-5 / max"
+  else
+    bad "model default: $a 프론트매터 opus 5.5 max 아님"
+  fi
+done
+grep -q 'claude-opus-5[^-]' "$REPO/run.sh" \
+  && bad "model default: run.sh 에 구 id claude-opus-5 잔존" || ok "model default: run.sh 구 id 없음"
+grep -q 'CTO=high' "$REPO/docs/agent-teams-mapping.md" \
+  && bad "model default: agent-teams-mapping.md 가 구 effort(high) 기술" || ok "model default: agent-teams-mapping.md 갱신됨"
 
 # Case B — SessionStart 주입 스코프. 출력은 JSON(additionalContext, ensure_ascii)
 # 이라 디코드 후 검사. CEO=RULES+role, CTO=+PROCESS, HARNESS_ROLE 미설정=무출력.
@@ -3529,6 +3764,11 @@ fi
 grep -q 'harness db provision\|harness db env' "$WIRE_TMP/fn.sh" \
   && bad "_wire_project_env 가 harness db 를 호출 — db 는 수동 배선이다" \
   || ok "db: 함수가 harness db 를 호출하지 않음"
+
+# (D) 멱등 — 확정 훅(plan_readonly_gate)과 add-cto 가 둘 다 부른다 (2026-10-15). 두 번 불러도 4줄.
+_wire_run "$WIRE_TMP/cam" >/dev/null 2>&1
+[[ "$(grep -c '^MEDIAMTX_' "$WIRE_TMP/cam/.env")" == "4" ]] \
+  && ok "★멱등: 재호출해도 MEDIAMTX 4줄 (중복 없음)" || bad "재호출 시 MEDIAMTX 중복 :: $(grep -c '^MEDIAMTX_' "$WIRE_TMP/cam/.env")줄"
 
 # (D) PORT_OFFSET 없음(포트 할당 실패) → 카메라여도 주입 안 함. 포트 없는 파생 금지.
 mkdir -p "$WIRE_TMP/nooffset"

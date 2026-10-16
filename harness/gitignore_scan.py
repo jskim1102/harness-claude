@@ -37,7 +37,7 @@ SKIP = {"ceo"}
 # 값 = 사람이 읽을 사유 (보고서에 그대로 나간다).
 FORBIDDEN = {
     ".claude": "하네스 세션 설정 (스킬이 하네스 repo 절대경로 심링크 → clone 시 dangling)",
-    "plan.md": "CEO 발주서 (만드는 쪽 문서)",
+    "plan.md": "계획서 — CTO lead 가 사용자와 작성·확정 (만드는 쪽 문서)",
     "specs": "빌드 관리 문서 (spec·tasks·decisions·learnings·design-contract)",
     "DESIGN.md": "디자인 시스템 산출물",
     ".source": "extract 원본·데이터셋 (대용량 — GitHub 파일당 100MB 하드리밋)",

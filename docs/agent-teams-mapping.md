@@ -55,7 +55,7 @@ Codex developer (같은 Orca Project의 `harness:cto:<name>:codex` tab, producti
 | Q4. devil's advocate | 별도 sub-agent 분리 X. reviewer 의 한 단계 ("Devil's Advocate Pass") 로 통합 | AWS sample review-agent + 우리 토큰절약 |
 | 메모리 (각 sub-agent) | 비활성화 (memory field 생략). LATER.md 에 기록 | 디버깅 단순화 우선 |
 | 도구 권한 | 엄격 allowlist (P1 시작). 필요시 확장 | AWS sample + 우리 결정 |
-| 모델 + effort | Claude CTO=high, Claude teammate 3종=xhigh. Codex 모델은 사용자 Codex config 사용 | hybrid CTO 결정 |
+| 모델 + effort | Claude CEO·CTO lead·designer-cto = Opus 5.5(`claude-opus-5-5`) + effort `max` (run.sh settings 템플릿 기본값), Claude teammate(planner/reviewer) = 동일 (프론트매터). 사용자는 attach 후 `/model`·`/effort` 로 세션별 변경 가능. Codex 모델은 사용자 Codex config 사용 | 2026-10-16 사용자 지시 (이전: CTO high / teammate xhigh) |
 | teammateMode | `in-process` (순수 `claude` lead + 콕핏 rail 3단: skill/planner/reviewer 읽기전용 뷰어. designer 는 독립 세션. `orca claude-teams` 래퍼는 native split 강제라 제거) | 2026-07-23 spawn-only 전환 → 2026-07-29 콕핏 rail (specs/2026-07-29-cto-cockpit-rail-design.md) |
 | 사용자 시각검증 게이트 | **게이트3 = 사용자 브라우저 실동작 PASS 필수** (RULE A). agent live-app/browse 는 기계적 자체검증일 뿐 게이트3 대체 X, CTO 자가 선언 불가 | 2026-06-24 RULE A 박음 (이전 "게이트 X 자율판단"은 폐기) |
 | 슬라이스 크기 | 시간상한 X. 원칙만 ("사용자가 화면에서 새 동작 1개 수행 최소단위") | 사용자 결정 |

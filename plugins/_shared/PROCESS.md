@@ -26,14 +26,18 @@ plan.md 의 3축 선언을 그대로 따른다:
 - 축2 target: `new` | `extend:<기존프로젝트>` (extend = 기존 tasks.md 트리에 append)
 - 축3 source: `scratch` | `modules:[slug…]` | `extract:[프로젝트/기능…]` | 조합 (여럿이면 `+` 로 나열: `modules:[x] + extract:[y/기능]` — 출처 귀속은 분해 때 feature 단위 `[supplied:…]` 태그로)
 
+`plan.md` 는 **CTO lead 가 계획 단계에 사용자와 쓰고 확정한다** (`harness-plan` 스킬;
+확정 후 잠금 — RULES §19, 2026-10-15). 분해는 확정된 plan.md 만 읽는다.
+
 ## 1. 타임라인 (전체 흐름)
 
 | 단계 | 주체 | 하는 일 | 모드 |
 |---|---|---|---|
-| 1 Plan 작성 | CEO ↔ 사용자 | `/build-project`·`/build-module <brief>` → `<빌드dir>/plan.md` (3축 + Library Check) | 🤚 plan 확정 |
-| 1 Plan 검사 | CEO | plan.md 자체 점검 후 CTO로 | ⚙️ |
-| 2 스폰 | 사용자 | `./run.sh add-cto <name>` (plan.md 없으면 실패) | 🤚 |
-| 2 팀 대기 | CTO + planner/reviewer | 첫 턴에 팀 spawn (마커 자동시딩; 같은 턴 사용자 요청은 spawn 후 처리); 업무는 명시적 CTO dispatch 후 시작 (designer/codex 탭은 add-cto 가 이미 준비) | 🤚 |
+| 0 폴더 생성 | 사용자 (CEO 창) | `/build-project <name>`·`/build-module <name>` → 빈 빌드 dir (계획은 CTO 몫, 2026-10-15) | 🤚 |
+| 1 스폰 | 사용자 | `./run.sh add-cto <name>` (plan.md 없음 = 계획 단계로 기동, 시작 마커 보류 / 폴더 없음 = 실패) | 🤚 |
+| 1 계획 | CTO ↔ 사용자 | `harness-plan`: brief → brainstorming(축2·축3) → Library Check → 재료 분석 → `plan.md`(3축) → plan-ceo-review → "plan.md 확정할까요?" | 🤚 plan 확정 |
+| 1 확정 | 훅 | 승인 답 → `plan.md` 잠금 + 시작 마커 + 카메라 포트 (`plan_readonly_gate`) | ⚙️ |
+| 2 팀 대기 | CTO + planner/reviewer | 확정 턴(새 빌드) 또는 첫 턴(기존 빌드 — add-cto 가 마커 시딩)에 팀 spawn (같은 턴 사용자 요청은 spawn 후 처리); 업무는 명시적 CTO dispatch 후 시작 (designer/codex 탭은 add-cto 가 이미 준비) | 🤚 |
 | 3 분해 | planner (CTO 경유) | 명시적 dispatch 후 plan.md → `specs/spec.md` + `specs/tasks.md` | ⚙️ |
 | 3 구간지정 | 사용자 | `phaseN.ckptN~phaseM.ckptM` 지정 (= 분해 승인) | 🤚 |
 | 3 phase1 환경설정 | Codex developer | 포트·백엔드 venv·프론트 scaffold+npm·Docker·dev.sh 준비 (실행 X) | 🤖 |
@@ -68,7 +72,7 @@ plan.md 읽고 전체 phase/ckpt 트리를 만든다 → `<빌드dir>/specs/spec
 **분해 공식 (고정):**
 - phase1 = 환경설정 — 포트(offset→`.env`/`.env.example`/compose; self-host mediamtx 는
   `MEDIAMTX_{API,RTSP,WEBRTC,ICE_UDP}_PORT`=base+`PORT_OFFSET`, base 9997/8554/8889/8189 —
-  backend/frontend 와 동일 offset 규칙, `run.sh add-cto` 가 자동 기록)·백엔드 venv+패키지·
+  backend/frontend 와 동일 offset 규칙, `run.sh add-cto` 또는 plan.md 확정 훅이 자동 기록·멱등)·백엔드 venv+패키지·
   프론트 scaffold(vite 등, **vite.config `server.strictPort: true` 필수** — 포트 점유 시
   자동 +1 점프가 타 프로젝트 할당 포트를 침범하는 걸 차단)+`package.json`+`npm install`→node_modules·
   Docker pull·Dockerfile(+GPU 프로젝트면 Dockerfile-gpu)·`dev.sh`(호스트 러너 — venv+vite
@@ -128,8 +132,8 @@ plan.md 읽고 전체 phase/ckpt 트리를 만든다 → `<빌드dir>/specs/spec
   `[supplied:<출처>]` 필수. supplied 를 from-scratch 재구현 금지.
 - **extract `From:` 포인터**: `extract`(`[supplied:.sources/...]`) 기능을 덮는
   ckpt 의 task 는 `From: .sources/<proj>/<file>:Lx-Ly` 원본 위치를 인용해야 한다.
-  planner 가 원본을 직접 읽어 추출하고(파일은 CEO 가 plan §3 에 짚음, 라인 추출은
-  CTO 몫), acceptance 는 기능 재진술이 아니라 **원본 대비 diff**(뭘 떼고 wire 하나).
+  planner 가 원본을 직접 읽어 추출하고(파일은 CTO 가 계획 단계에 plan §3 에 짚음, 라인 추출은
+  분해 때 planner 몫), acceptance 는 기능 재진술이 아니라 **원본 대비 diff**(뭘 떼고 wire 하나).
   developer 는 `From:` 원본을 복사·적응 — 산문에서 재구성 X. 커버리지 기계검증이
   `From:` 부재를 차단(modules 재사용은 USAGE.md 통합이라 면제).
 - ckpt ID `phaseN.ckptN` 은 **안정적** — segment dispatch 단위, 재번호 금지.

@@ -42,25 +42,17 @@ one_teammate_per_role_gate 와 같은 `Agent` matcher 아래 공존한다(둘 �
 
 FAIL OPEN: 어떤 예외/미지 상태든 allow — 가드는 트립와이어가 아니다.
 """
-import json
 import os
 import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from team_hook_common import read_payload, allow, block, LOG_DIR  # noqa: E402
+from team_hook_common import read_payload, allow, block, LOG_DIR, approves, last_assistant_text  # noqa: E402
 
 STARTED_DIR = os.path.join(LOG_DIR, "started")
 TEAM_ROLES = ("planner", "designer", "reviewer")
 CLAIMS_DIR = os.path.expanduser("~/.harness-claude/orca-team-spawn-claims")
 ASK_RE = re.compile(r"스폰할까")
-NO_RE = re.compile(r"아니|ㄴㄴ|싫|말고|하지\s*마|취소|\b(no|nope|stop)\b", re.I)
-# 첫 단어 정확 일치만 본다 — 접두 매칭은 "어디까지 했어?"·"해당 부분…" 을 승인으로 오인한다.
-YES_WORDS = {"응", "응응", "ㅇ", "ㅇㅇ", "ㅇㅇㅇ", "웅", "어", "네", "네네", "넵", "넵넵", "넹",
-             "예", "yes", "y", "yep", "yeah", "sure", "ok", "okay", "오케이", "ㅇㅋ",
-             "좋아", "좋아요", "그래", "그래요", "해", "해줘", "해줘요", "해주세요", "해라",
-             "ㄱ", "ㄱㄱ", "고", "go", "진행", "진행해", "진행해줘", "진행해주세요", "진행하자",
-             "스폰", "스폰해", "스폰해줘", "스폰해주세요", "알았어", "알겠어", "부탁해", "부탁해요"}
 
 
 def _safe(s: str) -> str:
@@ -117,40 +109,12 @@ def _start(name: str) -> None:
                   f"{type(exc).__name__}: {exc}")
 
 
-def _approves(prompt: str) -> bool:
-    """짧은 긍정 답("응", "네 진행해", "스폰해" …). 부정어가 섞이면 무효."""
-    p = prompt.strip()
-    if not p or len(p) > 40 or NO_RE.search(p):
-        return False
-    return re.split(r"[\s,.!?~]+", p.lower())[0] in YES_WORDS
-
-
-def _last_assistant_text(path: str) -> str:
-    """transcript 의 마지막 assistant 텍스트 = 사용자가 지금 답하는 CTO 메시지."""
-    with open(path, "rb") as fh:
-        fh.seek(0, os.SEEK_END)
-        fh.seek(max(0, fh.tell() - 1_000_000))  # 긴 세션은 끝부분만 본다
-        tail = fh.read().decode("utf-8", "ignore")
-    for line in reversed(tail.splitlines()):
-        try:
-            entry = json.loads(line)
-        except ValueError:
-            continue
-        if entry.get("type") != "assistant":
-            continue
-        content = (entry.get("message") or {}).get("content") or []
-        texts = [c.get("text", "") for c in content if isinstance(c, dict) and c.get("type") == "text"]
-        if texts:
-            return texts[-1]
-    return ""
-
-
 def _approved_spawn_question(payload: dict, prompt: str) -> bool:
-    if not _approves(prompt):
+    if not approves(prompt):
         return False
     path = payload.get("transcript_path") or payload.get("transcriptPath") or ""
     try:
-        return bool(path) and bool(ASK_RE.search(_last_assistant_text(path)))
+        return bool(path) and bool(ASK_RE.search(last_assistant_text(path)))
     except Exception as exc:
         _note(f"스폰 승인 판정 실패 ({type(exc).__name__}: {exc}) — /start-project 로 대신 시작 가능")
         return False

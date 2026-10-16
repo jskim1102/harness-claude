@@ -31,7 +31,7 @@ The following lifecycle applies to Claude teammates only:
 1. Receive delegation via `SendMessage` from the CTO with spec path and task
    assignments.
 2. Read `specs/spec.md` + `specs/tasks.md` before any work (plan.md 는
-   CEO 의도 컨텍스트 — 읽기 전용).
+   확정된 계획 컨텍스트 — teammate 에겐 읽기 전용, RULES §19).
 3. Announce the task you are starting to the CTO via `SendMessage`; respect
    `blockedBy` ordering stated in your assignment.
 4. Implement exactly what the task describes. Do not silently expand scope.

@@ -577,8 +577,8 @@ write_role_settings() {
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
   },
   "teammateMode": "$teammate_mode",
-  "model": "claude-opus-5",
-  "effortLevel": "high",
+  "model": "claude-opus-5-5",
+  "effortLevel": "max",
   "statusLine": {
     "type": "command",
     "command": "python3 $REPO/hooks/cto_statusline.py"
@@ -609,6 +609,10 @@ write_role_settings() {
           {
             "type": "command",
             "command": "python3 $REPO/hooks/team/start_project_gate.py"
+          },
+          {
+            "type": "command",
+            "command": "python3 $REPO/hooks/team/plan_readonly_gate.py"
           },
           {
             "type": "command",
@@ -776,7 +780,8 @@ JSON
         # symlinked plugin files readable without per-file permission prompts.
         cat > "$target_dir/.claude/settings.json" <<JSON
 {
-  "model": "claude-opus-5",
+  "model": "claude-opus-5-5",
+  "effortLevel": "max",
   "statusLine": {
     "type": "command",
     "command": "python3 $REPO/hooks/cto_statusline.py"
@@ -1032,10 +1037,30 @@ cmd_install_services() {
     fi
 }
 
-# 빌드 dir 스폰 가능 검사. plan.md(1단계 신규) **또는** specs/tasks.md(분해 완료 —
-# plan 없이 재개) 가 있으면 OK. specs 존재 = 이미 plan 이 있었음을 증명하므로
-# fail-closed(§7 plan 선행) 유지 — 둘 다 없는 빈 dir 만 거부.
-_build_ready() { [[ -d "$1" ]] && { [[ -f "$1/plan.md" ]] || [[ -f "$1/specs/tasks.md" ]]; }; }
+# 빌드 dir 스폰 가능 검사 (2026-10-15 역할 재분할): 빌드 dir 이 **존재하면** 스폰한다.
+#   - plan.md 또는 specs/tasks.md 있음 = 기존 빌드 (지금과 같음)
+#   - 둘 다 없음 = 새 빌드(계획 단계) — CEO 탭 /build-project <name> 이 만든 빈 폴더.
+#     초안 마커를 심고 시작 마커는 심지 않는다 (plan.md 확정 훅 plan_readonly_gate 가 심는다).
+# 폴더 자체가 없으면 거부 (오타 방지). `ceo` 는 CEO 작업공간이라 거부 (cmd_add_cto).
+_build_ready() { [[ -d "$1" ]]; }
+_build_new()   { [[ -d "$1" && ! -f "$1/plan.md" && ! -f "$1/specs/tasks.md" ]]; }
+# 새 빌드 후보가 "빈 폴더" 인지 — add-cto 가 심는 시드(.env .git .gitignore .claude dev.sh
+# .gitattributes) 외 엔트리가 하나라도 있으면 0(dirty). plan.md 없는 코드 찬 실 폴더
+# (예: claude-project/annodock-ws) 를 새 빌드로 삼켜 Orca 에 등록하는 것을 막는다.
+_build_dirty_new() {
+    local e
+    for e in "$1"/* "$1"/.[!.]*; do
+        [[ -e "$e" ]] || continue
+        case "$(basename "$e")" in
+            .env|.git|.gitignore|.claude|dev.sh|.gitattributes) ;;
+            *) return 0 ;;
+        esac
+    done
+    return 1
+}
+# 초안 마커 경로 — hooks/team/plan_readonly_gate.py 의 draft_marker() 와 같은 규칙
+# (LOG_DIR/plan-draft/<safe_key>.draft, safe_key = [^A-Za-z0-9._-] → '_').
+_draft_marker() { printf '%s/.claude/logs/plan-draft/%s.draft' "$HOME" "$(printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_')"; }
 
 # 카메라 프로젝트의 mediamtx self-host 포트를 .env 에 박는다 (RULES §4/§4.1) —
 # backend/frontend 포트와 같은 offset 규율의 연장. 포트 3줄(add-cto flock 블록)
@@ -1056,6 +1081,9 @@ _wire_project_env() {
     offset="$(sed -n 's/^PORT_OFFSET=\([0-9]\{1,\}\)$/\1/p' "$env" | head -1)"
     [[ -n "$offset" ]] || return 0
     grep -qi mediamtx "$dir/plan.md" 2>/dev/null || return 0
+    # 멱등 — add-cto(기존 빌드)와 plan.md 확정 훅(plan_readonly_gate, 새 빌드)이 둘 다
+    # 부른다 (2026-10-15 역할 재분할). 이미 박혀 있으면 다시 안 쓴다.
+    grep -q '^MEDIAMTX_API_PORT=' "$env" && return 0
 
     {
         echo "MEDIAMTX_API_PORT=$((9997 + offset))"
@@ -1068,14 +1096,16 @@ _wire_project_env() {
 }
 
 cmd_add_cto() {
-    # 시그니처: <name> (CEO 가 만든 빌드 dir 이름) 또는 plan.md 경로/빌드 dir 1개.
+    # 시그니처: <name> (빌드 dir 이름 — CEO 탭 /build-project <name> 이 빈 폴더 생성) 또는
+    # plan.md 경로/빌드 dir 1개.
     #   ./run.sh add-cto <name>                          # claude-project/·modules/ 스캔해 resolve
     #   ./run.sh add-cto claude-project/<name>/plan.md   # 경로 직접 지정도 가능
     # 분해는 자동 시작 안 함 — attach 후 /model·/effort 고르고 첫 지시로 시작
-    # (시작 마커는 add-cto 가 심는다 — /start-project 타이핑 불필요).
+    # (시작 마커는 add-cto 가 심는다 — /start-project 타이핑 불필요; 단 계획 단계는 예외, 아래).
     # 부모 dir 가 빌드타입(축1)·CTO 이름·작업 dir 를 전부 확정한다.
-    # 스폰 가능 = plan.md(1단계 신규) 또는 specs/tasks.md(분해 완료 → plan 없이 재개);
-    # 둘 다 없으면 실패 (fail-closed). 인자: 위치 인자 1개 + 선택 --fresh.
+    # 스폰 가능 = 빌드 dir 존재. plan.md 도 specs/tasks.md 도 없으면 **계획 단계**(새 빌드,
+    # 2026-10-15): CTO 가 brief 부터 plan.md 를 쓴다. 폴더 없음 = 실패 (오타 방지).
+    # 인자: 위치 인자 1개 + 선택 --fresh.
     # --fresh = CEO --fresh 의 CTO 대응: Claude lead 대화만 새로 시작 (복원 id
     # 폐기). 빌드 dir/스펙/서버/Codex 대화는 유지 — 전부 버리는 건 delete-cto.
     local fresh=0 plan_arg="" _a
@@ -1109,11 +1139,15 @@ cmd_add_cto() {
             echo "error: name must be kebab-case (lowercase, digits, hyphens)." >&2
             return 1
         fi
+        if [[ "$plan_arg" == "ceo" ]]; then
+            echo "error: 'ceo' 는 CEO 작업공간 — CTO 로 띄울 수 없다." >&2
+            return 1
+        fi
         local _dp="$REPO/claude-project/$plan_arg" _dm="$REPO/modules/$plan_arg" _hits=()
         _build_ready "$_dp" && _hits+=("$_dp")
         _build_ready "$_dm" && _hits+=("$_dm")
         if [[ ${#_hits[@]} -eq 0 ]]; then
-            echo "error: '$plan_arg' 스폰 불가 — plan.md(1단계) 도 specs/tasks.md(재개) 도 없음. /build-project | /build-module 먼저." >&2
+            echo "error: '$plan_arg' 빌드 dir 없음 — CEO 창에서 /build-project <name> | /build-module <name> 으로 먼저 만들어라." >&2
             return 1
         elif [[ ${#_hits[@]} -gt 1 ]]; then
             echo "error: '$plan_arg' 가 claude-project/ 와 modules/ 양쪽 존재 — 모호. 전체 경로로 지정." >&2
@@ -1130,11 +1164,6 @@ cmd_add_cto() {
             return 1
         fi
         dir="$(cd "$_p" && pwd)"
-        if ! _build_ready "$dir"; then
-            echo "error: '$plan_arg' 스폰 불가 — plan.md(1단계) 도 specs/tasks.md(재개) 도 없음." >&2
-            echo "       1단계 먼저 — CEO 창에서 /build-project 또는 /build-module." >&2
-            return 1
-        fi
     fi
 
     name="$(basename "$dir")"
@@ -1149,6 +1178,17 @@ cmd_add_cto() {
     # 레포 밖 경로 차단 (/tmp/modules/x 같은 동명 base 우회 방지).
     if [[ "$dir" != "$REPO/claude-project/$name" && "$dir" != "$REPO/modules/$name" ]]; then
         echo "error: 빌드 dir 는 $REPO 안의 claude-project/ 또는 modules/ 여야 함 (got: $dir)" >&2
+        return 1
+    fi
+    # CEO 작업공간은 plan.md 가 없어 새 규칙(빈 폴더 = 새 빌드)상 CTO 로 읽힌다 — 명시 거부.
+    if [[ "$name" == "ceo" ]]; then
+        echo "error: 'ceo' 는 CEO 작업공간 — CTO 로 띄울 수 없다." >&2
+        return 1
+    fi
+    # 새 빌드는 **빈 폴더**여야 한다 (초안 마커가 있으면 계획 중 재스폰 — .sources/ 등이
+    # 생겨 있어도 통과). plan.md 없는 코드 찬 폴더는 기존 빌드도 새 빌드도 아니다.
+    if _build_new "$dir" && [[ ! -f "$(_draft_marker "$name")" ]] && _build_dirty_new "$dir"; then
+        echo "error: '$name' 은 plan.md 없는 빈 폴더가 아니다 — 기존 빌드면 plan.md 를 복구하고, 새 빌드면 폴더를 비워라 (시드 .env/.git/.claude/dev.sh 외 파일 존재)." >&2
         return 1
     fi
 
@@ -1186,9 +1226,11 @@ cmd_add_cto() {
                 echo "ports: offset=$offset → backend $((8000 + offset)) / frontend $((5173 + offset)) (PORT.md 갱신)"
             fi
         ) 9>"$HOME/.harness-claude/ports.lock"
-        # 카메라면 mediamtx 포트 4줄을 이어서 (lock 밖 — .env 는 이미 이 프로젝트 것으로 확정).
-        _wire_project_env "$dir"
     fi
+    # 카메라면 mediamtx 포트 4줄 (lock 밖 — .env 는 이미 이 프로젝트 것으로 확정). .env 유무와
+    # 무관하게 매 스폰 부른다 — 멱등이라 안전하고, 새 빌드는 plan.md 확정 훅이 같은 함수를
+    # 부르는데 그 배선이 실패했을 때 재스폰이 복구 경로가 된다 (2026-10-15).
+    _wire_project_env "$dir"
 
     # 표준 dev.sh 시딩 (2026-08-04, 사용자 결정 — dev.sh 재발명 차단).
     # phase1 이 백지에서 새로 쓰다 규격 미달(quote-editor 14줄 foreground 사고)이
@@ -1212,8 +1254,22 @@ cmd_add_cto() {
     # 항상 이번 스폰의 신호다. 이전 회차 spawn claim 은 지운다 (팀원은 lead 와
     # 함께 죽었는데 claim 이 남으면 one_teammate_per_role 게이트가 재스폰을 중복
     # 스폰으로 오판해 차단한다 — /start-project 프롬프트 경로가 하던 정리와 동일).
-    mkdir -p "$HOME/.claude/logs/started"
-    printf '%s\n' "$name" > "$HOME/.claude/logs/started/$(printf '%s' "$name" | tr -c 'A-Za-z0-9._-' '_').started"
+    # ★계획 단계 예외 (2026-10-15 역할 재분할): plan.md 도 specs/tasks.md 도 없는 새
+    # 빌드는 **초안 마커**를 심고 시작 마커는 보류한다 — 팀은 plan.md 확정 승인 턴에
+    # plan_readonly_gate 가 시작 마커를 심어 뜬다. 초안 마커가 이미 있는 빌드(계획 중
+    # 재스폰)도 같다: 확정 전에 팀이 뜨면 안 된다.
+    mkdir -p "$HOME/.claude/logs/started" "$HOME/.claude/logs/plan-draft"
+    local new_build=0 draft; draft="$(_draft_marker "$name")"
+    if _build_new "$dir"; then
+        new_build=1
+        printf '%s\n' "$name" > "$draft"
+        echo "계획 단계: plan.md 없음 → 초안 마커 ($draft). 팀 스폰 마커는 plan.md 확정 때 심는다."
+    fi
+    if [[ -f "$draft" ]]; then
+        echo "초안 중: 시작 마커 미시딩 (plan.md 확정 승인 턴에 훅이 심는다)"
+    else
+        printf '%s\n' "$name" > "$HOME/.claude/logs/started/$(printf '%s' "$name" | tr -c 'A-Za-z0-9._-' '_').started"
+    fi
     rm -f "$HOME/.harness-claude/orca-team-spawn-claims/$name"/{planner,designer,reviewer}.claimed 2>/dev/null || true
 
     # Orca Project 신원 = git repo 경계. 빌드 dir 에 자체 .git 이 없으면 부모
@@ -1276,8 +1332,14 @@ cmd_add_cto() {
     # 마커는 add-cto 가 이미 심었으므로(위) 첫 지시 턴에 팀이 자동 스폰된다 —
     # /start-project 타이핑 불필요 (수동 재신호용으로는 유지). send-keys
     # auto-kickoff 는 여전히 폐기 상태다 — 턴 자체는 사용자가 연다.
-    echo "CTO 세션 대기 중 — 분해 자동 시작 안 함 (build_type=$build_type, 디렉토리가 확정)."
-    echo "  다음: ./run.sh attach-cto $name → /model · /effort 설정 → 바로 작업 지시 (팀 자동 스폰, /start-project 불필요)"
+    if [[ $new_build -eq 1 || -f "$draft" ]]; then
+        echo "CTO 세션 대기 중 — 계획 단계 (plan.md 미확정, build_type=$build_type, 디렉토리가 확정)."
+        echo "  다음: ./run.sh attach-cto $name → /model · /effort 설정 → 첫 메시지 = 만들고 싶은 것(brief)."
+        echo "        CTO 가 brief 부터 plan.md 를 쓰고 'plan.md 확정할까요?' 로 묻는다 — 승인하면 팀이 뜬다."
+    else
+        echo "CTO 세션 대기 중 — 분해 자동 시작 안 함 (build_type=$build_type, 디렉토리가 확정)."
+        echo "  다음: ./run.sh attach-cto $name → /model · /effort 설정 → 바로 작업 지시 (팀 자동 스폰, /start-project 불필요)"
+    fi
 
     echo "attach Claude:   ./run.sh attach-cto $name"
     echo "attach Codex:    ./run.sh attach-codex-cto $name"
@@ -2314,9 +2376,10 @@ mental model:
   ./run.sh ceo                                     # CEO 시작/재접속 (Orca runtime에서 대화 유지)
   ./run.sh ceo --fresh                             # 기존 CEO 세션 kill 후 새 대화 (맥락 부패 리셋; 기억 소멸)
   ./run.sh add-cto <name>                          # CTO 추가 (Claude+Codex 세션; <name> 스캔 resolve)
-      # <name> = CEO 가 만든 빌드 dir 이름 → claude-project/·modules/ 중 하나로 resolve (둘 다면 에러).
+      # <name> = 빌드 dir 이름 (CEO 창 /build-project <name> | /build-module <name> 이 빈 폴더 생성)
+      #   → claude-project/·modules/ 중 하나로 resolve (둘 다면 에러).
       # 경로 직접: add-cto claude-project/<name>/plan.md | modules/<name>/plan.md
-      # plan.md 없으면 스폰 실패 (1단계: CEO 창에서 /build-project | /build-module)
+      # 폴더 있고 plan.md 없음 = 계획 단계로 기동 (CTO 가 brief 부터 plan.md 작성·확정) / 폴더 없음 = 실패
   ./run.sh add-cto <name> --fresh                  # 대화 리셋: Claude+Codex 대화·페어 메시지·skill로그 초기화 (빌드/스펙 유지; delete-cto 아님)
   ./run.sh attach-cto <name>                       # Claude CTO Orca terminal focus
   ./run.sh attach-designer-cto <name>              # Designer(독립 Claude 세션) terminal focus
