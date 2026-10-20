@@ -1,6 +1,6 @@
 # PORT.md — 포트 레지스트리 (하드룰 4 source of truth)
 
-26.10.15
+26.10.16
 
 > **자동 생성** — `./run.sh ports` 또는 add-cto / delete-cto 가 각 프로젝트
 > 의 `.env` 를 스캔해 재생성한다. **직접 편집 금지** (재생성 시 덮어씀).

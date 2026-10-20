@@ -206,6 +206,22 @@ def readme() -> dict:
             "mtime": time.strftime("%Y-%m-%d %H:%M", time.localtime(f.stat().st_mtime))}
 
 
+@app.get("/api/harness-flow", dependencies=[Depends(require_token)])
+def harness_flow() -> dict:
+    """하네스 작동 흐름 인포그래픽(docs/harness-flow.html, 완전한 HTML 문서) 원문 —
+    대시보드 HARNESS 버튼이 README 와 같은 Blob-새탭 방식으로 연다 (2026-10-16). 읽기 전용.
+    경로는 고정 리터럴이라 traversal 표면 없음. 캐시 안 함 — 파일이 바뀌면 다음 열람 때 반영."""
+    f = REPO / "docs" / "harness-flow.html"
+    if not f.is_file():
+        return {"ok": False, "error": "docs/harness-flow.html 없음"}
+    try:
+        text = f.read_text(encoding="utf-8", errors="replace")
+    except OSError as e:
+        return {"ok": False, "error": str(e)}
+    return {"ok": True, "html": text,
+            "mtime": time.strftime("%Y-%m-%d %H:%M", time.localtime(f.stat().st_mtime))}
+
+
 # 정본 호칭 표시 (RULES §18) — 내부 식별자는 그대로 두고 사람이 읽는 값만 바꾼다.
 # harness/cli.py 의 _display_role 과 같은 규칙.
 def _display_role(role: str) -> str:

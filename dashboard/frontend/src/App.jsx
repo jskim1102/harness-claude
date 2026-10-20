@@ -175,6 +175,25 @@ const openReadmeTab = async () => {
   }
 }
 
+// ── HARNESS 흐름도 새 탭 뷰어 (2026-10-16) ─────────────────────────────────
+// docs/harness-flow.html 은 완전한 HTML 문서(정본 = repo, CSP meta 포함). README 와
+// 같은 이유(토큰을 URL 에 안 남김)로 fetch → Blob URL 새 탭. 여기서 감싸지 않는다.
+const openHarnessFlowTab = async () => {
+  const tab = window.open('', '_blank')
+  try {
+    const r = await apiGet('/api/harness-flow')
+    if (!r.ok) throw new Error('HTTP ' + r.status)
+    const d = await r.json()
+    if (!d.ok) throw new Error(d.error || '읽기 실패')
+    const url = URL.createObjectURL(new Blob([d.html], { type: 'text/html' }))
+    if (tab) { tab.location.href = url } else { window.open(url, '_blank') }
+    setTimeout(() => URL.revokeObjectURL(url), 60000)
+  } catch (e) {
+    if (tab) tab.close()
+    alert('HARNESS 흐름도 열기 실패: ' + e)
+  }
+}
+
 const ctoStateOf = (it) => it.cto_state || (it.cto_active ? 'healthy' : 'both-down')
 const ctoHealthy = (it) => ctoStateOf(it) === 'healthy'
 const ctoPartial = (it) => ['claude-only', 'codex-only', 'partial'].includes(ctoStateOf(it))
@@ -2061,6 +2080,11 @@ export default function App() {
             title="레포 루트 README.md 를 새 탭에서 보기 (열 때마다 최신 파일을 읽는다)"
             onClick={openReadmeTab}
           >📄 README</button>
+          <button
+            style={S.headBtn}
+            title="하네스 작동 흐름 인포그래픽(docs/harness-flow.html)을 새 탭에서 보기"
+            onClick={openHarnessFlowTab}
+          >🗺 HARNESS</button>
           <button
             style={S.headBtn}
             title="제어 토큰 재입력 (서버 DASH_TOKEN 과 일치해야)"

@@ -3174,6 +3174,23 @@ PY
 grep -q '"cto_ready": claude_active and codex_active and designer_active' "$REPO/dashboard/backend/main.py" \
   && ok "dashboard: /api/state items ready 가 designer 포함" \
   || bad "dashboard: /api/state items ready 가 designer 를 뺐다 (state↔ready 모순)"
+# 2026-10-16 사용자 지시: README 옆 HARNESS 버튼 → docs/harness-flow.html(작동 흐름
+# 인포그래픽, 정본은 repo) 을 README 와 같은 Blob-새탭 방식으로 연다.
+check "dashboard: /api/harness-flow 가 docs/harness-flow.html 완전한 HTML 문서를 돌려준다" 0 \
+  dashboard/backend/.venv/bin/python - <<'PY'
+import dashboard.backend.main as m
+r = m.harness_flow()
+assert r["ok"] is True, r
+h = r["html"]
+assert h.lstrip().lower().startswith("<!doctype html"), h[:80]
+assert "harness-claude 작동 흐름" in h and "</html>" in h.lower()
+assert r.get("mtime")
+PY
+grep -q 'openHarnessFlowTab' "$REPO/dashboard/frontend/src/App.jsx" \
+  && grep -q "apiGet('/api/harness-flow')" "$REPO/dashboard/frontend/src/App.jsx" \
+  && grep -q 'HARNESS</button>' "$REPO/dashboard/frontend/src/App.jsx" \
+  && ok "dashboard: README 옆 HARNESS 버튼 + /api/harness-flow 배선 (App.jsx)" \
+  || bad "dashboard: HARNESS 버튼/배선 누락 (App.jsx)"
 # docker 실행 판정은 **컨테이너 이름이 아니라 앱 포트**를 봐야 한다 (2026-08-02
 # 실사고). `<slug>-backend|frontend` 정확일치는 compose 의 replica 접미사 `-1` 을
 # 못 벗기고, 서비스명이 backend 가 아닌 모듈(auth-service = auth/frontend/mailhog)은

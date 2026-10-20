@@ -1,0 +1,624 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com">
+<!-- harness-claude 작동 흐름 인포그래픽 — 정본. 대시보드 HARNESS 버튼(/api/harness-flow)이 새 탭으로 연다.
+     2026-10-15 plan.md 이관 반영본(9단계). 01 카드는 사용자 확정본 — 지시 없이 수정 금지. -->
+<style>body{margin:0}img{max-width:100%}</style>
+<title>harness-claude 작동 흐름</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: 2-column card grid on near-black; one card per stage. Shared shell = header(stage + command) / badges / one-line note. The body differs per stage: timeline, pipeline, fan-out, numbered steps, org chart, tree+anatomy, cycle, bus, stack. Single dark theme by choice. */
+:root{
+  --bg:#0a0c11; --card:#11141b; --line:#222836; --row:#1a1f2a; --dash:#3b4354;
+  --fg:#e9edf4; --muted:#8e97a9; --soft:#c5ccd9;
+  --ok:#3ddc84; --no:#ff5c5c;
+  --sans:'IBM Plex Sans KR',system-ui,-apple-system,'Apple SD Gothic Neo','Noto Sans KR',sans-serif;
+  --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);margin:0;padding-block:28px 36px;padding-inline:16px;line-height:1.4}
+.wrap{max-width:1000px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
+.top{display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center}
+.top .brand{font-family:var(--mono);font-size:12px;color:var(--ok);letter-spacing:.04em}
+h1{margin:0;font-size:30px;font-weight:700;letter-spacing:-.01em;text-wrap:balance;display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:center}
+h1 .hl{background:#fff;color:#0a0c11;padding:2px 12px;border-radius:6px}
+.top p{margin:0;color:var(--muted);font-size:13px;max-width:62ch}
+.legend{display:flex;gap:14px;flex-wrap:wrap;justify-content:center;font-size:12px;color:var(--soft)}
+.legend span b{color:var(--fg);font-weight:600}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;align-items:start}
+@media (max-width:720px){.grid{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 14px 13px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.card header{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.card .m{color:var(--c);font-weight:700;font-size:18px;letter-spacing:-.01em}
+.card .m small{color:var(--muted);font-family:var(--mono);font-weight:600;font-size:11px;letter-spacing:.08em;margin-right:7px}
+.card header code{font-family:var(--mono);font-size:12px;color:var(--soft);background:var(--bg);border:1px solid var(--line);padding:2px 8px;border-radius:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.body{display:flex;flex-direction:column;gap:8px;min-width:0;flex:1}
+h4{margin:0;font-size:10px;color:var(--muted);font-weight:600;letter-spacing:.08em;text-transform:uppercase;font-family:var(--mono)}
+em{font-style:normal;color:var(--muted);font-size:10.5px}
+.mono{font-family:var(--mono)}
+.note{font-size:11px;color:var(--soft);border-top:1px dashed var(--line);padding-top:7px;display:flex;gap:7px;align-items:baseline;flex-wrap:wrap}
+.note b{font-family:var(--mono);font-weight:600;font-size:10.5px;color:var(--c)}
+.note b.no{color:var(--no)}
+/* badges + desc */
+.badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:2px}
+.badge{font-size:11px;font-weight:600;padding:3px 10px;border-radius:999px;border:1px solid;font-family:var(--mono)}
+.badge.ok{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 55%,transparent);background:color-mix(in srgb,var(--ok) 10%,transparent)}
+.badge.no{color:var(--no);border-color:color-mix(in srgb,var(--no) 55%,transparent);background:color-mix(in srgb,var(--no) 10%,transparent)}
+.desc{margin:0;color:var(--soft);font-size:12.5px;line-height:1.5}
+.foot{color:var(--muted);font-size:11.5px;text-align:center;font-family:var(--mono)}
+
+/* 00 preparation: numbered layer chain + two spec sheets + ops tables (full width) */
+.c00{grid-column:1/-1}
+.c00 .chip0{display:inline-block;font-family:var(--mono);font-size:10.5px;line-height:1.65;color:var(--fg);background:var(--row);border:1px solid #2a3140;border-radius:5px;padding:0 6px;white-space:nowrap}
+.c00 .tag0{display:inline-block;font-size:10px;line-height:1.6;color:var(--soft);border:1px solid var(--line);border-radius:999px;padding:0 8px}
+.c00 .tag0.on{font-family:var(--mono);color:var(--c);border-color:color-mix(in srgb,var(--c) 55%,transparent);background:color-mix(in srgb,var(--c) 8%,transparent)}
+.c00 h4.sec{display:flex;align-items:center;gap:10px;margin:0;color:var(--c);text-transform:none;letter-spacing:.02em;font-size:10.5px}
+.c00 h4.sec::after{content:"";flex:1;border-top:1px solid color-mix(in srgb,var(--c) 28%,transparent)}
+.layers{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:30px}
+.layer0{position:relative;border:1px solid var(--line);border-radius:12px;background:var(--bg);padding:11px 13px 12px;min-width:0;display:flex;flex-direction:column;gap:8px}
+.layer0 .lh{display:flex;align-items:center;gap:9px}
+.layer0 .num{width:22px;height:22px;flex:none;border-radius:50%;background:var(--c);color:#0a0c11;font-family:var(--mono);font-size:11px;font-weight:700;display:grid;place-items:center}
+.layer0 .lh b{font-family:var(--mono);font-size:12.5px;font-weight:700}
+.layer0 .def{font-size:11px;color:var(--soft);line-height:1.5}
+.layer0 dl{margin:0;display:grid;grid-template-columns:auto minmax(0,1fr);gap:5px 10px;align-items:baseline;font-size:10.5px}
+.layer0 dt{font-size:10px;color:var(--muted);white-space:nowrap}
+.layer0 dd{margin:0;color:var(--soft);min-width:0;display:flex;flex-wrap:wrap;gap:4px;align-items:baseline}
+.layer0+.layer0::before{content:"";position:absolute;left:-25px;top:50%;width:13px;border-top:2px solid var(--c)}
+.layer0+.layer0::after{content:"";position:absolute;left:-13px;top:50%;transform:translateY(-50%);border-top:5px solid transparent;border-bottom:5px solid transparent;border-left:8px solid var(--c)}
+.layer0.here{border-color:var(--c);background:color-mix(in srgb,var(--c) 7%,var(--bg))}
+.drop{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:30px;height:16px;margin:-8px 0 -6px}
+.drop span{grid-column:3;justify-self:center;border-left:2px dashed color-mix(in srgb,var(--c) 65%,transparent)}
+@media (max-width:720px){.layers{grid-template-columns:1fr;gap:24px}.layer0+.layer0::before{left:50%;top:-20px;width:0;height:11px;border-top:0;border-left:2px solid var(--c)}.layer0+.layer0::after{left:calc(50% - 4px);top:-10px;transform:none;border-left:5px solid transparent;border-right:5px solid transparent;border-top:8px solid var(--c);border-bottom:0}.drop{grid-template-columns:1fr}.drop span{grid-column:1}}
+.sheets{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);gap:12px;align-items:stretch}
+@media (max-width:720px){.sheets{grid-template-columns:1fr}}
+.sheet{border:1px solid color-mix(in srgb,var(--c) 50%,var(--line));border-radius:12px;background:var(--bg);overflow:hidden;min-width:0}
+.sheet .sh{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;padding:9px 13px;background:color-mix(in srgb,var(--c) 11%,var(--bg));border-bottom:1px solid color-mix(in srgb,var(--c) 30%,var(--line))}
+.sheet .sh b{font-family:var(--mono);font-size:14px;font-weight:700;color:var(--fg)}
+.sheet .sh em{font-style:normal;font-size:11px;font-weight:600;color:var(--c)}
+.sheet .rows{padding:2px 13px 10px}
+.sheet .r{display:grid;grid-template-columns:74px minmax(0,1fr);gap:10px;padding:7px 0;border-top:1px dashed #1f2531}
+.sheet .r:first-child{border-top:0}
+.sheet .r.gap{border-top:1px solid color-mix(in srgb,var(--c) 28%,var(--line))}
+.sheet .k{font-size:10.5px;font-weight:600;color:var(--muted);padding-top:2px;white-space:nowrap}
+.sheet .k.life{color:var(--c)}
+.sheet .k.life::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--c);margin-right:6px;vertical-align:1px}
+.sheet .v{display:flex;flex-direction:column;gap:5px;min-width:0;font-size:11px;color:var(--soft);line-height:1.5}
+.sheet .v>div{display:flex;flex-wrap:wrap;gap:3px 8px;align-items:baseline}
+.sheet .none{color:#4b5465;font-family:var(--mono)}
+.c00 .then{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;font-size:10px;color:var(--muted);font-family:var(--mono)}
+.c00 .then span{width:30px;height:30px;border-radius:50%;border:1px solid var(--c);background:color-mix(in srgb,var(--c) 10%,var(--bg));color:var(--c);display:grid;place-items:center;font-size:12px}
+@media (max-width:720px){.c00 .then{flex-direction:row}.c00 .then span{transform:rotate(90deg)}}
+.ops{display:flex;flex-direction:column;gap:10px}
+.opbox{border:1px solid var(--line);border-radius:12px;background:var(--bg);overflow:hidden;min-width:0}
+.opbox .oh{display:flex;align-items:center;gap:8px;padding:8px 13px;background:var(--row);border-bottom:1px solid var(--line);font-size:11.5px;font-weight:700;color:var(--fg)}
+.opbox .oh i{font-style:normal;width:17px;height:17px;border-radius:4px;background:color-mix(in srgb,var(--c) 18%,transparent);color:var(--c);display:grid;place-items:center;font-family:var(--mono);font-size:10px;font-weight:700}
+.opwrap{overflow-x:auto}
+.optbl{border-collapse:collapse;width:100%;min-width:600px;font-size:10.5px}
+.optbl th,.optbl td{padding:6px 13px;text-align:left;vertical-align:top;color:var(--soft);line-height:1.6;border-top:1px solid #1a202b}
+.optbl thead th{border-top:0;font-size:10px;font-weight:600;color:var(--muted);background:color-mix(in srgb,var(--c) 5%,var(--bg))}
+.optbl thead th.mono{font-family:var(--mono);color:var(--fg)}
+.optbl tbody tr:nth-child(even)>*{background:#0d1016}
+.optbl tbody th{white-space:nowrap;font-weight:600;color:var(--fg);width:1%}
+.optbl .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:8px;vertical-align:1px}
+.optbl .dot{background:var(--c)}
+.optbl.run td:first-child{white-space:nowrap;width:1%}
+.optbl.run td:nth-child(2){width:24%}
+.warn0{display:flex;gap:10px;align-items:center;border-radius:10px;padding:8px 13px;background:var(--row);border:1px solid var(--line);color:var(--soft);font-size:11px}
+.warn0 i{font-style:normal;flex:none;width:18px;height:18px;border-radius:50%;background:var(--c);color:#0a0c11;display:grid;place-items:center;font-weight:800;font-size:11px}
+
+/* 01 decision flow: prepare, then branch on whether the harness:ceo tab exists */
+.flow1{display:flex;flex-direction:column}
+.flow1 .f-start{align-self:center;font-family:var(--mono);font-size:12px;font-weight:700;color:#0a0c11;background:var(--c);border-radius:999px;padding:4px 16px}
+.flow1 .f-start code{font-family:inherit;color:inherit}
+.flow1 .f-line{align-self:center;height:14px;border-left:2px solid color-mix(in srgb,var(--c) 70%,transparent)}
+.flow1 .f-box{border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:8px 11px;font-size:11.5px;color:var(--soft);line-height:1.5;min-width:0}
+.flow1 .f-box b{display:block;color:var(--fg);font-size:11px;margin-bottom:4px}
+.flow1 .f-box code{font-family:var(--mono);font-size:10.5px;color:var(--fg)}
+.flow1 .f-prep ul{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:3px}
+.flow1 .f-prep li{display:flex;gap:8px;align-items:flex-start;white-space:nowrap}
+.flow1 .f-prep li code{white-space:normal}
+.flow1 .f-prep li::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--c);flex:none;margin-top:calc(.75em - 2.5px)}
+.flow1 .f-q{align-self:center;text-align:center;font-size:12px;font-weight:700;color:var(--fg);border:1.5px solid var(--c);background:color-mix(in srgb,var(--c) 12%,var(--bg));border-radius:10px;padding:8px 14px}
+.flow1 .f-q code{font-family:var(--mono);color:var(--c)}
+.flow1 .f-grid{display:flex;flex-direction:column;gap:6px;word-break:keep-all}
+.flow1 .f-box .f-sub{margin-top:6px}
+.flow1 .f-sub{display:flex;flex-direction:column;gap:4px;margin-left:12px;padding-left:12px;border-left:2px dashed var(--dash);font-size:10.5px;color:var(--muted);line-height:1.45}
+.flow1 .f-sub div{position:relative}
+.flow1 .f-sub div::before{content:"";position:absolute;left:-12px;top:.7em;width:8px;border-top:2px dashed var(--dash)}
+
+/* 02 · 04 numbered steps: number rail + title + note; hollow number = only when needed */
+.steps2{display:flex;flex-direction:column}
+.steps2 .st{position:relative;display:grid;grid-template-columns:22px minmax(0,1fr);column-gap:10px;padding-bottom:11px}
+.steps2 .st:last-child{padding-bottom:0}
+.steps2 .st::before{content:"";position:absolute;left:10px;top:25px;bottom:3px;border-left:2px solid color-mix(in srgb,var(--c) 40%,transparent)}
+.steps2 .st:last-child::before{display:none}
+.steps2 .n{width:22px;height:22px;border-radius:50%;background:var(--c);color:#0a0c11;font-family:var(--mono);font-size:11px;font-weight:700;display:grid;place-items:center}
+.steps2 .st.opt .n{background:var(--card);color:var(--c);border:1.5px dashed var(--c)}
+.steps2 .t{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-height:22px;font-size:12.5px;font-weight:700;color:var(--fg)}
+.steps2 .tag,.fan3 .tag{font-size:10px;font-weight:600;line-height:1.7;border-radius:999px;padding:0 8px;color:var(--c);border:1px solid color-mix(in srgb,var(--c) 50%,transparent);background:color-mix(in srgb,var(--c) 10%,transparent)}
+.steps2 .tag.dim,.fan3 .tag.dim{color:var(--muted);border:1px dashed var(--dash);background:none}
+.steps2 .d{grid-column:2;font-size:11px;color:var(--soft);line-height:1.55;word-break:keep-all}
+.steps2 .d code{font-family:var(--mono);font-size:10.5px;color:var(--fg)}
+.steps2 .sub{grid-column:2;display:flex;flex-direction:column;gap:3px;margin-top:5px;margin-left:2px;padding-left:12px;border-left:2px dashed var(--dash);font-size:10.5px;color:var(--muted);line-height:1.45;word-break:keep-all}
+.steps2 .sub div{position:relative}
+.steps2 .sub div::before{content:"";position:absolute;left:-12px;top:.7em;width:8px;border-top:2px dashed var(--dash)}
+.steps2 .sub b{font-family:var(--mono);font-weight:600;color:var(--soft);margin-right:6px}
+.steps2 .sub code{font-family:var(--mono);font-size:10.5px;color:var(--soft)}
+
+/* 03 fan-out: one command (checks inside) spreads into folder files, outside items, and 3 Orca tabs */
+.fan3{display:grid;grid-template-columns:150px minmax(0,1fr);gap:14px;align-items:center}
+.fan3 h4{text-transform:none;color:var(--c)}
+.fan3 .hub{position:relative;border:1px solid var(--c);border-radius:10px;padding:10px;background:color-mix(in srgb,var(--c) 10%,var(--bg));display:flex;flex-direction:column;justify-content:center;gap:9px}
+.fan3 .hub::after{content:"";position:absolute;right:-15px;top:50%;width:14px;border-top:2px solid var(--c)}
+.fan3 .hub>b{font-family:var(--mono);font-size:12px;color:var(--fg);line-height:1.4;word-break:keep-all}
+.fan3 .chk{display:flex;flex-direction:column;gap:6px;border-top:1px dashed color-mix(in srgb,var(--c) 40%,transparent);padding-top:8px}
+.fan3 .chk div{font-size:10px;color:var(--soft);line-height:1.45;word-break:keep-all}
+.fan3 .chk div b{display:block;font-size:10.5px;color:var(--fg)}
+.fan3 .br{display:flex;flex-direction:column;gap:11px;border-left:1px dashed var(--dash);padding-left:14px;min-width:0}
+.fan3 .grp3{display:flex;flex-direction:column;gap:6px}
+.fan3 .it{position:relative;display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 7px}
+.fan3 .it::before{content:"";position:absolute;left:-14px;top:.75em;width:10px;border-top:1px dashed var(--dash)}
+.fan3 .it>b{font-family:var(--mono);font-size:11px;font-weight:600;color:var(--fg)}
+.fan3 .it>b.k{font-family:var(--sans);font-size:11.5px;font-weight:700}
+.fan3 .it em{flex-basis:100%;font-size:10.5px;color:var(--soft);line-height:1.5;word-break:keep-all}
+.fan3 .it em code{font-family:var(--mono);font-size:10px;color:var(--fg)}
+
+
+/* 05 org chart */
+.org{display:flex;flex-direction:column;gap:8px}
+.q{font-size:11px;color:var(--soft);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.q b{font-family:var(--mono);color:var(--c);font-weight:600}
+.q .gs{font-family:var(--mono);font-size:10px;color:var(--ok);border:1px solid color-mix(in srgb,var(--ok) 50%,transparent);border-radius:999px;padding:1px 7px}
+.boundary{border:1px dashed var(--c);border-radius:10px;padding:8px;display:flex;flex-direction:column;gap:6px;background:color-mix(in srgb,var(--c) 5%,transparent)}
+.boundary h4{color:var(--c)}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.box{border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:6px 8px;font-size:11.5px;font-weight:600;min-width:0}
+.box i{display:block;font-style:normal;font-weight:400;font-size:10px;color:var(--muted);font-family:var(--mono);line-height:1.3;margin-top:2px}
+.box.lead{border-color:var(--c);width:max-content;max-width:100%}
+.box .no{color:var(--no)}
+
+/* 06 tree + anatomy */
+.tree{font-family:var(--mono);font-size:11px;display:flex;flex-direction:column;gap:2px;overflow-x:auto}
+.tree div{white-space:pre;display:flex;gap:10px}
+.tree div em{font-family:var(--sans);font-size:10.5px}
+.tree .g{color:var(--dash)}
+.tree .k{color:var(--c);font-weight:600}
+.anat{display:flex;flex-wrap:wrap;gap:4px;align-items:stretch}
+.anat span{display:flex;flex-direction:column;gap:1px;border:1px solid var(--line);border-radius:6px;padding:3px 7px;background:var(--bg)}
+.anat span b{font-family:var(--mono);font-size:10.5px;font-weight:600;color:var(--c)}
+.anat span em{font-size:9.5px}
+.marks{display:flex;gap:10px;flex-wrap:wrap;font-family:var(--mono);font-size:10.5px;color:var(--soft)}
+
+/* 07 cycle */
+.cycle{width:100%;height:auto;display:block}
+.rail{display:flex;align-items:center;gap:4px;flex-wrap:wrap;font-size:10.5px}
+.rail span{border:1px solid var(--line);border-radius:999px;padding:2px 8px;background:var(--bg);display:flex;gap:5px;align-items:baseline}
+.rail span b{font-weight:600;font-size:10.5px}
+.rail span em{font-family:var(--mono);font-size:9.5px}
+.rail i{color:#5a6477;font-style:normal}
+
+/* 08 bus */
+.bus{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:8px;align-items:center}
+.actor{width:78px;border:1px solid var(--line);background:var(--bg);border-radius:9px;padding:8px 6px;text-align:center;font-weight:600;font-size:12px}
+.actor i{display:block;font-style:normal;font-family:var(--mono);font-size:9.5px;color:var(--muted);margin-top:3px}
+.lanes{display:flex;flex-direction:column;gap:6px;min-width:0}
+.lane{position:relative;height:30px;display:flex;align-items:center;justify-content:center}
+.lane::before{content:"";position:absolute;left:2px;right:2px;top:50%;border-top:2px solid var(--c)}
+.lane.pull::before{border-top:2px dashed var(--dash)}
+.lane::after{position:absolute;top:50%;transform:translateY(-55%);font-size:11px;color:var(--c)}
+.lane.push::after{content:"▶";right:-2px}
+.lane.pull::after{content:"◀";left:-2px;color:var(--muted)}
+.lane span{position:relative;background:var(--card);padding:2px 7px;font-family:var(--mono);font-size:10px;color:var(--soft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:calc(100% - 20px)}
+.lane.push span{color:var(--c)}
+.queue{align-self:center;border:1px solid var(--line);border-radius:8px;padding:4px 10px;font-family:var(--mono);font-size:10.5px;background:var(--row);text-align:center}
+.queue b{color:var(--fg);font-weight:600}
+
+/* 09 stack */
+.stack{display:flex;flex-direction:column;align-items:center;gap:4px}
+.layer{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:11.5px;background:var(--bg)}
+.layer b{font-weight:600;white-space:nowrap}
+.layer code{font-family:var(--mono);font-size:10.5px;color:var(--soft)}
+.layer em{white-space:nowrap}
+.layer.l3{width:72%}.layer.l2{width:86%}.layer.l1{width:100%;border-color:var(--c);background:color-mix(in srgb,var(--c) 14%,transparent);color:#fff}
+.layer.l1 code{color:#fff}
+.aside{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--soft)}
+.aside div{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.aside b{font-family:var(--mono);font-size:10px;color:var(--muted);font-weight:600;min-width:84px}
+.aside code{font-family:var(--mono);font-size:10.5px;color:var(--fg)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="brand">harness-claude</div>
+    <h1><span class="hl">하네스 작동 흐름</span><span>9단계</span></h1>
+    <p>CEO 1명 + CTO N명. 메시지큐는 SQLite(harnessd), 세션은 Orca 터미널에 상주. 2026-10-15 기준(계획 plan.md 는 CTO 가 쓴다).</p>
+    <div class="legend">
+      <span><b>결정론</b> = 훅·스크립트가 규칙을 강제 (advisory 아님)</span>
+      <span><b>CEO 개입</b> = 이 단계에 CEO 가 손을 댄다</span>
+    </div>
+  </div>
+
+  <div class="grid">
+
+    <!-- 00: preparation → numbered layer chain + two spec sheets + ops tables -->
+    <article class="card c00" style="--c:#a3e635">
+      <header><span class="m"><small>00</small>준비 단계</span><code>부팅 시 시스템이 자동 실행</code></header>
+      <div class="body">
+        <div class="layers">
+          <div class="layer0">
+            <div class="lh"><span class="num">1</span><b>systemd</b></div>
+            <div class="def">리눅스가 부팅 때 가장 먼저 실행하는 PID 1, 서비스 관리자.</div>
+            <dl>
+              <dt>실행 파일</dt><dd><span class="chip0">/usr/lib/systemd/systemd</span></dd>
+              <dt>명령</dt><dd><span class="chip0">systemctl</span><span class="chip0">journalctl</span></dd>
+              <dt>하는 일</dt><dd>유닛 파일대로 서비스 켜기 · 끄기 · 재시작</dd>
+            </dl>
+          </div>
+          <div class="layer0">
+            <div class="lh"><span class="num">2</span><b>system service(systemd)</b></div>
+            <div class="def">root 로 도는 PID 1 systemd 가 관리하는 서비스.</div>
+            <dl>
+              <dt>유닛 파일</dt><dd><span class="chip0">/usr/lib/systemd/system/</span></dd>
+              <dt>명령</dt><dd><span class="chip0">sudo systemctl</span></dd>
+              <dt>예</dt><dd><span class="tag0">네트워크</span><span class="tag0">docker</span><span class="tag0">postgres</span><span class="tag0">tailscale</span></dd>
+            </dl>
+          </div>
+          <div class="layer0 here">
+            <div class="lh"><span class="num">3</span><b>user service(systemd)</b></div>
+            <div class="def">사용자별 systemd 가 그 사용자 권한으로 관리하는 서비스.</div>
+            <dl>
+              <dt>유닛 파일</dt><dd><span class="chip0">~/.config/systemd/user/</span></dd>
+              <dt>명령</dt><dd><span class="chip0">systemctl --user</span></dd>
+              <dt>예</dt><dd><span class="tag0 on">orca-harness</span><span class="tag0 on">harnessd</span></dd>
+            </dl>
+          </div>
+        </div>
+        <div class="drop" aria-hidden="true"><span></span></div>
+        <h4 class="sec">user service(systemd) 로 켜지는 하네스 둘</h4>
+        <div class="sheets">
+          <section class="sheet">
+            <div class="sh"><b>orca-harness</b><em>orca 실행</em></div>
+            <div class="rows">
+              <div class="r"><span class="k">카드</span><div class="v"><div><span class="chip0">~/.config/systemd/user/orca-harness.service</span></div></div></div>
+              <div class="r"><span class="k">설정</span><div class="v"><div><span class="chip0">~/.config/harness-claude/orca-server.env</span><span>포트, 접속 주소, 모바일 페어링</span></div></div></div>
+              <div class="r"><span class="k">실행 대상</span><div class="v"><div><span class="chip0">~/apps/orca/orca-linux.AppImage serve</span><span>orca 실행파일</span></div></div></div>
+              <div class="r gap"><span class="k life">실행 전</span><div class="v">
+                <div><span class="chip0">test -x orca-linux.AppImage</span><span>실행파일 확인</span></div>
+                <div><span class="chip0">scripts/orca-reap-orphans.sh</span><span>이전 실행이 남긴 Orca 프로세스 종료</span></div>
+              </div></div>
+              <div class="r"><span class="k life">실행 후</span><div class="v">
+                <div><span class="chip0">Xvfb :99</span><span>가상 디스플레이</span></div>
+                <div><span class="chip0">ws://0.0.0.0:6768</span><span>원격 접속. 데스크톱 Orca 앱, 아이폰</span></div>
+                <div><span class="chip0">~/.config/orca/o-*.sock</span><span>로컬 접속. orca 명령, 하네스 코드</span></div>
+                <div><span class="chip0">Orca 데몬</span><span>탭마다 셸 실행. CEO·CTO 탭은 셸 → dtach → claude</span></div>
+                <div><span>접속 정보 기록:</span><span class="chip0">~/.config/orca/orca-runtime.json</span></div>
+              </div></div>
+              <div class="r"><span class="k life">죽으면</span><div class="v">
+                <div><span class="chip0">Restart=always</span><span>꺼지면 5초 뒤 재시작. systemctl stop 만 예외</span></div>
+                <div><span class="chip0">StartLimitBurst=5</span><span>60초 안에 5번 실패하면 포기. 사람이 다시 켜야 함</span></div>
+              </div></div>
+            </div>
+          </section>
+          <div class="then"><span>▶</span>다음</div>
+          <section class="sheet">
+            <div class="sh"><b>harnessd</b><em>하네스 세션 간 메시지 알림</em></div>
+            <div class="rows">
+              <div class="r"><span class="k">카드</span><div class="v"><div><span class="chip0">~/.config/systemd/user/harnessd.service</span></div></div></div>
+              <div class="r"><span class="k">설정</span><div class="v"><div><span class="none">-</span></div></div></div>
+              <div class="r"><span class="k">실행 대상</span><div class="v"><div><span class="chip0">python3 -m harness.daemon</span><span>harnessd 코드</span><span class="chip0">harness/daemon.py</span></div></div></div>
+              <div class="r gap"><span class="k life">실행 전</span><div class="v"><div><span class="none">-</span></div></div></div>
+              <div class="r"><span class="k life">실행 후</span><div class="v">
+                <div><span class="chip0">~/.harness-claude/db.sqlite</span><span>1초마다 메시지 함 확인. CTO 쪽 탭이 30초 쉬면 /inbox 입력. CEO 제외</span></div>
+                <div><span class="chip0">~/.config/orca/orca-runtime.json</span><span>Orca 접속 정보. 탭 확인·입력에 사용, Orca 가 꺼지면 깨우기 불가</span></div>
+                <div><span class="chip0">CTO 짝 감시</span><span>Claude·Codex 중 하나가 죽으면 CEO 메시지 함에 알림</span></div>
+                <div><span class="chip0">~/.harness-claude/ceo-death/</span><span>CEO 가 죽은 순간 기록</span></div>
+                <div><span class="chip0">~/.harness-claude/watch/</span><span>감시 조건 확인, 결과를 메시지로</span></div>
+                <div><span>로그 기록:</span><span class="chip0">~/.harness-claude/daemon.log</span></div>
+              </div></div>
+              <div class="r"><span class="k life">죽으면</span><div class="v">
+                <div><span class="chip0">Restart=on-failure</span><span>오류로 죽었을 때만 5초 뒤 재시작. 정상 종료면 그대로</span></div>
+                <div><span class="chip0">StartLimitBurst=5</span><span>60초 안에 5번 실패하면 포기. 사람이 다시 켜야 함</span></div>
+              </div></div>
+            </div>
+          </section>
+        </div>
+        <div class="ops">
+          <div class="opbox">
+            <div class="oh"><i>$</i>systemctl 로 관리</div>
+            <div class="opwrap"><table class="optbl">
+              <thead><tr><th>동작</th><th class="mono">orca-harness</th><th class="mono">harnessd</th></tr></thead>
+              <tbody>
+                <tr><th><span class="dot d-st"></span>상태</th><td><span class="chip0">systemctl --user status orca-harness</span></td><td><span class="chip0">systemctl --user status harnessd</span></td></tr>
+                <tr><th><span class="dot d-on"></span>켜기</th><td><span class="chip0">systemctl --user start orca-harness</span></td><td><span class="chip0">systemctl --user start harnessd</span></td></tr>
+                <tr><th><span class="dot d-off"></span>끄기</th><td><span class="chip0">systemctl --user stop orca-harness</span></td><td><span class="chip0">systemctl --user stop harnessd</span></td></tr>
+                <tr><th><span class="dot d-re"></span>재시작</th><td><span class="chip0">systemctl --user restart orca-harness</span></td><td><span class="chip0">systemctl --user restart harnessd</span></td></tr>
+                <tr><th><span class="dot d-log"></span>로그</th><td><span class="chip0">journalctl --user -u orca-harness -n 50</span></td><td><span class="chip0">journalctl --user -u harnessd -n 50</span></td></tr>
+              </tbody>
+            </table></div>
+          </div>
+          <div class="opbox">
+            <div class="oh"><i>$</i>run.sh 가 감싼 것</div>
+            <div class="opwrap"><table class="optbl run">
+              <thead><tr><th>run.sh 명령</th><th>언제 쓰나</th><th>안에서 하는 systemctl</th></tr></thead>
+              <tbody>
+                <tr><td><span class="chip0">./run.sh install-services</span></td><td>처음 설치할 때, 유닛 파일을 고쳤을 때</td><td>유닛 파일을 <span class="chip0">~/.config/systemd/user/</span> 에 쓰고, <span class="chip0">daemon-reload</span> 로 다시 읽힌 뒤, <span class="chip0">enable --now</span> 로 두 서비스를 부팅 자동 시작에 등록하고 바로 켬</td></tr>
+                <tr><td><span class="chip0">./run.sh update-orca</span></td><td>Orca 새 버전으로 바꿀 때</td><td><span class="chip0">stop orca-harness</span> 로 끄고, AppImage 를 새 파일로 바꾸고, <span class="chip0">start orca-harness</span> 로 켬. 실패하면 예전 파일로 되돌림</td></tr>
+                <tr><td><span class="chip0">./run.sh prune-ghosts</span></td><td>Orca 사이드바에 Unknown 프로젝트가 쌓였을 때</td><td><span class="chip0">stop orca-harness</span> 로 끄고, 고아 프로세스와 유령 프로젝트를 정리하고, <span class="chip0">start orca-harness</span> 로 켬</td></tr>
+                <tr><td><span class="chip0">./run.sh doctor</span></td><td>하네스를 고친 뒤 점검할 때</td><td>두 서비스가 부팅 자동 시작에 등록돼 있는지, 지금 돌고 있는지 확인만 함</td></tr>
+              </tbody>
+            </table></div>
+          </div>
+          <div class="warn0"><i>!</i><span>AppImage 를 직접 실행하지 말 것. systemd 가 모르는 Orca 가 하나 더 생긴다</span></div>
+        </div>
+      </div>
+    </article>
+
+    <!-- 01: boot sequence → timeline -->
+    <article class="card" style="--c:#4aa3ff">
+      <header><span class="m"><small>01</small>CEO 세션</span><code>./run.sh ceo</code></header>
+      <div class="body">
+        <div class="flow1">
+          <div class="f-start"><code>./run.sh ceo</code></div>
+          <div class="f-line"></div>
+          <div class="f-box f-prep"><b>준비</b>
+            <ul>
+              <li>claude 설치 확인<span>→</span><code>~/.local/share/claude/</code></li>
+              <li>harnessd 실행 확인<span>→</span><code>systemctl --user is-active --quiet harnessd.service</code></li>
+            </ul>
+          </div>
+          <div class="f-line"></div>
+          <div class="f-q"><code>harness:ceo</code> 탭 실행</div>
+          <div class="f-line"></div>
+          <div class="f-grid">
+            <div class="f-box"><code>cd … &amp;&amp; claude …</code>
+              <div class="f-sub">
+                <div>cd /home/kim_3090/dev/harness-claude/claude-project/ceo &amp;&amp; exec env HARNESS_ROLE=ceo claude --dangerously-skip-permissions</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <!-- 02: the CEO makes one empty folder and nothing else -->
+    <article class="card" style="--c:#3ddc84">
+      <header><span class="m"><small>02</small>폴더 생성</span><code>/build-project &lt;name&gt; · /build-module &lt;name&gt;</code></header>
+      <div class="body">
+        <div class="steps2">
+          <div class="st"><span class="n">1</span><div class="t">이름</div>
+            <div class="d">사용자가 CEO 탭에서 이름을 준다. kebab-case 인지, <code>claude-project/</code> 와 <code>modules/</code> 양쪽에 없는지 본다. 틀리면 거부</div>
+          </div>
+          <div class="st"><span class="n">2</span><div class="t">빈 폴더<span class="tag">결과물</span></div>
+            <div class="d">폴더 하나만 만든다. 안에 아무것도 쓰지 않는다</div>
+            <div class="sub">
+              <div><b>프로젝트</b><code>claude-project/&lt;이름&gt;/</code></div>
+              <div><b>모듈</b><code>modules/&lt;이름&gt;/</code></div>
+            </div>
+          </div>
+          <div class="st"><span class="n">3</span><div class="t">안내</div>
+            <div class="d">다음 명령을 보여주고 끝난다. <code>./run.sh add-cto &lt;이름&gt;</code> → <code>attach-cto</code> → 첫 메시지 = 만들고 싶은 것</div>
+          </div>
+        </div>
+        <div class="note"><b class="no">안 함</b><span>만들고 싶은 것 듣기, brainstorming, Library Check, plan.md 작성. 전부 CTO 탭의 계획 단계(04)로 갔다. "기존 프로젝트 늘리기"는 CEO 를 거치지 않고 그 CTO 탭에서 직접</span></div>
+      </div>
+      <div class="badges"><span class="badge ok">✓ 결정론</span><span class="badge ok">✓ CEO 개입</span></div>
+      <p class="desc">커맨드의 셸 한 줄이 검사와 생성을 한다. CEO 는 그 출력을 보여줄 뿐이다.</p>
+    </article>
+
+    <!-- 03: one command fans out into files, outside items and tabs -->
+    <article class="card" style="--c:#ff9f43">
+      <header><span class="m"><small>03</small>CTO 기동</span><code>./run.sh add-cto &lt;name&gt;</code></header>
+      <div class="body">
+        <div class="fan3">
+          <div class="hub">
+            <b>./run.sh add-cto <span style="white-space:nowrap">&lt;이름&gt;</span></b>
+            <div class="chk"><h4>먼저 확인</h4>
+              <div><b>이름</b>kebab-case 인지, 폴더가 있는지 본다. 없으면 거부, 두 곳에 다 있으면 모호해서 거부, <code>ceo</code> 는 거부</div>
+              <div><b>계획 단계</b>plan.md 도 specs/tasks.md 도 없으면 새 빌드. 단 빈 폴더여야 한다. 코드가 든 폴더는 거부</div>
+              <div><b>준비</b>claude 버전, codex 설치, harnessd 실행</div>
+            </div>
+          </div>
+          <div class="br">
+            <div class="grp3"><h4>빌드 폴더 안</h4>
+              <div class="it"><b>.env</b><span class="tag dim">.env 없을 때만</span><em>포트 배정. 빈 번호를 골라 백엔드 · 프론트 포트를 쓰고 PORT.md 를 갱신한다. 카메라(plan.md 에 mediamtx)면 포트 4개를 더한다. 새 빌드는 plan 이 아직 없으니 확정 때(04)</em></div>
+              <div class="it"><b>dev.sh</b><span class="tag dim">없을 때만</span><em>표준 템플릿을 복사해 넣는다</em></div>
+              <div class="it"><b>.git</b><span class="tag dim">처음 한 번</span><em>커밋 없는 빈 저장소. Orca 가 프로젝트로 인식하려면 필요</em></div>
+              <div class="it"><b>.claude/settings.json</b><em>훅 스크립트 18개가 걸린다. 명령 · 에이전트 · 규칙 · 스킬 링크도 깐다</em></div>
+            </div>
+            <div class="grp3"><h4>폴더 밖</h4>
+              <div class="it"><b class="k">시작 마커</b><span class="tag dim">plan.md 있을 때만</span><em><code>~/.claude/logs/started/&lt;이름&gt;.started</code> — CTO 가 첫 지시를 받는 턴에 팀(planner · reviewer)이 자동으로 뜨게 하는 신호</em></div>
+              <div class="it"><b class="k">초안 마커</b><span class="tag dim">계획 단계만</span><em><code>~/.claude/logs/plan-draft/&lt;이름&gt;.draft</code> — lead 가 plan.md 를 쓸 수 있는 상태. 시작 마커는 안 심는다. 확정 때(04) 훅이 심는다</em></div>
+              <div class="it"><b class="k">Orca 프로젝트 등록</b></div>
+            </div>
+            <div class="grp3"><h4>Orca 탭 3개</h4>
+              <div class="it"><b>lead</b><em>CTO claude. role.md · RULES · PROCESS 를 읽고 시작</em></div>
+              <div class="it"><b>codex</b><em>코드를 쓰는 developer. git_guard 가 붙어 있다</em></div>
+              <div class="it"><b>designer</b><em>디자인을 맡는 claude</em></div>
+            </div>
+          </div>
+        </div>
+        <div class="note"><b>끝</b><span>작업 분해는 자동으로 시작하지 않는다. 사용자가 <span class="mono">./run.sh attach-cto &lt;이름&gt;</span> 으로 들어가 /model 과 /effort 를 고른 뒤 첫 메시지를 준다. 새 빌드면 그 메시지가 곧 만들고 싶은 것(brief)이고, "시작"만 쳐도 CTO 가 묻는다</span></div>
+      </div>
+      <div class="badges"><span class="badge ok">✓ 결정론</span><span class="badge no">✗ CEO 개입</span></div>
+      <p class="desc" style="word-break:keep-all">run.sh 가 정해진 순서대로 실행하고, 사용자가 직접 친다(CEO 는 안내만). 대시보드 CTO 버튼도 같은 명령을 부른다. 다시 실행하면 이미 있는 것(.env · dev.sh · .git)은 건너뛰고, 탭을 다시 띄우며 대화를 이어 붙인다. 계획 중(초안 마커)이면 시작 마커를 심지 않는다.</p>
+    </article>
+
+    <!-- 04: planning phase — the CTO lead writes plan.md with the user, then one approval locks it -->
+    <article class="card" style="--c:#e879f9">
+      <header><span class="m"><small>04</small>계획</span><code>harness-plan · CTO 탭</code></header>
+      <div class="body">
+        <div class="steps2">
+          <div class="st"><span class="n">1</span><div class="t">brief</div>
+            <div class="d">사용자가 CTO 탭 첫 메시지로 만들고 싶은 것을 한두 줄로 말한다</div>
+          </div>
+          <div class="st"><span class="n">2</span><div class="t">brainstorming</div>
+            <div class="d">CTO 가 사용자와 대화로 정리하고 확인받는다</div>
+            <div class="sub">
+              <div><b>축2 target</b>새로 만들기 / 기존 프로젝트 늘리기</div>
+              <div><b>축3 source</b>처음부터 / 기존 모듈 재사용 / 다른 프로젝트 기능 가져오기</div>
+            </div>
+          </div>
+          <div class="st"><span class="n">3</span><div class="t">Library Check<span class="tag">fail-closed</span></div>
+            <div class="d"><code>modules/*/specs/USAGE.md</code> 를 훑어 쓸 만한 모듈을 찾는다. "재사용" 이든 "겹치는 것 없음" 이든 반드시 하나를 적는다</div>
+          </div>
+          <div class="st opt"><span class="n">4</span><div class="t">재료 분석<span class="tag dim">있을 때만</span></div>
+            <div class="d">understand-anything 으로 가져올 기능이 어느 파일에 있는지 파악한다. 재료가 git 주소면 먼저 <code>./run.sh fetch</code></div>
+          </div>
+          <div class="st"><span class="n">5</span><div class="t">plan.md<span class="tag">결과물</span></div>
+            <div class="d">빌드 폴더 루트에 6칸을 쓴다. 목표 · 요구사항 · 제약 · 열린 질문 등. 초안 마커가 있어 lead 만 쓸 수 있다</div>
+          </div>
+          <div class="st"><span class="n">6</span><div class="t">plan-ceo-review<span class="tag">필수</span></div>
+            <div class="d">다 쓴 plan 을 CTO 가 스스로 점검한다</div>
+          </div>
+          <div class="st"><span class="n">7</span><div class="t">"plan.md 확정할까요?"<span class="tag">단독 턴</span></div>
+            <div class="d">사용자가 "응" 하면 훅이 그 턴에 셋을 한 번에 한다. plan.md 잠금 · 팀 스폰 마커 · 카메라면 mediamtx 포트 4개</div>
+          </div>
+        </div>
+        <div class="note"><b>잠금</b><span>확정 후엔 lead 도 plan.md 를 못 쓴다. 바꾸려면 "plan.md 수정할까요?" 승인 → 초안 → 다시 확정. planner · reviewer · designer 는 초안이어도 못 쓴다</span></div>
+      </div>
+      <div class="badges"><span class="badge ok">✓ 결정론</span><span class="badge no">✗ CEO 개입</span></div>
+      <p class="desc">승인 판정은 reviewer 스폰 승인과 같은 장치다. 직전 질문 + 짧은 긍정 답만 인정한다. "확정할까요?"에 "수정해"는 무효, 다른 질문에 한 "응"도 무효.</p>
+    </article>
+
+    <!-- 05: org chart with in-process boundary -->
+    <article class="card" style="--c:#2ee6d6">
+      <header><span class="m"><small>05</small>팀 스폰</span><code>확정 승인 턴 · /start-project</code></header>
+      <div class="body">
+        <div class="org">
+          <div class="q"><b>"plan.md 확정할까요?"</b>→ 응 <span class="gs">새 빌드: 확정이 곧 시작 신호</span></div>
+          <div class="q"><b>"reviewer 스폰할까요?"</b>→ 응 <span class="gs">start_project_gate 가 판정</span></div>
+          <div class="boundary">
+            <h4>lead 세션 안 (in-process teammate)</h4>
+            <div class="box lead">cto-lead<i>콕핏 rail · dispatch · TaskUpdate 대행</i></div>
+            <div class="row">
+              <div class="box">planner<i>최초 분해 1회<br><span class="no">Agent · SendMessage 차단</span></i></div>
+              <div class="box">reviewer<i>segment 판정<br><span class="no">Write · Edit 차단</span></i></div>
+            </div>
+          </div>
+          <h4>별도 Orca 탭</h4>
+          <div class="row">
+            <div class="box">designer-cto<i>phase2 디자인 · 자기 세션</i></div>
+            <div class="box">codex developer<i>코드 작성 · Claude 훅 밖</i></div>
+          </div>
+        </div>
+      </div>
+      <div class="badges"><span class="badge ok">✓ 결정론</span><span class="badge no">✗ CEO 개입</span></div>
+      <p class="desc">새 빌드는 plan.md 확정 승인이, 기존 빌드는 add-cto 가 심은 마커가 첫 턴에 팀을 띄운다. 승인 답은 훅이 판정한다. 다른 질문에 한 "응" 은 무효. teammate 완료 = tasks.md 를 Edit, TaskUpdate 는 CTO 가 대행.</p>
+    </article>
+
+    <!-- 06: nested tree + task line anatomy -->
+    <article class="card" style="--c:#ffd166">
+      <header><span class="m"><small>06</small>분해</span><code>planner → specs/</code></header>
+      <div class="body">
+        <div class="tree">
+          <div><span>plan.md</span><em>확정 · 잠김 · 3축 확인</em></div>
+          <div><span class="g">├─ </span><span>specs/spec.md</span><em>## Features F1 F2 …</em></div>
+          <div><span class="g">└─ </span><span>specs/tasks.md</span></div>
+          <div><span class="g">   └─ </span><span>## phase1 — 환경설정</span></div>
+          <div><span class="g">      └─ </span><span>### phase1.ckpt1</span></div>
+          <div><span class="g">         └─ </span><span class="k">- [ ] [role] verb | files | acceptance. Run: cmd</span></div>
+        </div>
+        <div class="anat">
+          <span><b>[role]</b><em>담당</em></span>
+          <span><b>verb</b><em>동작</em></span>
+          <span><b>files</b><em>대상</em></span>
+          <span><b>acceptance</b><em>완료 조건</em></span>
+          <span><b>Run: cmd</b><em>검증 명령</em></span>
+        </div>
+        <div class="marks"><span>[ ] 미완</span><span>[✅] 완료</span><span>[❓] 블로커</span></div>
+      </div>
+      <div class="badges"><span class="badge ok">✓ 결정론</span><span class="badge no">✗ CEO 개입</span></div>
+      <p class="desc">형식 위반 task 는 TaskCreated 훅이 자동 rollback. 재분해는 사용자 명시 시만 — planner_dispatch_gate.</p>
+    </article>
+
+    <!-- 07: cycle + phase rail -->
+    <article class="card" style="--c:#a78bfa">
+      <header><span class="m"><small>07</small>세그먼트 루프</span><code>[ ] → [✅]</code></header>
+      <div class="body">
+        <svg class="cycle" viewBox="0 0 368 150" role="img" aria-label="dispatch, 작업, reviewer 판정, 완료 마킹이 순환하고 FAIL 이면 작업으로 돌아간다">
+          <defs>
+            <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#a78bfa"/></marker>
+            <marker id="ahr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#ff5c5c"/></marker>
+          </defs>
+          <g font-family="IBM Plex Sans KR, system-ui, sans-serif" font-size="11" fill="#e9edf4">
+            <rect x="10" y="10" width="100" height="36" rx="8" fill="#0a0c11" stroke="#a78bfa"/>
+            <text x="60" y="26" text-anchor="middle" font-weight="600">cto-lead</text>
+            <text x="60" y="39" text-anchor="middle" font-size="9" fill="#8e97a9">dispatch</text>
+            <rect x="230" y="10" width="100" height="36" rx="8" fill="#0a0c11" stroke="#222836"/>
+            <text x="280" y="26" text-anchor="middle" font-weight="600">작업</text>
+            <text x="280" y="39" text-anchor="middle" font-size="9" fill="#8e97a9">codex · designer</text>
+            <rect x="230" y="104" width="100" height="36" rx="8" fill="#0a0c11" stroke="#222836"/>
+            <text x="280" y="120" text-anchor="middle" font-weight="600">reviewer 판정</text>
+            <text x="280" y="133" text-anchor="middle" font-size="9" fill="#8e97a9">segment 마다 필수</text>
+            <rect x="10" y="104" width="100" height="36" rx="8" fill="#0a0c11" stroke="#222836"/>
+            <text x="60" y="120" text-anchor="middle" font-weight="600">tasks.md [✅]</text>
+            <text x="60" y="133" text-anchor="middle" font-size="9" fill="#8e97a9">완료 정본</text>
+            <line x1="112" y1="28" x2="226" y2="28" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#ah)"/>
+            <text x="169" y="22" text-anchor="middle" font-size="9" fill="#8e97a9">task 1개</text>
+            <line x1="280" y1="48" x2="280" y2="100" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#ah)"/>
+            <line x1="228" y1="122" x2="114" y2="122" stroke="#3ddc84" stroke-width="1.5" marker-end="url(#ah)"/>
+            <text x="171" y="116" text-anchor="middle" font-size="9" fill="#3ddc84">PASS</text>
+            <line x1="60" y1="102" x2="60" y2="50" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#ah)"/>
+            <text x="60" y="80" text-anchor="middle" font-size="9" fill="#8e97a9">다음 task</text>
+            <path d="M332,104 C350,92 350,58 332,46" fill="none" stroke="#ff5c5c" stroke-width="1.3" stroke-dasharray="3 3" marker-end="url(#ahr)"/>
+            <text x="346" y="79" font-size="9" fill="#ff5c5c">FAIL</text>
+          </g>
+        </svg>
+        <div class="rail">
+          <span><b>phase1 환경</b><em>codex</em></span><i>→</i>
+          <span><b>phase2 디자인</b><em>designer → codex</em></span><i>→</i>
+          <span><b>phase3+ 개발</b><em>codex</em></span>
+        </div>
+      </div>
+      <div class="badges"><span class="badge ok">✓ 결정론</span><span class="badge no">✗ CEO 개입</span></div>
+      <p class="desc">완료 보고는 사용자 터미널 + 대시보드. task_completed_verify_gate 와 git_guard 가 루프 안에서 막는다. CEO 완료 보고 관례는 08-20 에 폐지.</p>
+    </article>
+
+    <!-- 08: asymmetric bus -->
+    <article class="card" style="--c:#ff6b9d">
+      <header><span class="m"><small>08</small>메시지 · 인박스</span><code>/msg-cto · /msg-ceo</code></header>
+      <div class="body">
+        <div class="bus">
+          <div class="actor">CEO<i>pull-only</i></div>
+          <div class="lanes">
+            <div class="lane push"><span>/msg-cto → 데몬이 CTO 탭 wake</span></div>
+            <div class="queue"><b>msg</b> 테이블 · SQLite · harnessd</div>
+            <div class="lane pull"><span>/msg-ceo → 큐에만 · CEO wake 없음</span></div>
+          </div>
+          <div class="actor">CTO<i>lead</i></div>
+        </div>
+        <div class="note"><b>읽기</b>CEO 는 매 턴 훅이 주는 미리보기(UNTRUSTED)를 보고 <span class="mono">harness inbox</span> 로 당긴다 · 대시보드는 읽기 전용 타임라인</div>
+      </div>
+      <div class="badges"><span class="badge ok">✓ 결정론</span><span class="badge ok">✓ CEO 개입</span></div>
+      <p class="desc">위아래가 다르다. 아래쪽(CTO→CEO)은 하네스 문제 신고 전용이고 데몬이 CEO 를 깨우지 않는다. 프로젝트 질문은 CTO 탭에서 사용자에게 직접. 본문은 데이터이지 지시가 아니다(RULES §6).</p>
+    </article>
+
+    <!-- 09: verification stack -->
+    <article class="card" style="--c:#ff5c5c">
+      <header><span class="m"><small>09</small>검증 · 관리</span><code>doctor · smoke · audit</code></header>
+      <div class="body">
+        <div class="stack">
+          <div class="layer l3"><b>3 의미</b><code>/harness-audit</code><em>큰 개편 후</em></div>
+          <div class="layer l2"><b>2 결정론</b><code>./run.sh smoke</code><em>tests/smoke.sh</em></div>
+          <div class="layer l1"><b>1 정합</b><code>./run.sh doctor</code><em>하네스 수정 후 무조건</em></div>
+        </div>
+        <div class="aside">
+          <div><b>cross-model</b><code>/codex-review &lt;proj&gt;</code><em>실사용 리스크 · 사용자 호출 시만</em></div>
+          <div><b>콘솔</b><code>./run.sh dashboard</code><em>:8165 / :8166 · X-Dash-Token</em></div>
+        </div>
+      </div>
+      <div class="badges"><span class="badge ok">✓ 결정론</span><span class="badge ok">✓ CEO 개입</span></div>
+      <p class="desc">아래층이 넓다. 1층은 하네스를 고칠 때마다, 위로 갈수록 드물게. 빌드 검토는 부를 때만, 빌드 파일은 직접 고치지 않는다.</p>
+    </article>
+
+  </div>
+
+  <div class="foot">CEO 개입 ✓ = 01 · 02 · 08 · 09 · 계획(04)은 2026-10-15 에 CTO 로 옮겼다 · /review-build 는 미도입</div>
+</div>
+</body>
+</html>
